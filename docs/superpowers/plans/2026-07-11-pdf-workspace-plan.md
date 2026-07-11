@@ -21,6 +21,16 @@
 - 本地 `file://` 不属于一期实现或验收；相关诊断用例保留，但不阻止一期完成。
 - 任何 Provider 凭据都不能进入页面 DOM、日志或 Prompt。
 
+### 2026-07-11 执行修正
+
+- `pdfjs-dist` 已由 Phase 0 安装，任务 1 只安装当前缺失的 `idb`、`fflate`、Markdown/KaTeX 依赖及测试所需的 `fake-indexeddb`，不得重复升级 PDF.js。
+- WXT runtime content script 必须省略 `matches`，否则构建器会生成静态 `host_permissions`。正式 PDF 工作台继续依赖用户打开 action Popup 后获得的 `activeTab` 动态注入，生产 manifest 不得新增静态 Host 权限。
+- 根据 2026-07-11 [MinerU 官方 API 文档](https://mineru.net/doc/docs/index_en/)，URL 单任务使用 `/api/v4/extract/task` 创建并通过 `/api/v4/extract/task/{task_id}` 查询；文件上传使用 `/api/v4/file-urls/batch` 创建批任务并通过 `/api/v4/extract-results/batch/{batch_id}` 查询。不得把 `batch_id` 传给单任务查询接口。
+- MinerU 任务引用使用判别联合 `{ kind: 'single' | 'batch'; id: string; dataId?: string }`。`createUrlTask()` 返回 `single`，`createUploadTask()` 返回 `batch`，`waitForResult()` 根据 kind 选择查询接口并把官方状态规范化为内部状态。
+- MinerU 官方文档明确提示部分海外 URL 可能抓取超时。公开 PDF 先尝试 URL 任务，失败时允许使用已读取字节创建上传批任务；依赖 Cookie 的 PDF 仍必须在用户明确确认第三方传输后才能上传。
+- MinerU 和 OpenAI Origin 都必须在设置页真实用户手势中申请精确可选权限；Token/API Key 不得进入 PDF 页面 DOM、内容脚本消息、错误详情或诊断报告。
+- 任务 1 至任务 3 合并为“PDF 数据基础”里程碑统一复核；任务 4 至任务 7 合并为“PDF 工作台产品”里程碑统一复核；任务 8 只做最终验收。开发循环遵守根目录 `AGENTS.md` 的定向测试与单次完整门禁规则。
+
 ---
 
 ## 文件结构
@@ -84,8 +94,8 @@ web-translate-plugin/
 
 - [ ] **步骤 1：安装 PDF 工作台依赖**
 
-运行：`npm install pdfjs-dist idb fflate react-markdown remark-math rehype-katex katex`  
-运行：`npm install -D @types/katex`  
+运行：`npm install idb fflate react-markdown remark-math rehype-katex katex`
+运行：`npm install -D @types/katex fake-indexeddb`
 预期：依赖写入 `package.json` 和锁文件，`npm run typecheck` 仍通过。
 
 - [ ] **步骤 2：先写规范化失败测试**
@@ -167,7 +177,7 @@ git commit -m "feat: normalize mineru document model"
 - 修改：`web-translate-plugin/entrypoints/options/App.tsx`
 
 **接口：**
-- 产出：`MineruClient.createUrlTask()`、`createUploadTask()`、`waitForResult()`。
+- 产出：`MineruClient.createUrlTask()`、`createUploadTask()`、`waitForResult(taskRef)`；单任务和批任务使用不同查询端点。
 - 产出：`loadMineruResult(zipUrl, metadata)`，从结果 Zip 中读取 `_content_list.json` 并生成 `DocumentModel`。
 - 产出：任务状态 `pending | running | done | failed`。
 
@@ -182,8 +192,9 @@ it('创建 URL 任务并轮询完成', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: { task_id: 't1' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ code: 0, data: { state: 'done', full_zip_url: 'https://cdn/result.zip' } }), { status: 200 }));
   const client = new MineruClient({ token: 'token', baseUrl: 'https://mineru.net' }, fetcher, async () => undefined);
-  const taskId = await client.createUrlTask('https://example.com/a.pdf');
-  await expect(client.waitForResult(taskId)).resolves.toMatchObject({ state: 'done' });
+  const task = await client.createUrlTask('https://example.com/a.pdf');
+  expect(task).toEqual({ kind: 'single', id: 't1' });
+  await expect(client.waitForResult(task)).resolves.toMatchObject({ state: 'done' });
 });
 ```
 
@@ -197,12 +208,13 @@ it('创建 URL 任务并轮询完成', async () => {
 ```ts
 // src/providers/mineru/contracts.ts
 export interface MineruSettings { baseUrl: string; token: string; modelVersion: 'vlm' | 'pipeline' }
+export interface MineruTaskRef { kind: 'single' | 'batch'; id: string; dataId?: string }
 export interface MineruTaskResult { state: 'pending' | 'running' | 'done' | 'failed'; fullZipUrl?: string; error?: string }
 ```
 
 ```ts
 // src/providers/mineru/client.ts
-import type { MineruSettings, MineruTaskResult } from './contracts';
+import type { MineruSettings, MineruTaskRef, MineruTaskResult } from './contracts';
 
 export class MineruClient {
   constructor(private readonly settings: MineruSettings, private readonly fetcher: typeof fetch = fetch, private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))) {}
@@ -212,10 +224,11 @@ export class MineruClient {
     if (!response.ok) throw new Error(`MINERU_HTTP_${response.status}`);
     const body = await response.json();
     if (body.code !== 0 || !body.data?.task_id) throw new Error(`MINERU_CREATE_${body.code}`);
-    return body.data.task_id as string;
+    return { kind: 'single', id: body.data.task_id as string } satisfies MineruTaskRef;
   }
   async createUploadTask(fileName: string, bytes: ArrayBuffer) {
-    const init = await this.fetcher(`${this.settings.baseUrl}/api/v4/file-urls/batch`, { method: 'POST', headers: this.headers(), body: JSON.stringify({ files: [{ name: fileName, data_id: crypto.randomUUID() }], model_version: this.settings.modelVersion }) });
+    const dataId = crypto.randomUUID();
+    const init = await this.fetcher(`${this.settings.baseUrl}/api/v4/file-urls/batch`, { method: 'POST', headers: this.headers(), body: JSON.stringify({ files: [{ name: fileName, data_id: dataId }], model_version: this.settings.modelVersion }) });
     if (!init.ok) throw new Error(`MINERU_UPLOAD_INIT_${init.status}`);
     const body = await init.json();
     const uploadUrl = body.data?.file_urls?.[0];
@@ -223,12 +236,13 @@ export class MineruClient {
     if (!uploadUrl || !batchId) throw new Error('MINERU_UPLOAD_URL_MISSING');
     const uploaded = await this.fetcher(uploadUrl, { method: 'PUT', body: bytes });
     if (!uploaded.ok) throw new Error(`MINERU_UPLOAD_${uploaded.status}`);
-    return batchId as string;
+    return { kind: 'batch', id: batchId as string, dataId } satisfies MineruTaskRef;
   }
-  async waitForResult(taskId: string, signal?: AbortSignal): Promise<MineruTaskResult> {
+  async waitForResult(task: MineruTaskRef, signal?: AbortSignal): Promise<MineruTaskResult> {
     for (let attempt = 0; attempt < 120; attempt++) {
       signal?.throwIfAborted();
-      const response = await this.fetcher(`${this.settings.baseUrl}/api/v4/extract/task/${taskId}`, { headers: this.headers(), signal });
+      const path = task.kind === 'single' ? `/api/v4/extract/task/${task.id}` : `/api/v4/extract-results/batch/${task.id}`;
+      const response = await this.fetcher(`${this.settings.baseUrl}${path}`, { headers: this.headers(), signal });
       if (!response.ok) throw new Error(`MINERU_POLL_${response.status}`);
       const body = await response.json();
       const state = body.data?.state as string;
@@ -348,7 +362,7 @@ export const dbPromise = openDB('web-translate', 1, {
 import type { DocumentModel } from '../document/model';
 import { dbPromise } from './db';
 interface TranslationKey { hash: string; page: number; source: string; target: string; provider: string; model: string; schema: number }
-export interface StoredTask { id: string; type: 'mineru'; status: 'parsing' | 'done' | 'failed'; sourceUrl: string; hash: string; title: string; pageCount: number }
+export interface StoredTask { id: string; type: 'mineru'; providerTask: MineruTaskRef; status: 'parsing' | 'done' | 'failed'; sourceUrl: string; hash: string; title: string; pageCount: number }
 export const translationCacheKey = (key: TranslationKey) => [key.hash, key.page, key.source, key.target, key.provider, key.model, key.schema].join('|');
 export const documentRepository = {
   async get(id: string) { return (await dbPromise).get('documents', id) as Promise<DocumentModel | undefined>; },
@@ -538,7 +552,7 @@ import { createRoot } from 'react-dom/client';
 import { PdfWorkspace } from '../../src/pdf/PdfWorkspace';
 
 export default defineContentScript({
-  matches: ['http://*/*', 'https://*/*'], registration: 'runtime', runAt: 'document_start',
+  registration: 'runtime', runAt: 'document_start',
   async main() {
     const originalUrl = location.href;
     document.documentElement.innerHTML = '<head><title>PDF 翻译</title></head><body><div id="web-translate-pdf-root"></div></body>';
@@ -847,7 +861,7 @@ export function lifecycleReducer(state: LifecycleState, action: LifecycleAction)
 
 - [ ] **步骤 2：实现持久任务恢复**
 
-Service Worker 启动时读取 `tasks` 中状态为 `parsing` 的任务，调用 `waitForResult(taskId)`；完成后写入 `DocumentModel`，失败时保存结构化错误码。恢复逻辑必须按 `taskId` 去重。
+Service Worker 启动时读取 `tasks` 中状态为 `parsing` 的任务，调用 `waitForResult(task.providerTask)`；完成后写入 `DocumentModel`，失败时保存结构化错误码。恢复逻辑必须按内部任务 `id` 去重。
 
 ```ts
 const activeTasks = await taskRepository.listByStatus('parsing');
@@ -856,7 +870,7 @@ async function resumeMineruTask(task: StoredTask) {
   if (resuming.has(task.id)) return;
   resuming.add(task.id);
   try {
-    const result = await mineruClient.waitForResult(task.id);
+    const result = await mineruClient.waitForResult(task.providerTask);
     if (result.state !== 'done' || !result.fullZipUrl) throw new Error(result.error ?? 'MINERU_RESULT_MISSING');
     const model = await loadMineruResult(result.fullZipUrl, { sourceUrl: task.sourceUrl, hash: task.hash, title: task.title, pageCount: task.pageCount });
     await documentRepository.put(model);
