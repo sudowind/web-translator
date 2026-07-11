@@ -1,0 +1,22 @@
+[data-web-translate-original] {
+  position: relative;
+}
+
+[data-web-translate-original]:hover::after,
+[data-web-translate-original]:focus-within::after {
+  position: absolute;
+  z-index: 2147483647;
+  top: calc(100% + 4px);
+  left: 0;
+  max-width: min(36rem, 80vw);
+  padding: 8px 12px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f8fafc;
+  content: attr(data-web-translate-original);
+  font: 14px/1.5 system-ui, sans-serif;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  white-space: normal;
+}

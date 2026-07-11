@@ -14,6 +14,8 @@ describe('普通网页资格判断', () => {
     'https://example.com/payments/history',
     'https://example.com/billingportal',
     'https://example.com/administration/users',
+    'https://example.com/manual.pdf?download=1',
+    'https://arxiv.org/pdf/2401.00001#page=2',
   ])('拒绝不适合翻译的地址 %s', (url) => {
     expect(isEligiblePage(new URL(url), document)).toBe(false);
   });

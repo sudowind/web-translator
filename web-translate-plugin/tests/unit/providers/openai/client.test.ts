@@ -140,4 +140,38 @@ describe('OpenAI 兼容翻译客户端', () => {
     ).rejects.toThrow('翻译请求包含重复 id: duplicate');
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  it('调用原生 fetcher 时不绑定客户端实例为 this', async () => {
+    let receivedThis: unknown = 'not-called';
+    const fetcher = function (this: unknown) {
+      receivedThis = this;
+      if (this !== undefined) throw new TypeError('Illegal invocation');
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    translations: [{ id: 'b1', text: '你好' }],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    } as typeof fetch;
+    const client = new OpenAiTranslationClient(settings, fetcher);
+
+    await expect(
+      client.translate({
+        blocks: [{ id: 'b1', text: 'Hello' }],
+        sourceLanguage: 'en',
+        targetLanguage: 'zh-CN',
+      }),
+    ).resolves.toEqual([{ id: 'b1', text: '你好' }]);
+    expect(receivedThis).toBeUndefined();
+  });
 });

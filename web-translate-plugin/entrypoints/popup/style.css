@@ -1,0 +1,26 @@
+:root {
+  color: #172033;
+  background: #f7f9fc;
+  font: 14px/1.5 system-ui, sans-serif;
+}
+
+body { margin: 0; min-width: 340px; }
+main { display: grid; gap: 16px; padding: 16px; }
+section { padding: 16px; border: 1px solid #d9e0eb; border-radius: 12px; background: #fff; }
+h1, h2, p { margin-top: 0; }
+h1, h2 { margin-bottom: 8px; color: #101828; font-size: 18px; }
+.eyebrow { margin-bottom: 4px; color: #475467; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.description, .status { color: #475467; }
+button { min-width: 44px; min-height: 44px; padding: 10px 16px; border: 1px solid #98a2b3; border-radius: 8px; background: #fff; color: #172033; font: inherit; font-weight: 650; cursor: pointer; transition: opacity 180ms ease, transform 180ms ease; }
+button:hover:not(:disabled) { transform: translateY(-1px); }
+button:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.primary { width: 100%; border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
+.text-button { padding-inline: 0; border-color: transparent; color: #1d4ed8; background: transparent; }
+.status { min-height: 42px; margin: 12px 0 0; }
+.probe { border-style: dashed; }
+pre { max-height: 160px; margin-bottom: 0; padding: 8px; overflow: auto; border-radius: 8px; background: #f2f4f7; font-size: 12px; white-space: pre-wrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+}

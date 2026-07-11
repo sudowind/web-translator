@@ -32,7 +32,8 @@ export class OpenAiTranslationClient {
     }
 
     const { sourceLanguage, targetLanguage } = request;
-    const response = await this.fetcher(
+    const fetcher = this.fetcher;
+    const response = await fetcher(
       `${baseUrl.replace(/\/+$/, '')}/chat/completions`,
       {
         method: 'POST',

@@ -12,6 +12,9 @@ export function isEligiblePage(url: URL, document: Document): boolean {
   } catch {
     return false;
   }
+  if (/\.pdf$/i.test(pathname) || /(?:^|\/)pdf(?:\/|$)/i.test(pathname)) {
+    return false;
+  }
   const locationText = `${url.hostname}${pathname}`;
   if (SENSITIVE_PATH.test(locationText)) {
     return false;

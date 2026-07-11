@@ -8,6 +8,12 @@ export class TranslationController {
     this.blocksById = new Map(blocks.map((block) => [block.id, block]));
   }
 
+  add(blocks: readonly TextBlock[]): void {
+    for (const block of blocks) {
+      if (!this.blocksById.has(block.id)) this.blocksById.set(block.id, block);
+    }
+  }
+
   apply(results: readonly AppliedTranslation[]): void {
     for (const result of results) {
       const block = this.blocksById.get(result.id);
@@ -15,6 +21,11 @@ export class TranslationController {
         continue;
       }
       block.node.data = result.text;
+      block.node.parentElement?.setAttribute(
+        'data-web-translate-original',
+        block.original,
+      );
+      block.node.parentElement?.setAttribute('data-web-translate-id', block.id);
       this.appliedIds.add(result.id);
     }
   }
@@ -29,6 +40,8 @@ export class TranslationController {
       const block = this.blocksById.get(id);
       if (block?.node.isConnected) {
         block.node.data = block.original;
+        block.node.parentElement?.removeAttribute('data-web-translate-original');
+        block.node.parentElement?.removeAttribute('data-web-translate-id');
         this.appliedIds.delete(id);
       }
     }

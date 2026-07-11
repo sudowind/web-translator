@@ -11,9 +11,16 @@ import {
   saveProbeResult,
 } from '../src/pdf-takeover/report-store';
 import { restoreProbeSurface } from '../src/pdf-takeover/takeover-dom';
+import { getSettings } from '../src/settings/store';
+import {
+  isSettingsTestProviderMessage,
+  testProviderConnection,
+} from '../src/settings/test-provider';
+import { WebpageTranslationService } from '../src/webpage/translation-service';
 
 export default defineBackground(() => {
   console.info('PDF takeover probe ready');
+  const webpageTranslation = new WebpageTranslationService(getSettings);
 
   async function getActiveTab() {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -94,6 +101,30 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener((message: unknown, _, sendResponse) => {
+    if (isSettingsTestProviderMessage(message)) {
+      void testProviderConnection(message.settings).then(
+        (value) => sendResponse({ ok: true, value }),
+        (error: unknown) =>
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      );
+      return true;
+    }
+
+    if (isWebpageTranslationCandidate(message)) {
+      void webpageTranslation.handle(message, _).then(
+        (value) => sendResponse({ ok: true, value }),
+        (error: unknown) =>
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      );
+      return true;
+    }
+
     if (!isPdfProbeMessage(message)) return undefined;
 
     void handleProbeMessage(message).then(
@@ -108,3 +139,12 @@ export default defineBackground(() => {
     return true;
   });
 });
+
+function isWebpageTranslationCandidate(message: unknown): boolean {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'type' in message &&
+    (message.type === 'translation:blocks' || message.type === 'translation:cancel')
+  );
+}

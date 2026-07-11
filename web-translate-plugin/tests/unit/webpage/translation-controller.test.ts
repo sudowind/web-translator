@@ -57,6 +57,25 @@ describe('原位翻译控制器', () => {
     expect(() => controller.restore()).not.toThrow();
   });
 
+  it('可追加动态文本并清理自身原文属性', () => {
+    document.body.innerHTML = '<main><p>Initial English</p></main>';
+    const initial = scanTextNodes(document.body);
+    const controller = new TranslationController(initial);
+    const dynamic = document.createElement('p');
+    dynamic.textContent = 'Dynamic English';
+    document.querySelector('main')!.append(dynamic);
+    const added = scanTextNodes(dynamic);
+
+    controller.add(added);
+    controller.apply([{ id: added[0].id, text: '动态译文' }]);
+    expect(dynamic.dataset.webTranslateOriginal).toBe('Dynamic English');
+
+    controller.restore();
+    expect(dynamic.textContent).toBe('Dynamic English');
+    expect(dynamic.hasAttribute('data-web-translate-original')).toBe(false);
+    expect(dynamic.hasAttribute('data-web-translate-id')).toBe(false);
+  });
+
   it('断开时保留恢复资格并在重连后的再次 restore 恢复原文', () => {
     document.body.innerHTML = '<p>Reconnect English</p>';
     const block = scanTextNodes(document.body)[0];
