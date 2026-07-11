@@ -2,11 +2,11 @@
 
 ## 结论
 
-`待真实 Chrome 验收（一期 HTTP/HTTPS）`
+`GO（一期 HTTP/HTTPS PDF 范围）`
 
-真实 PDF.js 首页渲染、`rendererVerified`、URL 不变、字节读取、恢复以及刷新/历史/复制标签/新标签语义，已经在明确隔离授权的 Chromium 技术矩阵中通过。但当前 Playwright 无法操作 Chrome 原生 optional-host 权限提示，也无法取得 `chrome.action.openPopup()` 创建的真实 action Popup target，因此尚未自动验证生产构建通过真实 Popup 获得 `activeTab` 后的完整路径。
+更新后的真实 PDF.js 构建已经在 Chrome 149.0.7827.201 中通过真实扩展 action Popup 获得 `activeTab`，并在 arXiv 样本上返回 `rendererVerified=true`、`bytesReadable=true`、`restored=true`、`passed=true`。`originalUrl`、`finalUrl` 与地址栏 URL 逐字一致。
 
-在更新后的真实 PDF.js 构建完成实机复核前，不得把一期结论写成 `GO`。本地 `file://` 仍属于后续迭代，不是一期产品范围。
+结合授权后 Chromium 技术矩阵已通过的重定向、Cookie、刷新、历史、复制标签和新标签语义，一期 HTTP/HTTPS PDF 接管探针达到 `GO` 门槛。本地 `file://` 仍属于后续迭代，不是一期产品范围，也不得据此宣称本地 PDF 已支持。
 
 ## 验收环境
 
@@ -16,7 +16,8 @@
 - Playwright：`1.61.1`
 - PDF.js：`pdfjs-dist 6.1.200`
 - 插件源基线提交：`40e7b0f`
-- 本结果提交：Git `HEAD`，提交信息 `fix: require verified pdfjs takeover for phase one go`
+- PDF.js 验收强化提交：`4cfcd92`，提交信息 `fix: require verified pdfjs takeover for phase one go`
+- 本结果更新：Git `HEAD`
 - 构建目录：`web-translate-plugin/.output/chrome-mv3`
 
 ## 已实现的验收强化
@@ -39,7 +40,7 @@
 | 后续诊断 | file:// | 是 | 是 | 是 | 是 | 是 | 通过 |
 | 一期技术证据 | 刷新、back/forward、duplicate、新标签重开 | 是 | 是 | 是 | 是 | 是 | 通过 |
 
-命令：`npm run test:e2e:authorized`。最终结果：`5 passed (26.0s)`。
+命令：`npm run test:e2e:authorized`。记录真实 Chrome 结果后复跑：`5 passed (24.5s)`。
 
 浏览器语义场景在同一 HTTP fixture 上依次验证：初次启用、刷新后重新启用、历史后退回 PDF 后重新启用、前进到中间页再后退、`chrome.tabs.duplicate` 复制标签后启用、同 URL 新标签打开后启用；每次都验证恢复和原 URL 逐字不变。
 
@@ -53,13 +54,31 @@
 
 随后从扩展测试页的真实点击调用 `chrome.action.openPopup()`，保持 PDF 标签在前台，以验证 Chrome 打开 action Popup 时授予的 `activeTab`。`browserContext.waitForEvent('page')` 在 5 秒后超时，说明 Playwright 没有暴露实际 action Popup target，无法继续点击其中的“运行探针”按钮。
 
-因此生产 activeTab 路径当前是“自动化工具不可见”，不是“已通过”。没有继续通过静态提升生产权限或弱化断言来改写结果。
+因此 Playwright 仍不能自动操作生产 action Popup。没有通过静态提升生产权限或弱化断言来冒充该路径；生产 `activeTab` 的最终证据来自下节记录的真实 Chrome 操作。
 
-## 既有真实 Chrome 证据的适用范围
+## 真实 Chrome 验收
+
+### 更新构建：真实 PDF.js / activeTab
+
+- Chrome：`149.0.7827.201 (正式版本) （64 位） (cohort: Stable)`
+- measuredAt：`2026-07-11T09:28:53.232Z`
+- tabId：`253795698`
+- originalUrl：`https://arxiv.org/pdf/2401.00001#page=2`
+- finalUrl：`https://arxiv.org/pdf/2401.00001#page=2`
+- kind：`arxiv`
+- injected：`true`
+- rendererVerified：`true`
+- bytesReadable：`true`
+- restored：`true`
+- passed：`true`
+
+该结果来自用户在前台 arXiv PDF 标签页中打开真实扩展 action Popup 并点击“运行探针”，因此补齐了 Playwright 无法覆盖的生产 `activeTab` 授权链路。PDF.js 渲染、读取、恢复和 URL 不变均在同一次实机结果中得到验证。
+
+### 旧构建证据边界
 
 旧构建在真实 Chrome arXiv 上返回：原 URL 与最终 URL 都是 `https://arxiv.org/pdf/2401.00001#page=2`，`injected`、`bytesReadable`、`restored`、`passed` 均为 `true`。但旧构建只挂载 `data-renderer="pdfjs-probe"` marker，没有真实 PDF.js canvas，也没有 `rendererVerified` 字段。
 
-所以旧 arXiv 结果只能证明旧 marker 接管、字节和恢复路径，不能证明更新后的真实 PDF.js/activeTab 生产路径。更新构建必须在真实 Chrome 重新复核。
+旧 arXiv 结果只能证明旧 marker 接管、字节和恢复路径；本次 GO 结论不使用旧 marker 充当真实 PDF.js 证据。
 
 旧本地 fixture 仍显示 `运行探针失败：Failed to fetch`。本地没有被写成已支持；授权后 file 自动化仅作为未来能力诊断。
 
@@ -73,16 +92,13 @@
 - 生产 manifest：无 `host_permissions`；`optional_host_permissions` 为 HTTP、HTTPS 和 file 模式
 - fixture：以 `%PDF-` 开头，包含 `PDF takeover probe fixture`，流长度和 xref 偏移一致
 
-## 转为一期 GO 的剩余验收
+## GO 决策依据
 
-在真实 Chrome 149.0.7827.201 或更新稳定版中加载本次构建，至少完成：
-
-1. 前台打开 arXiv PDF，通过真实扩展 action Popup 点击“运行探针”。
-2. 确认结果包含 `rendererVerified=true`、`bytesReadable=true`、`restored=true`、`passed=true`。
-3. 确认 `originalUrl`、`finalUrl` 与地址栏 URL 逐字一致。
-4. 对一个 HTTP fixture 复核刷新、后退/前进、复制标签和新标签打开后的重新启用与恢复。
-
-任一项未通过时不能给出一期 `GO`。
+1. 真实 Chrome 的生产 action Popup / `activeTab` 路径已在更新构建上通过。
+2. 同一次实机结果验证了真实 PDF.js、字节读取、恢复和原 URL 逐字不变。
+3. 授权后技术矩阵验证了重定向、Cookie、刷新、后退/前进、复制标签和新标签重新启用等与授权 UI 无关的浏览器语义。
+4. 生产 manifest 没有静态 `host_permissions`，自动化授权边界已明确披露。
+5. 本地 `file://` 由用户明确移至后续迭代，不计入一期门槛。
 
 ## 后续本地文件动作
 

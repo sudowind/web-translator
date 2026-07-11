@@ -6,7 +6,7 @@
 
 ## 结果状态
 
-`待真实 Chrome 验收（一期 HTTP/HTTPS）`
+`GO（一期 HTTP/HTTPS PDF 范围）`
 
 ## 提交
 
@@ -26,23 +26,24 @@
 ## 验证证据
 
 - 最终 Vitest：7 个测试文件、37 个测试通过。
-- 授权后技术矩阵：`5 passed (26.0s)`。
+- 授权后技术矩阵在记录真实 Chrome 结果后复跑：`5 passed (24.5s)`。
 - `npm run check`：TypeScript、7 个测试文件/37 个测试、WXT build 通过。
 - PDF.js bundle：`.output/chrome-mv3/content-scripts/pdf-probe-renderer.js`。
 - 生产 manifest：没有 `host_permissions`，只保留 optional HTTP/HTTPS/file。
+- 真实 Chrome 149.0.7827.201：更新构建在 arXiv 上通过真实 action Popup / `activeTab`，结果包含 `rendererVerified=true`、`bytesReadable=true`、`restored=true`、`passed=true`，URL 逐字不变。
 
 ## 自动化限制
 
 - Popup 按钮中的 `chrome.permissions.request` 原生提示 30 秒不返回，Playwright 无法接受该浏览器 UI；该方案已移除。
 - 通过真实点击调用 `chrome.action.openPopup()` 后，Playwright 5 秒内没有得到 popup `page` target，无法点击实际 action Popup。
-- 因此 activeTab 生产路径尚未自动验收；授权后临时矩阵不冒充生产权限 gate。
+- 因此 activeTab 生产路径不能由当前 Playwright 自动验收；授权后临时矩阵不冒充生产权限 gate。最终生产路径由用户在真实 Chrome 中完成验收。
 
 ## 真实 Chrome 证据边界
 
-旧 arXiv PASS 来自 marker 构建，没有真实 PDF.js 或 `rendererVerified`，不能作为本次构建 GO 证据。旧本地 `Failed to fetch` 继续保留，本地仍属于后续迭代。
+旧 arXiv PASS 来自 marker 构建，没有真实 PDF.js 或 `rendererVerified`，不作为本次构建 GO 证据。本次 GO 使用 measuredAt 为 `2026-07-11T09:28:53.232Z` 的更新构建结果。旧本地 `Failed to fetch` 继续保留，本地仍属于后续迭代。
 
 ## 自查
 
 - `.npm-cache/` 不提交。
 - 未实现产品 PDF 工作台、MinerU 或翻译功能。
-- 文档没有把未自动化或旧 marker 结果写成更新构建已通过。
+- 文档没有把授权后自动化或旧 marker 结果冒充生产 `activeTab` 证据；真实 Chrome 结果单独记录。
