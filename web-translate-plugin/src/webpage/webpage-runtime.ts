@@ -102,9 +102,10 @@ export class WebpageTranslationRuntime {
     if (!session.active || this.session !== session) return;
     const blocks = roots.flatMap((root) => scanTextNodes(root));
     if (blocks.length === 0) return;
-    session.controller.add(blocks);
-    session.count += blocks.length;
-    await this.translateBlocks(session, blocks);
+    const added = session.controller.add(blocks);
+    if (added.length === 0) return;
+    session.count += added.length;
+    await this.translateBlocks(session, added);
   }
 
   private async translateBlocks(

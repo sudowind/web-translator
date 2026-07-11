@@ -29,7 +29,10 @@ export class MutationTranslationController {
   }
 }
 
-function isTranslatableRoot(node: Node): node is Element {
+function isTranslatableRoot(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return !node.parentElement?.closest('[data-web-translate-ui]');
+  }
   return (
     node.nodeType === Node.ELEMENT_NODE &&
     !(node as Element).closest('[data-web-translate-ui]')

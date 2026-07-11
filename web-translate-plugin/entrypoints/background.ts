@@ -13,8 +13,9 @@ import {
 import { restoreProbeSurface } from '../src/pdf-takeover/takeover-dom';
 import { getSettings } from '../src/settings/store';
 import {
-  isSettingsTestProviderMessage,
-  testProviderConnection,
+  dispatchSettingsTestProvider,
+  isSettingsTestProviderCandidate,
+  normalizeExtensionPageUrl,
 } from '../src/settings/test-provider';
 import { WebpageTranslationService } from '../src/webpage/translation-service';
 
@@ -101,15 +102,12 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener((message: unknown, _, sendResponse) => {
-    if (isSettingsTestProviderMessage(message)) {
-      void testProviderConnection(message.settings).then(
-        (value) => sendResponse({ ok: true, value }),
-        (error: unknown) =>
-          sendResponse({
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          }),
-      );
+    if (isSettingsTestProviderCandidate(message)) {
+      void dispatchSettingsTestProvider(
+        message,
+        _,
+        normalizeExtensionPageUrl(browser.runtime.getURL('/options.html')),
+      ).then(sendResponse);
       return true;
     }
 

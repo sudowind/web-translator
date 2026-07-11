@@ -31,7 +31,8 @@ export function scanTextNodes(root: Node): TextBlock[] {
   }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const blocks: TextBlock[] = [];
-  let current = walker.nextNode();
+  let current: Node | null =
+    root.nodeType === Node.TEXT_NODE ? root : walker.nextNode();
 
   while (current) {
     const node = current as Text;
@@ -46,7 +47,7 @@ export function scanTextNodes(root: Node): TextBlock[] {
       }
       blocks.push({ ...metadata, node });
     }
-    current = walker.nextNode();
+    current = root.nodeType === Node.TEXT_NODE ? null : walker.nextNode();
   }
 
   return blocks;

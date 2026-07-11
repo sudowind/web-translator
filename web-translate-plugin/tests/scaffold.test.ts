@@ -37,6 +37,8 @@ describe('Chrome 扩展探针骨架', () => {
     expect(background).toContain('browser.scripting.executeScript');
     expect(background).toContain('catch (error)');
     expect(background).toContain('await restore(tab.id)');
+    expect(background).toContain('normalizeExtensionPageUrl');
+    expect(background).toContain("browser.runtime.getURL('/options.html')");
   });
 
   it('以 zh-CN 页面展示探针标题、操作按钮与全部状态文案', async () => {

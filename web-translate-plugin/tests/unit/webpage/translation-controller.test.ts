@@ -66,7 +66,8 @@ describe('原位翻译控制器', () => {
     document.querySelector('main')!.append(dynamic);
     const added = scanTextNodes(dynamic);
 
-    controller.add(added);
+    expect(controller.add(added)).toEqual(added);
+    expect(controller.add(added)).toEqual([]);
     controller.apply([{ id: added[0].id, text: '动态译文' }]);
     expect(dynamic.dataset.webTranslateOriginal).toBe('Dynamic English');
 
@@ -74,6 +75,31 @@ describe('原位翻译控制器', () => {
     expect(dynamic.textContent).toBe('Dynamic English');
     expect(dynamic.hasAttribute('data-web-translate-original')).toBe(false);
     expect(dynamic.hasAttribute('data-web-translate-id')).toBe(false);
+  });
+
+  it('同一父元素多个直接 Text block 的 tooltip 展示完整原文', () => {
+    document.body.innerHTML = '<p id="mixed">Hello <strong>middle</strong> world</p>';
+    const parent = document.querySelector('#mixed')!;
+    const directBlocks = scanTextNodes(parent).filter(
+      ({ node }) => node.parentElement === parent,
+    );
+    const controller = new TranslationController(directBlocks);
+
+    controller.apply([
+      { id: directBlocks[0].id, text: '你好 ' },
+      { id: directBlocks[1].id, text: ' 世界' },
+    ]);
+
+    expect(parent.getAttribute('data-web-translate-original')).toBe(
+      'Hello middle world',
+    );
+    expect(parent.hasAttribute('tabindex')).toBe(false);
+    expect([...parent.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE)).toHaveLength(2);
+
+    controller.restore();
+    expect(parent.textContent).toBe('Hello middle world');
+    expect(parent.hasAttribute('data-web-translate-original')).toBe(false);
+    expect(parent.hasAttribute('data-web-translate-id')).toBe(false);
   });
 
   it('断开时保留恢复资格并在重连后的再次 restore 恢复原文', () => {

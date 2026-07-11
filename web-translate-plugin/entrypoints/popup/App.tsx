@@ -5,7 +5,10 @@ import type {
   PdfProbeMessage,
   PdfProbeResponse,
 } from '../../src/pdf-takeover/messages';
-import { sendWebpageCommand } from '../../src/webpage/popup-client';
+import {
+  sendWebpageCommand,
+  webpagePopupErrorText,
+} from '../../src/webpage/popup-client';
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -77,7 +80,7 @@ export default function App() {
             : '已关闭并恢复页面原文',
       );
     } catch (error) {
-      setWebpageFeedback(`操作失败：${errorText(error)}。请检查 Provider 设置后重试`);
+      setWebpageFeedback(webpagePopupErrorText(error));
     } finally {
       setWebpageBusy(false);
     }

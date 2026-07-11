@@ -50,6 +50,38 @@ describe('WebpageTranslationRuntime', () => {
     await runtime.disable();
   });
 
+  it('翻译动态新增的直接 Text 并在移动已处理 Element 时不重复请求或计数', async () => {
+    document.body.innerHTML = '<main><p id="moving">Initial English</p><section id="target"></section></main>';
+    const translationMessages: unknown[] = [];
+    const sendMessage = vi.fn(async (message: unknown) => {
+      if ((message as { type: string }).type === 'translation:cancel') {
+        return { canceled: true };
+      }
+      translationMessages.push(message);
+      const blocks = (message as { blocks: Array<{ id: string }> }).blocks;
+      return blocks.map(({ id }) => ({ id, text: `Translated English ${id}` }));
+    });
+    const runtime = new WebpageTranslationRuntime({
+      document,
+      url: new URL('https://article.example.test/story'),
+      sendMessage,
+      createSessionId: () => 'session-direct-text',
+    });
+    await runtime.enable();
+
+    const directText = document.createTextNode('Direct dynamic English');
+    document.querySelector('main')!.append(directText);
+    await vi.waitFor(() => expect(directText.data).toMatch(/^Translated English/));
+    expect(runtime.status()).toEqual({ enabled: true, count: 2 });
+    expect(translationMessages).toHaveLength(2);
+
+    document.querySelector('#target')!.append(document.querySelector('#moving')!);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(runtime.status()).toEqual({ enabled: true, count: 2 });
+    expect(translationMessages).toHaveLength(2);
+    await runtime.disable();
+  });
+
   it('关闭会发出取消、忽略迟到结果并恢复原文', async () => {
     document.body.innerHTML = '<button id="action">Submit action</button>';
     let resolveTranslation!: (value: TranslationResult[]) => void;

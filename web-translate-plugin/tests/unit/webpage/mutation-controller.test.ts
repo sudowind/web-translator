@@ -40,4 +40,18 @@ describe('MutationTranslationController', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onRoots).not.toHaveBeenCalled();
   });
+
+  it('上报直接新增的 Text 节点', async () => {
+    document.body.innerHTML = '<main></main>';
+    const onRoots = vi.fn();
+    const controller = new MutationTranslationController(document.body, onRoots);
+    controller.start();
+
+    const text = document.createTextNode('Direct dynamic English');
+    document.querySelector('main')!.append(text);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onRoots).toHaveBeenCalledWith([text]);
+    controller.stop();
+  });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { sendWebpageCommand } from '../../../src/webpage/popup-client';
+import {
+  sendWebpageCommand,
+  webpagePopupErrorText,
+} from '../../../src/webpage/popup-client';
 
 describe('sendWebpageCommand', () => {
   it('启用时以 activeTab 注入固定 runtime bundle 后发送消息', async () => {
@@ -46,5 +49,31 @@ describe('sendWebpageCommand', () => {
       reason: 'PAGE_NOT_ELIGIBLE',
     });
     expect(executeScript).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'Cannot access a chrome:// URL',
+    'The extensions gallery cannot be scripted',
+    'Cannot access contents of url "https://chromewebstore.google.com/"',
+  ])('受限页面注入错误映射为当前页面不支持：%s', async (message) => {
+    const api = {
+      tabs: {
+        query: vi.fn().mockResolvedValue([{ id: 17 }]),
+        sendMessage: vi.fn(),
+      },
+      scripting: {
+        executeScript: vi.fn().mockRejectedValue(new Error(message)),
+      },
+    };
+
+    await expect(sendWebpageCommand('webpage:enable', api)).rejects.toThrow(
+      '当前页面不支持网页翻译',
+    );
+    expect(
+      webpagePopupErrorText(new Error('当前页面不支持网页翻译')),
+    ).toBe('当前页面不支持网页翻译');
+    expect(
+      webpagePopupErrorText(new Error('Provider unavailable')),
+    ).toContain('请检查 Provider 设置后重试');
   });
 });

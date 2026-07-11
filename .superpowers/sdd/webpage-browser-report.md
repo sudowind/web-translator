@@ -13,7 +13,7 @@
 - 仅修改 `Text.data`，不替换按钮、链接、表单或父元素；E2E 已验证按钮事件在翻译与恢复前后保留。
 - `.pdf` 和 `/pdf/` URL（包括 arXiv 形式）、敏感路径及密码页面返回结构化不可启用状态，继续保留 PDF 专用路径。
 - 设置页在保存或测试按钮的真实用户手势调用栈中，先校验 HTTPS 设置，再请求精确 `scheme://host/*` Origin；权限拒绝时不保存。API Key 使用密码输入框，代码未记录凭据。
-- Popup 与设置页使用可见标签、至少 44×44px 交互区、清晰焦点、语义禁用态、字段近旁错误、`aria-live` 反馈、300ms 延迟进度和 `prefers-reduced-motion`。
+- Popup 与设置页使用可见标签、至少 44×44px 交互区、清晰焦点、语义禁用态、`aria-live` 反馈和 `prefers-reduced-motion`；字段近旁错误与 300ms 延迟进度由设置页提供。
 
 ## TDD 与验证证据
 
@@ -38,3 +38,13 @@
 ## 关注点
 
 - 浏览器权限弹窗本身未由 Playwright 自动操作；这是上述授权后 E2E 的明确边界，需要人工验收真实安装包中的首次 Origin 授权提示。
+
+## 单次代码审查修复波次
+
+- 动态 `addedNodes` 现在同时接受 Element 与直接 Text；`scanTextNodes(Text)` 会包含 root 本身。
+- `TranslationController.add()` 返回真正首次注册的 blocks，runtime 只对该集合增加计数和发起请求。移动或重新插入已经处理的 Element/Text 会复用稳定 id，不再重复翻译。
+- tooltip 改为 per-parent 原文模型：遍历父元素的 Text 节点，已注册节点使用稳定 `block.original`，其他节点使用当前文本，因此同一 parent 的多个直接 Text block 展示完整原文。实现不包裹或替换 Text/父元素，也不添加 `tabindex`。
+- `settings:test-provider` 增加扩展 options sender 边界与字符串长度上限。Chrome 的 options 页面本身运行在扩展标签页，技术核验表明不能以 `sender.tab` 缺失作为条件；实现改为同时校验精确 options URL 和扩展 ID，因此正常 options 标签页可用，而网页 content script、Popup 和其他扩展均被拒绝。
+- Popup 将 `chrome://`、扩展商店及其他不可注入 URL 的错误显示为“当前页面不支持网页翻译”，不再误导用户检查 Provider。
+- 本波次未监听 `characterData`。当前 observer 仅监听 `childList`，自身 `Text.data` 应用不会形成反馈循环；若支持外部原位文本更新，还需要同时定义稳定 original 的更新、恢复语义、与迟到翻译结果的冲突解决。仅比较当前值与 translated 值无法可靠区分外部编辑，因此本次按绑定需求聚焦新增节点，避免引入错误恢复行为。
+- 本波次最终 `npm run check`：20 个测试文件、107 个测试全部通过，TypeScript 检查与 WXT 生产构建通过；网页翻译 E2E 保留真实 options UI 测试/保存流程，2 个 Chromium 用例全部通过。

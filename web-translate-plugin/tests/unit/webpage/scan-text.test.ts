@@ -109,4 +109,13 @@ describe('文本节点扫描', () => {
       'Fragment English',
     ]);
   });
+
+  it('扫描作为增量 root 的直接 Text 节点本身', () => {
+    const text = document.createTextNode('Direct dynamic English');
+    document.body.append(text);
+
+    expect(scanTextNodes(text).map(({ node, original }) => ({ node, original }))).toEqual([
+      { node: text, original: 'Direct dynamic English' },
+    ]);
+  });
 });
