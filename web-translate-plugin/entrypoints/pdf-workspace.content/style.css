@@ -1,0 +1,43 @@
+:root[data-web-translate-pdf-workspace="true"] {
+  color: #172033;
+  background: #e9eef5;
+  font: 15px/1.55 system-ui, sans-serif;
+  --pdf-primary: #1d4ed8;
+  --pdf-border: #c5cfdd;
+  --pdf-panel: #fff;
+  --pdf-muted: #475569;
+  --pdf-error: #b42318;
+}
+
+:root[data-web-translate-pdf-workspace="true"] * { box-sizing: border-box; }
+:root[data-web-translate-pdf-workspace="true"] body { margin: 0; overflow: hidden; }
+.pdf-workspace { height: 100vh; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: #e9eef5; }
+.workspace-toolbar { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 6px 12px; border-bottom: 1px solid var(--pdf-border); background: var(--pdf-panel); }
+.workspace-toolbar strong { min-width: 0; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-toolbar button { min-width: 44px; min-height: 44px; padding: 8px 12px; border: 1px solid #94a3b8; border-radius: 8px; color: #172033; background: #fff; font: inherit; font-weight: 650; cursor: pointer; }
+.workspace-toolbar button:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
+.workspace-status { min-height: 30px; margin: 0; padding: 4px 12px; color: var(--pdf-muted); background: #f8fafc; }
+.workspace-status[data-phase="failed"] { color: var(--pdf-error); font-weight: 650; }
+.workspace-columns { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .72fr); gap: 8px; padding: 8px; }
+.pdf-column, .translation-column { min-width: 0; min-height: 0; border: 1px solid var(--pdf-border); border-radius: 10px; overflow: hidden; background: var(--pdf-panel); }
+.pdf-pages, .translation-pages { height: 100%; overflow: auto; padding: 16px; overscroll-behavior: contain; }
+.pdf-page-slot { min-height: 780px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 6px; background: #dbe2ea; }
+.pdf-page-placeholder { width: min(100%, 720px); min-height: 760px; background: #f8fafc; box-shadow: 0 2px 10px rgb(15 23 42 / 12%); }
+.pdf-page-canvas-wrap { position: relative; max-width: 100%; background: #fff; box-shadow: 0 2px 12px rgb(15 23 42 / 20%); }
+.pdf-page-canvas-wrap canvas { display: block; max-width: 100%; height: auto !important; }
+.pdf-text-layer { position: absolute; inset: 0; margin: 0; color: transparent; overflow: hidden; user-select: text; }
+.translation-pages > section { min-height: 70vh; margin-bottom: 16px; padding: 20px; border: 1px solid var(--pdf-border); border-radius: 8px; background: #fff; }
+.translation-pages > section > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
+.translation-pages h2 { font-size: 18px; }
+.translation-pages p { white-space: pre-wrap; }
+.translation-pages pre { max-width: 100%; overflow: auto; white-space: pre-wrap; }
+.translation-formula { max-width: 100%; overflow-x: auto; padding: 8px 0; }
+
+@media (max-width: 860px) {
+  .workspace-toolbar { flex-wrap: wrap; }
+  .workspace-columns { grid-template-columns: 1fr; grid-template-rows: 52% 48%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-pages, .translation-pages { scroll-behavior: auto; }
+}

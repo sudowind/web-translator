@@ -11,6 +11,13 @@ import {
   saveProbeResult,
 } from '../src/pdf-takeover/report-store';
 import { restoreProbeSurface } from '../src/pdf-takeover/takeover-dom';
+import { isPdfMessage, type PdfMessage, type PdfMessageResponse } from '../src/pdf/messages';
+import {
+  isPdfWorkspacePopupMessage,
+  type PdfWorkspacePopupStatus,
+} from '../src/pdf/popup-client';
+import { ChromePdfTakeoverAdapter } from '../src/pdf/takeover-port';
+import { PdfWorkspaceService } from '../src/pdf/workspace-service';
 import { getSettings } from '../src/settings/store';
 import {
   dispatchSettingsTestProvider,
@@ -22,6 +29,9 @@ import { WebpageTranslationService } from '../src/webpage/translation-service';
 export default defineBackground(() => {
   console.info('PDF takeover probe ready');
   const webpageTranslation = new WebpageTranslationService(getSettings);
+  const pdfWorkspace = new PdfWorkspaceService();
+  const pdfTakeover = new ChromePdfTakeoverAdapter();
+  const enabledPdfTabs = new Set<number>();
 
   async function getActiveTab() {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -101,7 +111,59 @@ export default defineBackground(() => {
     return null;
   }
 
+  async function handlePdfWorkspacePopup(
+    message: { type: 'pdf-workspace:status' | 'pdf-workspace:enable' | 'pdf-workspace:disable' },
+    sender: Browser.runtime.MessageSender,
+  ): Promise<PdfWorkspacePopupStatus> {
+    const tab = sender.tab?.id !== undefined && sender.tab.url
+      ? { id: sender.tab.id, url: sender.tab.url }
+      : await getActiveTab();
+    const eligible = isLikelyPdfUrl(tab.url);
+    if (message.type === 'pdf-workspace:enable') {
+      if (!eligible) throw new Error('PDF_NOT_ELIGIBLE');
+      await pdfTakeover.mount(tab.id);
+      enabledPdfTabs.add(tab.id);
+    } else if (message.type === 'pdf-workspace:disable' && enabledPdfTabs.has(tab.id)) {
+      pdfWorkspace.cancel(tab.id);
+      await pdfTakeover.restore(tab.id);
+      enabledPdfTabs.delete(tab.id);
+    }
+    return { eligible, enabled: enabledPdfTabs.has(tab.id), url: tab.url };
+  }
+
+  browser.tabs.onRemoved.addListener((tabId) => {
+    pdfWorkspace.cancel(tabId);
+    enabledPdfTabs.delete(tabId);
+  });
+  browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (!changeInfo.url) return;
+    pdfWorkspace.cancel(tabId);
+    enabledPdfTabs.delete(tabId);
+  });
+
   browser.runtime.onMessage.addListener((message: unknown, _, sendResponse) => {
+    if (isPdfWorkspacePopupMessage(message)) {
+      void handlePdfWorkspacePopup(message, _).then(
+        (value) => sendResponse({ ok: true, value }),
+        (error: unknown) => sendResponse({ ok: false, error: safePdfError(error) }),
+      );
+      return true;
+    }
+
+    if (isPdfMessage(message)) {
+      const tabId = _.tab?.id;
+      const senderUrl = _.url ?? _.tab?.url;
+      if (tabId === undefined || !senderUrl || !messageMatchesSender(message, senderUrl)) {
+        sendResponse({ ok: false, error: 'PDF_MESSAGE_SENDER_INVALID' } satisfies PdfMessageResponse);
+        return undefined;
+      }
+      void pdfWorkspace.handle(message, tabId).then(
+        (value) => sendResponse({ ok: true, value } satisfies PdfMessageResponse),
+        (error: unknown) => sendResponse({ ok: false, error: safePdfError(error) } satisfies PdfMessageResponse),
+      );
+      return true;
+    }
+
     if (isSettingsTestProviderCandidate(message)) {
       void dispatchSettingsTestProvider(
         message,
@@ -137,6 +199,36 @@ export default defineBackground(() => {
     return true;
   });
 });
+
+function messageMatchesSender(message: PdfMessage, senderUrl: string): boolean {
+  if (message.type === 'pdf:source') {
+    return message.url === senderUrl;
+  }
+  if (message.type === 'pdf:parse-start') {
+    return message.source.url === senderUrl;
+  }
+  return true;
+}
+
+function safePdfError(error: unknown): string {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? (error as { code?: unknown }).code
+    : error instanceof Error ? error.message : undefined;
+  return typeof code === 'string' && /^(PDF|MINERU|TRANSLATION)_[A-Z0-9_]+$/.test(code)
+    ? code
+    : 'PDF_OPERATION_FAILED';
+}
+
+function isLikelyPdfUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    return url.pathname.toLowerCase().endsWith('.pdf') ||
+      (url.hostname === 'arxiv.org' && url.pathname.startsWith('/pdf/'));
+  } catch {
+    return false;
+  }
+}
 
 function isWebpageTranslationCandidate(message: unknown): boolean {
   return (

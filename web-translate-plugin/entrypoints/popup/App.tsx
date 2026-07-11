@@ -6,6 +6,10 @@ import type {
   PdfProbeResponse,
 } from '../../src/pdf-takeover/messages';
 import {
+  sendPdfWorkspaceCommand,
+  type PdfWorkspacePopupStatus,
+} from '../../src/pdf/popup-client';
+import {
   sendWebpageCommand,
   webpagePopupErrorText,
 } from '../../src/webpage/popup-client';
@@ -31,6 +35,9 @@ export default function App() {
   const [webpageFeedback, setWebpageFeedback] = useState(
     '普通网页翻译默认关闭',
   );
+  const [pdfStatus, setPdfStatus] = useState<PdfWorkspacePopupStatus | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfFeedback, setPdfFeedback] = useState('正在识别当前页面');
 
   useEffect(() => {
     void sendProbeMessage({ type: 'pdf-probe:latest' })
@@ -40,6 +47,13 @@ export default function App() {
       .catch((error: unknown) => {
         setOutput(`读取最近报告失败：${errorText(error)}`);
       });
+  }, []);
+
+  useEffect(() => {
+    void sendPdfWorkspaceCommand('status').then((status) => {
+      setPdfStatus(status);
+      setPdfFeedback(status.enabled ? 'PDF 工作台已启用' : status.eligible ? '可翻译此 PDF' : '当前页面不是支持的 PDF');
+    }, (error: unknown) => setPdfFeedback(`PDF 状态读取失败：${errorText(error)}`));
   }, []);
 
   useEffect(() => {
@@ -86,21 +100,44 @@ export default function App() {
     }
   }
 
+  async function togglePdfWorkspace() {
+    if (!pdfStatus) return;
+    setPdfBusy(true);
+    try {
+      const next = await sendPdfWorkspaceCommand(pdfStatus.enabled ? 'disable' : 'enable');
+      setPdfStatus(next);
+      setPdfFeedback(next.enabled ? 'PDF 工作台已启用；关闭后恢复原页面' : 'PDF 工作台已关闭并恢复原页面');
+    } catch (error) {
+      setPdfFeedback(`操作失败：${errorText(error)}`);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   return (
     <main>
       <section aria-labelledby="webpage-heading">
         <p className="eyebrow">页面工具</p>
-        <h2 id="webpage-heading">普通网页翻译</h2>
-        <p className="description">由你主动启用；关闭后恢复本页全部原文。</p>
-        <button
-          className="primary"
-          type="button"
-          disabled={webpageBusy}
-          onClick={() => void toggleWebpage()}
-        >
-          {webpageBusy ? '处理中…' : webpageEnabled ? '关闭并恢复原文' : '翻译当前网页'}
-        </button>
-        <p className="status" aria-live="polite">{webpageFeedback}</p>
+        {pdfStatus?.eligible ? <>
+          <h2 id="webpage-heading">PDF 翻译工作台</h2>
+          <p className="description">PDF.js 左栏独立阅读，解析完成后按当前页优先生成译文。</p>
+          <button className="primary" type="button" disabled={pdfBusy} onClick={() => void togglePdfWorkspace()}>
+            {pdfBusy ? '处理中…' : pdfStatus.enabled ? '关闭 PDF 工作台' : '翻译此 PDF'}
+          </button>
+          <p className="status" aria-live="polite">{pdfFeedback}</p>
+        </> : <>
+          <h2 id="webpage-heading">普通网页翻译</h2>
+          <p className="description">由你主动启用；关闭后恢复本页全部原文。</p>
+          <button
+            className="primary"
+            type="button"
+            disabled={webpageBusy}
+            onClick={() => void toggleWebpage()}
+          >
+            {webpageBusy ? '处理中…' : webpageEnabled ? '关闭并恢复原文' : '翻译当前网页'}
+          </button>
+          <p className="status" aria-live="polite">{pdfStatus === null ? pdfFeedback : webpageFeedback}</p>
+        </>}
         <button className="text-button" type="button" onClick={() => void browser.runtime.openOptionsPage()}>
           Provider 设置
         </button>

@@ -1,0 +1,24 @@
+import { describe, expect, it } from 'vitest';
+
+import { isPdfMessage } from '../../../src/pdf/messages';
+
+describe('PDF 工作台消息', () => {
+  it.each([
+    { type: 'pdf:source', url: 'https://example.test/p.pdf' },
+    { type: 'pdf:parse-start', source: { url: 'https://example.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 12, kind: 'remote', bytes: [1, 2] }, pageCount: 2, consent: false },
+    { type: 'pdf:document-get', hash: 'sha256:x' },
+    { type: 'pdf:translate-page', hash: 'sha256:x', page: 1 },
+    { type: 'pdf:cancel' },
+    { type: 'pdf:cache-clear', hash: 'sha256:x' },
+  ])('接受精确合法消息：$type', (message) => {
+    expect(isPdfMessage(message)).toBe(true);
+    expect(isPdfMessage({ ...message, token: 'secret' })).toBe(false);
+  });
+
+  it('拒绝越界页码、未知类型和含凭据字段的消息', () => {
+    expect(isPdfMessage({ type: 'pdf:translate-page', hash: 'h', page: 0 })).toBe(false);
+    expect(isPdfMessage({ type: 'pdf:unknown' })).toBe(false);
+    expect(isPdfMessage({ type: 'pdf:cancel', apiKey: 'secret' })).toBe(false);
+    expect(isPdfMessage({ type: 'pdf:parse-start', source: {}, consent: false })).toBe(false);
+  });
+});
