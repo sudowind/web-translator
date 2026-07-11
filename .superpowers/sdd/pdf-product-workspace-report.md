@@ -118,3 +118,11 @@
 - `npm run typecheck`：通过。
 - `npm run build`：通过。
 - manifest 的 `content_scripts` 为空，无静态 `host_permissions`；未运行全量 check 或 E2E。
+
+### Fix Wave 聚焦追加
+
+- 解析流程显式跟踪 `usedUpload`：只有 URL task 成功创建且首次 wait 失败时允许一次上传回退；URL 创建失败后已进入 upload 的 wait 失败会立即持久化安全失败，绝不再次上传。
+- `PdfWorkspaceService` 新增按 document hash 的 generation 与串行 mutation queue。parse、translate、恢复任务的 document/translation/task 写与 cache clear 共享队列。
+- clear 先使旧 generation 失效并 abort，再排在已启动写之后删除；clear 请求后才到达队列的旧 generation 写会被跳过。因此 clear resolve 后旧 put 不会重建缓存。
+- RED：workspace-service 13 个测试中 3 个失败；复现 upload 调用两次，以及 document/translation deferred put 未结束时 clear 已先执行。
+- GREEN：workspace-service 13/13；相关门禁 6 个文件、38 个测试通过；typecheck 和 build 通过。manifest 未新增静态权限，未运行全量 check/E2E。

@@ -113,6 +113,18 @@ describe('后台 PDF 工作台服务', () => {
 });
 
 describe('PDF workspace 生命周期修复波', () => {
+  it('URL 创建失败后已使用 upload，upload wait 失败绝不二次上传', async () => {
+    const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
+    const putTask = vi.fn();
+    const service = makeService({
+      createUrlTask: vi.fn().mockRejectedValue(new Error('url create')),
+      createUploadTask,
+      waitForResult: vi.fn().mockRejectedValue(new Error('upload wait')),
+    }, { putTask });
+    await expect(service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7)).rejects.toMatchObject({ code: 'MINERU_UPLOAD_FAILED' });
+    expect(createUploadTask).toHaveBeenCalledOnce();
+    expect(putTask).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failed' }));
+  });
   it('公共 URL 轮询异常只回退一次，上传失败安全持久化', async () => {
     const putTask = vi.fn();
     const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
@@ -156,6 +168,47 @@ describe('PDF workspace 生命周期修复波', () => {
     await expect(parsing).rejects.toHaveProperty('name', 'AbortError');
     expect(clearCache).toHaveBeenCalledWith(source.hash);
     expect(putDocument).not.toHaveBeenCalled();
+  });
+
+  it('clear 排在已启动 document put 后执行，resolve 后旧写不能重建', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const putDocument = vi.fn(async () => { order.push('put-start'); await gate; order.push('put-end'); });
+    const clearCache = vi.fn(async () => { order.push('clear'); });
+    const service = makeService({
+      createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }),
+      createUploadTask: vi.fn(),
+      waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }),
+    }, { putDocument, clearCache });
+    const parsing = service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7);
+    await vi.waitFor(() => expect(putDocument).toHaveBeenCalled());
+    const clearing = service.handle({ type: 'pdf:cache-clear', hash: source.hash }, 7);
+    expect(clearCache).not.toHaveBeenCalled();
+    release();
+    await Promise.allSettled([parsing, clearing]);
+    expect(order).toEqual(['put-start', 'put-end', 'clear']);
+  });
+
+  it('clear 排在已启动 translation put 后执行，resolve 后旧写不能重建', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const putTranslation = vi.fn(async () => { order.push('put-start'); await gate; order.push('put-end'); });
+    const clearCache = vi.fn(async () => { order.push('clear'); });
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(model),
+      createOpenAi: vi.fn().mockReturnValue({ translate: vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]) }),
+      putTranslation,
+      clearCache,
+    });
+    const translating = service.handle({ type: 'pdf:translate-page', hash: source.hash, page: 1 }, 7);
+    await vi.waitFor(() => expect(putTranslation).toHaveBeenCalled());
+    const clearing = service.handle({ type: 'pdf:cache-clear', hash: source.hash }, 7);
+    expect(clearCache).not.toHaveBeenCalled();
+    release();
+    await Promise.allSettled([translating, clearing]);
+    expect(order).toEqual(['put-start', 'put-end', 'clear']);
   });
 });
 

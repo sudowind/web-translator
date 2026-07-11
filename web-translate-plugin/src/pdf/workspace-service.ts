@@ -81,6 +81,8 @@ export class PdfWorkspaceService {
   private readonly sessions = new Map<number, AbortController>();
   private readonly agentSessions = new Map<number, AbortController>();
   private readonly resuming = new Set<string>();
+  private readonly mutationTails = new Map<string, Promise<unknown>>();
+  private readonly generations = new Map<string, number>();
 
   constructor(private readonly dependencies: Dependencies = defaults) {}
 
@@ -96,7 +98,8 @@ export class PdfWorkspaceService {
     }
     if (message.type === 'pdf:cache-clear') {
       this.cancel(tabId);
-      await this.dependencies.clearCache(message.hash);
+      this.invalidate(message.hash);
+      await this.enqueueForced(message.hash, () => this.dependencies.clearCache(message.hash));
       return { cleared: true };
     }
     if (message.type === 'pdf:agent-ask') {
@@ -146,6 +149,7 @@ export class PdfWorkspaceService {
     consent: boolean,
     signal: AbortSignal,
   ): Promise<DocumentModel> {
+    const generation = this.generation(source.hash);
     const cached = await this.dependencies.getDocument(source.hash);
     if (cached) return cached;
     if (source.kind === 'authenticated' && !consent) {
@@ -155,6 +159,7 @@ export class PdfWorkspaceService {
     if (!settings.mineru.token) throw new PdfWorkspaceServiceError('MINERU_NOT_CONFIGURED');
     const client = this.dependencies.createMineru(settings.mineru);
     let providerTask: MineruTaskRef;
+    let usedUpload = source.kind === 'authenticated';
     if (source.kind === 'authenticated') {
       providerTask = await this.createUpload(client, source, signal);
     } else {
@@ -162,35 +167,37 @@ export class PdfWorkspaceService {
         providerTask = await client.createUrlTask(source.url, signal);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') throw error;
+        usedUpload = true;
         providerTask = await this.createUpload(client, source, signal);
       }
     }
-    let task = await this.createTask(source, pageCount, providerTask);
+    let task = await this.createTask(source, pageCount, providerTask, generation);
     let result;
     try {
       result = await client.waitForResult(task.providerTask, signal);
     } catch (error) {
       if (signal.aborted) throw signal.reason;
-      if (source.kind !== 'remote') {
-        await this.failTask(task, 'MINERU_UPLOAD_FAILED');
+      if (usedUpload) {
+        await this.failTask(task, 'MINERU_UPLOAD_FAILED', generation);
         throw new PdfWorkspaceServiceError('MINERU_UPLOAD_FAILED');
       }
       result = { state: 'failed' as const, error: 'MINERU_TASK_FAILED' };
     }
-    if (source.kind === 'remote' && result.state !== 'done') {
-      await this.dependencies.putTask({ ...task, status: 'failed', errorCode: safeTaskError(result), updatedAt: Date.now() });
+    if (!usedUpload && result.state !== 'done') {
+      await this.putTask(source.hash, generation, { ...task, status: 'failed', errorCode: safeTaskError(result), updatedAt: Date.now() });
       try {
-        task = await this.createTask(source, pageCount, await this.createUpload(client, source, signal));
+        usedUpload = true;
+        task = await this.createTask(source, pageCount, await this.createUpload(client, source, signal), generation);
         result = await client.waitForResult(task.providerTask, signal);
       } catch (error) {
         if (signal.aborted) throw signal.reason;
-        await this.failTask(task, 'MINERU_UPLOAD_FAILED');
+        await this.failTask(task, 'MINERU_UPLOAD_FAILED', generation);
         throw new PdfWorkspaceServiceError('MINERU_UPLOAD_FAILED');
       }
     }
     if (result.state !== 'done') {
       const errorCode = safeTaskError(result);
-      await this.dependencies.putTask({ ...task, status: 'failed', errorCode, updatedAt: Date.now() });
+      await this.putTask(source.hash, generation, { ...task, status: 'failed', errorCode, updatedAt: Date.now() });
       throw new PdfWorkspaceServiceError(errorCode);
     }
     signal.throwIfAborted();
@@ -201,19 +208,20 @@ export class PdfWorkspaceService {
       pageCount,
     });
     signal.throwIfAborted();
-    await this.dependencies.putDocument(model);
-    await this.dependencies.putTask({ ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
+    await this.enqueueMutation(source.hash, generation, () => this.dependencies.putDocument(model));
+    await this.putTask(source.hash, generation, { ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
     return model;
   }
 
-  private async failTask(task: StoredTask, errorCode: string): Promise<void> {
-    await this.dependencies.putTask({ ...task, status: 'failed', errorCode, updatedAt: Date.now() });
+  private async failTask(task: StoredTask, errorCode: string, generation: number): Promise<void> {
+    await this.putTask(task.hash, generation, { ...task, status: 'failed', errorCode, updatedAt: Date.now() });
   }
 
   private async createTask(
     source: PdfSourceTransfer,
     pageCount: number,
     providerTask: MineruTaskRef,
+    generation: number,
   ): Promise<StoredTask> {
     const task: StoredTask = {
       id: `pdf:${source.hash}`,
@@ -226,7 +234,7 @@ export class PdfWorkspaceService {
       pageCount,
       updatedAt: Date.now(),
     };
-    await this.dependencies.putTask(task);
+    await this.putTask(source.hash, generation, task);
     return task;
   }
 
@@ -246,12 +254,13 @@ export class PdfWorkspaceService {
   private async resumeTask(task: StoredTask): Promise<void> {
     if (this.resuming.has(task.id)) return;
     this.resuming.add(task.id);
+    const generation = this.generation(task.hash);
     try {
       const settings = await this.dependencies.getSettings();
       const result = await this.dependencies.createMineru(settings.mineru)
         .waitForResult(task.providerTask);
       if (result.state !== 'done') {
-        await this.dependencies.putTask({ ...task, status: 'failed', errorCode: safeTaskError(result), updatedAt: Date.now() });
+        await this.putTask(task.hash, generation, { ...task, status: 'failed', errorCode: safeTaskError(result), updatedAt: Date.now() });
         return;
       }
       const model = await this.dependencies.loadMineru(result.fullZipUrl, {
@@ -260,10 +269,10 @@ export class PdfWorkspaceService {
         title: task.title,
         pageCount: task.pageCount,
       });
-      await this.dependencies.putDocument(model);
-      await this.dependencies.putTask({ ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
+      await this.enqueueMutation(task.hash, generation, () => this.dependencies.putDocument(model));
+      await this.putTask(task.hash, generation, { ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
     } catch {
-      await this.dependencies.putTask({ ...task, status: 'failed', errorCode: 'MINERU_RESUME_FAILED', updatedAt: Date.now() });
+      await this.putTask(task.hash, generation, { ...task, status: 'failed', errorCode: 'MINERU_RESUME_FAILED', updatedAt: Date.now() });
     } finally {
       this.resuming.delete(task.id);
     }
@@ -274,6 +283,7 @@ export class PdfWorkspaceService {
     pageNumber: number,
     signal: AbortSignal,
   ): Promise<TranslationResult[]> {
+    const generation = this.generation(hash);
     const model = await this.dependencies.getDocument(hash);
     const page = model?.pages[pageNumber - 1];
     if (!model || !page) throw new PdfWorkspaceServiceError('PDF_PAGE_MISSING');
@@ -296,8 +306,42 @@ export class PdfWorkspaceService {
       signal,
     );
     signal.throwIfAborted();
-    await this.dependencies.putTranslation(key, result);
+    await this.enqueueMutation(hash, generation, () => this.dependencies.putTranslation(key, result));
     return result;
+  }
+
+  private generation(hash: string): number {
+    return this.generations.get(hash) ?? 0;
+  }
+
+  private invalidate(hash: string): void {
+    this.generations.set(hash, this.generation(hash) + 1);
+  }
+
+  private async putTask(hash: string, generation: number, task: StoredTask): Promise<void> {
+    await this.enqueueMutation(hash, generation, () => this.dependencies.putTask(task));
+  }
+
+  private enqueueMutation<T>(hash: string, generation: number, operation: () => Promise<T>): Promise<T | undefined> {
+    return this.enqueue(hash, async () => {
+      if (generation !== this.generation(hash)) return undefined;
+      return operation();
+    });
+  }
+
+  private enqueueForced<T>(hash: string, operation: () => Promise<T>): Promise<T> {
+    return this.enqueue(hash, operation) as Promise<T>;
+  }
+
+  private enqueue<T>(hash: string, operation: () => Promise<T>): Promise<T | undefined> {
+    const previous = this.mutationTails.get(hash) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(operation);
+    this.mutationTails.set(hash, next);
+    const cleanup = () => {
+      if (this.mutationTails.get(hash) === next) this.mutationTails.delete(hash);
+    };
+    void next.then(cleanup, cleanup);
+    return next;
   }
 
   private async ask(
