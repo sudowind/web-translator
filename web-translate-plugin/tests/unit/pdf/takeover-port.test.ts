@@ -25,4 +25,24 @@ describe('正式 PDF 接管端口', () => {
     expect(sendMessage).toHaveBeenCalledWith(7, { type: 'pdf-workspace:disable' });
     expect(reload).toHaveBeenCalledWith(7);
   });
+
+  it('worker 重启后通过 content runtime 实时 status 判断 mounted 并可关闭', async () => {
+    const sendMessage = vi.fn()
+      .mockResolvedValueOnce({ ok: true, value: { enabled: true } })
+      .mockResolvedValueOnce({ ok: true, value: { enabled: false } });
+    const reload = vi.fn();
+    const adapter = new ChromePdfTakeoverAdapter({ tabs: { get: vi.fn().mockResolvedValue({ url: 'https://x.test/download?id=1' }), sendMessage, reload }, scripting: { executeScript: vi.fn() } });
+    await expect(adapter.status(9)).resolves.toBe(true);
+    await expect(adapter.restore(9)).resolves.toMatchObject({ restored: true });
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('activeTab 探测 document.contentType 支持通用 PDF URL 并拒绝 HTML', async () => {
+    const executeScript = vi.fn()
+      .mockResolvedValueOnce([{ result: 'application/pdf' }])
+      .mockResolvedValueOnce([{ result: 'text/html' }]);
+    const adapter = new ChromePdfTakeoverAdapter({ tabs: { get: vi.fn(), sendMessage: vi.fn(), reload: vi.fn() }, scripting: { executeScript } });
+    await expect(adapter.probePdfContentType(9)).resolves.toBe(true);
+    await expect(adapter.probePdfContentType(9)).resolves.toBe(false);
+  });
 });

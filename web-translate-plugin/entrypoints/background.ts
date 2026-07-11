@@ -119,17 +119,17 @@ export default defineBackground(() => {
     const tab = sender.tab?.id !== undefined && sender.tab.url
       ? { id: sender.tab.id, url: sender.tab.url }
       : await getActiveTab();
-    const eligible = isLikelyPdfUrl(tab.url);
+    const mounted = await pdfTakeover.status(tab.id);
+    const eligible = mounted || isLikelyPdfUrl(tab.url) || await pdfTakeover.probePdfContentType(tab.id).catch(() => false);
     if (message.type === 'pdf-workspace:enable') {
       if (!eligible) throw new Error('PDF_NOT_ELIGIBLE');
-      await pdfTakeover.mount(tab.id);
-      enabledPdfTabs.add(tab.id);
-    } else if (message.type === 'pdf-workspace:disable' && enabledPdfTabs.has(tab.id)) {
+      if (!mounted) await pdfTakeover.mount(tab.id);
+    } else if (message.type === 'pdf-workspace:disable' && mounted) {
       pdfWorkspace.cancel(tab.id);
       await pdfTakeover.restore(tab.id);
-      enabledPdfTabs.delete(tab.id);
     }
-    return { eligible, enabled: enabledPdfTabs.has(tab.id), url: tab.url };
+    const enabled = message.type === 'pdf-workspace:disable' ? false : await pdfTakeover.status(tab.id);
+    return { eligible, enabled, url: tab.url };
   }
 
   browser.tabs.onRemoved.addListener((tabId) => {

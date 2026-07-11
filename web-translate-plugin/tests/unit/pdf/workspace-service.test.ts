@@ -111,3 +111,59 @@ describe('后台 PDF 工作台服务', () => {
     expect(ask).toHaveBeenCalledWith(expect.objectContaining({ mode: 'compressed' }), 'What?', expect.any(AbortSignal));
   });
 });
+
+describe('PDF workspace 生命周期修复波', () => {
+  it('公共 URL 轮询异常只回退一次，上传失败安全持久化', async () => {
+    const putTask = vi.fn();
+    const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
+    const waitForResult = vi.fn().mockRejectedValueOnce(new Error('url poll')).mockRejectedValueOnce(new Error('secret upload raw'));
+    const service = makeService({ createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }), createUploadTask, waitForResult }, { putTask });
+    await expect(service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7)).rejects.toMatchObject({ code: 'MINERU_UPLOAD_FAILED' });
+    expect(createUploadTask).toHaveBeenCalledOnce();
+    expect(putTask).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failed', errorCode: 'MINERU_UPLOAD_FAILED' }));
+  });
+
+  it('agent-cancel 只取消问答，不影响同 tab 翻译', async () => {
+    let agentSignal!: AbortSignal;
+    const ask = vi.fn((_context, _question, signal: AbortSignal) => {
+      agentSignal = signal;
+      return new Promise<string>(() => undefined);
+    });
+    const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
+    const service = makeService(undefined, { getDocument: vi.fn().mockResolvedValue(model), createAgent: vi.fn().mockReturnValue({ ask }), createOpenAi: vi.fn().mockReturnValue({ translate }) });
+    void service.handle({ type: 'pdf:agent-ask', hash: source.hash, activePage: 1, selection: '', recentMessages: [], question: 'What?', maxCharacters: 1000 }, 7);
+    await vi.waitFor(() => expect(ask).toHaveBeenCalled());
+    await service.handle({ type: 'pdf:agent-cancel' }, 7);
+    expect(agentSignal.aborted).toBe(true);
+    await expect(service.handle({ type: 'pdf:translate-page', hash: source.hash, page: 1 }, 7)).resolves.toHaveLength(1);
+
+    void service.handle({ type: 'pdf:agent-ask', hash: source.hash, activePage: 1, selection: '', recentMessages: [], question: 'Again?', maxCharacters: 1000 }, 7);
+    await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    await service.handle({ type: 'pdf:cancel' }, 7);
+    expect(agentSignal.aborted).toBe(true);
+  });
+
+  it('cache-clear 取消旧解析，旧 Promise 不回填 DB', async () => {
+    const waitForResult = vi.fn((_task, signal: AbortSignal) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }));
+    const putDocument = vi.fn();
+    const clearCache = vi.fn();
+    const service = makeService({ createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }), createUploadTask: vi.fn(), waitForResult }, { putDocument, clearCache });
+    const parsing = service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7);
+    await vi.waitFor(() => expect(waitForResult).toHaveBeenCalled());
+    await service.handle({ type: 'pdf:cache-clear', hash: source.hash }, 7);
+    await expect(parsing).rejects.toHaveProperty('name', 'AbortError');
+    expect(clearCache).toHaveBeenCalledWith(source.hash);
+    expect(putDocument).not.toHaveBeenCalled();
+  });
+});
+
+function makeService(mineru?: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+  return new PdfWorkspaceService({
+    loadSource: vi.fn(), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
+    getSettings: vi.fn().mockResolvedValue({ openAi: { apiKey: 'secret', baseUrl: 'https://api.test/v1', model: 'm' }, mineru: { baseUrl: 'https://mineru.net', token: 'secret', modelVersion: 'vlm' }, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
+    createMineru: vi.fn().mockReturnValue(mineru), loadMineru: vi.fn().mockResolvedValue(model), createOpenAi: vi.fn(), createAgent: vi.fn(),
+    ...overrides,
+  } as never);
+}

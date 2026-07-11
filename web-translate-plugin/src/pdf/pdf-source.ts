@@ -24,23 +24,16 @@ export async function loadPdfSource(
   }
 
   const publicResponse = await safeFetch(fetcher, rawUrl, 'omit', signal);
+  const publicBytes = publicResponse?.ok ? await readBytes(publicResponse) : null;
   let kind: PdfSourceTransfer['kind'] = 'remote';
-  let response = publicResponse;
-  if (!response?.ok) {
+  let bytes = publicBytes;
+  if (!bytes || !hasPdfSignature(bytes)) {
     kind = 'authenticated';
-    response = await safeFetch(fetcher, rawUrl, 'include', signal);
+    const authenticated = await safeFetch(fetcher, rawUrl, 'include', signal);
+    bytes = authenticated?.ok ? await readBytes(authenticated) : null;
   }
-  if (!response?.ok) throw new PdfSourceError('PDF_FETCH_FAILED');
-
-  let bytes: Uint8Array;
-  try {
-    bytes = new Uint8Array(await response.arrayBuffer());
-  } catch {
-    throw new PdfSourceError('PDF_READ_FAILED');
-  }
-  if (bytes.length < 5 || new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') {
-    throw new PdfSourceError('PDF_SIGNATURE_INVALID');
-  }
+  if (!bytes) throw new PdfSourceError('PDF_FETCH_FAILED');
+  if (!hasPdfSignature(bytes)) throw new PdfSourceError('PDF_SIGNATURE_INVALID');
   const digestBytes = Uint8Array.from(bytes);
   const digest = await crypto.subtle.digest('SHA-256', digestBytes.buffer);
   const hash = Array.from(new Uint8Array(digest), (value) =>
@@ -54,6 +47,15 @@ export async function loadPdfSource(
     kind,
     bytes: Array.from(bytes),
   };
+}
+
+async function readBytes(response: Response): Promise<Uint8Array> {
+  try { return new Uint8Array(await response.arrayBuffer()); }
+  catch { throw new PdfSourceError('PDF_READ_FAILED'); }
+}
+
+function hasPdfSignature(bytes: Uint8Array): boolean {
+  return bytes.length >= 5 && new TextDecoder().decode(bytes.subarray(0, 5)) === '%PDF-';
 }
 
 async function safeFetch(

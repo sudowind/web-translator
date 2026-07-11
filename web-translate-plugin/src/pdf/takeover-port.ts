@@ -1,11 +1,11 @@
 interface TakeoverBrowserApi {
   tabs: {
     get(tabId: number): Promise<{ url?: string }>;
-    sendMessage(tabId: number, message: { type: 'pdf-workspace:disable' }): Promise<unknown>;
+    sendMessage(tabId: number, message: { type: 'pdf-workspace:disable' | 'pdf-workspace:status' }): Promise<unknown>;
     reload(tabId: number): Promise<void>;
   };
   scripting: {
-    executeScript(details: { target: { tabId: number }; files: string[] }): Promise<unknown>;
+    executeScript(details: { target: { tabId: number }; files?: string[]; func?: () => string }): Promise<unknown>;
   };
 }
 
@@ -43,5 +43,22 @@ export class ChromePdfTakeoverAdapter implements PdfTakeoverPort {
       restored: response?.ok === true && after.url === before.url,
       url: after.url ?? '',
     };
+  }
+
+  async status(tabId: number): Promise<boolean> {
+    try {
+      const response = await this.api.tabs.sendMessage(tabId, { type: 'pdf-workspace:status' }) as { ok?: boolean; value?: { enabled?: boolean } };
+      return response?.ok === true && response.value?.enabled === true;
+    } catch {
+      return false;
+    }
+  }
+
+  async probePdfContentType(tabId: number): Promise<boolean> {
+    const [execution] = await this.api.scripting.executeScript({
+      target: { tabId },
+      func: () => document.contentType,
+    }) as Array<{ result?: string }>;
+    return execution?.result?.toLowerCase().includes('application/pdf') === true;
   }
 }

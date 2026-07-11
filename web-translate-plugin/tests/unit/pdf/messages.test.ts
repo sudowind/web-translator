@@ -9,6 +9,7 @@ describe('PDF 工作台消息', () => {
     { type: 'pdf:document-get', hash: 'sha256:x' },
     { type: 'pdf:translate-page', hash: 'sha256:x', page: 1 },
     { type: 'pdf:agent-ask', hash: 'sha256:x', activePage: 1, selection: '', recentMessages: [], question: '贡献？', maxCharacters: 1000 },
+    { type: 'pdf:agent-cancel' },
     { type: 'pdf:cancel' },
     { type: 'pdf:cache-clear', hash: 'sha256:x' },
   ])('接受精确合法消息：$type', (message) => {

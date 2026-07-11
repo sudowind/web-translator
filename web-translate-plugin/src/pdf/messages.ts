@@ -17,6 +17,7 @@ export type PdfMessage =
   | { type: 'pdf:document-get'; hash: string }
   | { type: 'pdf:translate-page'; hash: string; page: number }
   | { type: 'pdf:agent-ask'; hash: string; activePage: number; selection: string; recentMessages: AgentMessage[]; question: string; maxCharacters: number }
+  | { type: 'pdf:agent-cancel' }
   | { type: 'pdf:cancel' }
   | { type: 'pdf:cache-clear'; hash: string };
 
@@ -55,6 +56,7 @@ export function isPdfMessage(value: unknown): value is PdfMessage {
         Array.isArray(value.recentMessages) && value.recentMessages.every((message) =>
           isRecord(message) && exact(message, ['role', 'content']) &&
           (message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string');
+    case 'pdf:agent-cancel':
     case 'pdf:cancel':
       return exact(value, ['type']);
     default:

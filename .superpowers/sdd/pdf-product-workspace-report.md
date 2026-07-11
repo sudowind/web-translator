@@ -98,3 +98,23 @@
 - MinerU/OpenAI 设置、Authorization 与 Provider 请求只存在于后台；内容脚本不构造 Provider 客户端。
 - 错误响应、DOM、日志和本报告不包含 API Key、Token、Provider 原始正文或论文全文。
 - 本批完成后暂不进行独立复核；真实 Chrome action Popup、activeTab、认证 PDF 同意交互与任务 8 E2E/人工矩阵仍由后续统一验收负责。
+
+## 产品里程碑唯一 Fix Wave
+
+本修复波一次性关闭 reviewer 提出的 6 个 Important：
+
+- 公共 URL 的任务创建、轮询结果失败或非 Abort 异常均最多触发一次字节上传回退；上传路径异常保存 `MINERU_UPLOAD_FAILED` 后安全结束，Abort 不回退。
+- 新增精确 `pdf:agent-cancel`。问答使用独立 per-tab AbortController，停止问答不影响解析/逐页翻译；全局 cancel、tab 关闭与正式 disable 同时取消 agent。
+- content runtime 新增实时 `pdf-workspace:status`。background 不再以 Service Worker 内存 Set 作为 mounted 真值；worker 重启后仍可查询并关闭，未挂载不 reload。
+- Popup 的 activeTab 用户手势路径通过动态 `executeScript` 读取 `document.contentType`，支持通用下载/签名 PDF URL并拒绝 HTML；未增加静态权限。
+- PDF 源在无凭据 2xx 但签名非 `%PDF-` 时继续带凭据读取；只有认证响应为真 PDF 才标记 authenticated，否则返回安全签名错误。
+- `cache-clear` 先取消 tab 的解析、翻译和问答，再清理仓储。Service 在异步边界检查 AbortSignal；React 使用 `OperationEpoch`，清理后旧 Promise 不回填 model、译文或失败状态。
+
+### TDD 与验证
+
+- RED：5 个测试文件中 7 个行为失败并有 1 个缺失模块；分别复现 agent-cancel、cookie PDF、实时 status/contentType、轮询异常回退、cache race 和 UI epoch。
+- GREEN：核心 fix wave 5 个文件、28 个测试通过。
+- 最终受影响定向测试：18 个文件、76 个测试全部通过。
+- `npm run typecheck`：通过。
+- `npm run build`：通过。
+- manifest 的 `content_scripts` 为空，无静态 `host_permissions`；未运行全量 check 或 E2E。

@@ -79,15 +79,33 @@ const defaults: Dependencies = {
 
 export class PdfWorkspaceService {
   private readonly sessions = new Map<number, AbortController>();
+  private readonly agentSessions = new Map<number, AbortController>();
   private readonly resuming = new Set<string>();
 
   constructor(private readonly dependencies: Dependencies = defaults) {}
 
   async handle(message: PdfMessage, tabId: number): Promise<PdfMessageValue> {
     if (message.type === 'pdf:cancel') {
-      this.sessions.get(tabId)?.abort();
-      this.sessions.delete(tabId);
+      this.cancel(tabId);
       return { cancelled: true };
+    }
+    if (message.type === 'pdf:agent-cancel') {
+      this.agentSessions.get(tabId)?.abort();
+      this.agentSessions.delete(tabId);
+      return { cancelled: true };
+    }
+    if (message.type === 'pdf:cache-clear') {
+      this.cancel(tabId);
+      await this.dependencies.clearCache(message.hash);
+      return { cleared: true };
+    }
+    if (message.type === 'pdf:agent-ask') {
+      const controller = new AbortController();
+      this.agentSessions.get(tabId)?.abort();
+      this.agentSessions.set(tabId, controller);
+      return this.ask(message, controller.signal).finally(() => {
+        if (this.agentSessions.get(tabId) === controller) this.agentSessions.delete(tabId);
+      });
     }
     const signal = this.session(tabId).signal;
     if (message.type === 'pdf:source') {
@@ -96,15 +114,8 @@ export class PdfWorkspaceService {
     if (message.type === 'pdf:document-get') {
       return (await this.dependencies.getDocument(message.hash)) ?? null;
     }
-    if (message.type === 'pdf:cache-clear') {
-      await this.dependencies.clearCache(message.hash);
-      return { cleared: true };
-    }
     if (message.type === 'pdf:parse-start') {
       return this.parse(message.source, message.pageCount, message.consent, signal);
-    }
-    if (message.type === 'pdf:agent-ask') {
-      return this.ask(message, signal);
     }
     return this.translate(message.hash, message.page, signal);
   }
@@ -112,6 +123,8 @@ export class PdfWorkspaceService {
   cancel(tabId: number): void {
     this.sessions.get(tabId)?.abort();
     this.sessions.delete(tabId);
+    this.agentSessions.get(tabId)?.abort();
+    this.agentSessions.delete(tabId);
   }
 
   async resumePending(): Promise<void> {
@@ -153,26 +166,48 @@ export class PdfWorkspaceService {
       }
     }
     let task = await this.createTask(source, pageCount, providerTask);
-    let result = await client.waitForResult(task.providerTask, signal);
+    let result;
+    try {
+      result = await client.waitForResult(task.providerTask, signal);
+    } catch (error) {
+      if (signal.aborted) throw signal.reason;
+      if (source.kind !== 'remote') {
+        await this.failTask(task, 'MINERU_UPLOAD_FAILED');
+        throw new PdfWorkspaceServiceError('MINERU_UPLOAD_FAILED');
+      }
+      result = { state: 'failed' as const, error: 'MINERU_TASK_FAILED' };
+    }
     if (source.kind === 'remote' && result.state !== 'done') {
       await this.dependencies.putTask({ ...task, status: 'failed', errorCode: safeTaskError(result), updatedAt: Date.now() });
-      task = await this.createTask(source, pageCount, await this.createUpload(client, source, signal));
-      result = await client.waitForResult(task.providerTask, signal);
+      try {
+        task = await this.createTask(source, pageCount, await this.createUpload(client, source, signal));
+        result = await client.waitForResult(task.providerTask, signal);
+      } catch (error) {
+        if (signal.aborted) throw signal.reason;
+        await this.failTask(task, 'MINERU_UPLOAD_FAILED');
+        throw new PdfWorkspaceServiceError('MINERU_UPLOAD_FAILED');
+      }
     }
     if (result.state !== 'done') {
       const errorCode = safeTaskError(result);
       await this.dependencies.putTask({ ...task, status: 'failed', errorCode, updatedAt: Date.now() });
       throw new PdfWorkspaceServiceError(errorCode);
     }
+    signal.throwIfAborted();
     const model = await this.dependencies.loadMineru(result.fullZipUrl, {
       sourceUrl: source.url,
       hash: source.hash,
       title: source.title,
       pageCount,
     });
+    signal.throwIfAborted();
     await this.dependencies.putDocument(model);
     await this.dependencies.putTask({ ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
     return model;
+  }
+
+  private async failTask(task: StoredTask, errorCode: string): Promise<void> {
+    await this.dependencies.putTask({ ...task, status: 'failed', errorCode, updatedAt: Date.now() });
   }
 
   private async createTask(
@@ -260,6 +295,7 @@ export class PdfWorkspaceService {
       { sourceLanguage: settings.sourceLanguage, targetLanguage: settings.targetLanguage },
       signal,
     );
+    signal.throwIfAborted();
     await this.dependencies.putTranslation(key, result);
     return result;
   }
@@ -281,6 +317,7 @@ export class PdfWorkspaceService {
     const client = this.dependencies.createAgent?.(settings.openAi);
     if (!client) throw new PdfWorkspaceServiceError('AGENT_UNAVAILABLE');
     const answer = await client.ask(context, message.question, signal);
+    signal.throwIfAborted();
     return {
       answer,
       mode: context.mode,

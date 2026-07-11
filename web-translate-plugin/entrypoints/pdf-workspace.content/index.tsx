@@ -28,7 +28,11 @@ export default defineContentScript({
     root.render(<PdfWorkspace sourceUrl={originalUrl} />);
 
     const handleDisable = (message: unknown, _: unknown, sendResponse: (value: unknown) => void) => {
-      if (!isDisableMessage(message)) return undefined;
+      if (!isWorkspaceControl(message)) return undefined;
+      if (message.type === 'pdf-workspace:status') {
+        sendResponse({ ok: true, value: { enabled: true } });
+        return undefined;
+      }
       browser.runtime.onMessage.removeListener(handleDisable);
       root?.unmount();
       root = null;
@@ -43,8 +47,8 @@ export default defineContentScript({
   },
 });
 
-function isDisableMessage(value: unknown): value is { type: 'pdf-workspace:disable' } {
+function isWorkspaceControl(value: unknown): value is { type: 'pdf-workspace:disable' | 'pdf-workspace:status' } {
   return typeof value === 'object' && value !== null &&
     Object.keys(value).length === 1 &&
-    'type' in value && value.type === 'pdf-workspace:disable';
+    'type' in value && (value.type === 'pdf-workspace:disable' || value.type === 'pdf-workspace:status');
 }

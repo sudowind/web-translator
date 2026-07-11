@@ -6,6 +6,7 @@ import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import { PageScheduler } from '../translation/page-scheduler';
 import type { PdfMessage, PdfMessageResponse, PdfSourceTransfer } from './messages';
+import { OperationEpoch } from './operation-epoch';
 import { PdfViewer } from './PdfViewer';
 import { SyncController, type PdfPane } from './sync-controller';
 import { TranslationPane, type TranslationPageStatus } from './TranslationPane';
@@ -31,6 +32,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const schedulerRef = React.useRef<PageScheduler | null>(null);
   const pumpRef = React.useRef<() => void>(() => undefined);
   const parseStarted = React.useRef(false);
+  const operationEpoch = React.useRef(new OperationEpoch());
   const syncRef = React.useRef<SyncController | null>(null);
   const pdfBytes = React.useMemo(
     () => source ? Uint8Array.from(source.bytes) : null,
@@ -74,6 +76,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const startParse = React.useCallback((pageCount: number, consent: boolean) => {
     if (!source || parseStarted.current) return;
     parseStarted.current = true;
+    const epoch = operationEpoch.current.current();
     dispatch({ type: consent ? 'consent-granted' : 'parse-started' });
     setFeedback('MinerU 正在解析，左栏可继续阅读');
     void sendPdfMessage({
@@ -82,11 +85,13 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       pageCount,
       consent,
     }).then((value) => {
+      if (!operationEpoch.current.isCurrent(epoch)) return;
       if (!isDocument(value)) throw new Error('PDF_DOCUMENT_INVALID');
       setModel(value);
       dispatch({ type: 'parse-done' });
       setFeedback('解析完成，正在按当前页优先翻译');
     }, () => {
+      if (!operationEpoch.current.isCurrent(epoch)) return;
       parseStarted.current = false;
       dispatch({ type: 'parse-failed', error: 'MINERU_PARSE_FAILED' });
       setFeedback('MinerU 解析失败；左栏不受影响');
@@ -107,6 +112,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   React.useEffect(() => {
     if (!model) return;
     const scheduler = new PageScheduler(model.pageCount, 2);
+    const epoch = operationEpoch.current.current();
     scheduler.setActivePage(activePage);
     schedulerRef.current = scheduler;
     let disposed = false;
@@ -118,7 +124,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         const current = page;
         setPageStatus((statuses) => new Map(statuses).set(current, 'translating'));
         void sendPdfMessage({ type: 'pdf:translate-page', hash: model.hash, page: current }).then((value) => {
-          if (disposed || !isTranslations(value)) return;
+          if (disposed || !operationEpoch.current.isCurrent(epoch) || !isTranslations(value)) return;
           setTranslations((existing) => {
             const next = new Map(existing);
             for (const translation of value) next.set(translation.id, translation);
@@ -128,7 +134,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
           scheduler.markDone(current);
           pump();
         }, () => {
-          if (disposed) return;
+          if (disposed || !operationEpoch.current.isCurrent(epoch)) return;
           setPageStatus((statuses) => new Map(statuses).set(current, 'failed'));
           scheduler.markFailed(current);
           pump();
@@ -169,6 +175,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
 
   async function clearCache() {
     if (!source) return;
+    operationEpoch.current.advance();
     await sendPdfMessage({ type: 'pdf:cache-clear', hash: source.hash });
     setModel(null);
     setTranslations(new Map());
@@ -206,7 +213,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }
 
   function stopAgent() {
-    void sendPdfMessage({ type: 'pdf:cancel' }).catch(() => undefined);
+    void sendPdfMessage({ type: 'pdf:agent-cancel' }).catch(() => undefined);
     setAgentBusy(false);
     setAgentError('已停止当前请求');
   }
