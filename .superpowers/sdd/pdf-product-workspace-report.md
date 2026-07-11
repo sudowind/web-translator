@@ -126,3 +126,30 @@
 - clear 先使旧 generation 失效并 abort，再排在已启动写之后删除；clear 请求后才到达队列的旧 generation 写会被跳过。因此 clear resolve 后旧 put 不会重建缓存。
 - RED：workspace-service 13 个测试中 3 个失败；复现 upload 调用两次，以及 document/translation deferred put 未结束时 clear 已先执行。
 - GREEN：workspace-service 13/13；相关门禁 6 个文件、38 个测试通过；typecheck 和 build 通过。manifest 未新增静态权限，未运行全量 check/E2E。
+
+## 最终验收：产品工作台 E2E、文档与构建兼容性
+
+### 自动化范围
+
+- 新增本地双页 PDF fixture、本地 MinerU URL/ZIP/批量上传 mock 和本地 OpenAI 翻译/问答 mock；没有真实外部请求或真实凭据。
+- 临时扩展副本只提升 HTTP/HTTPS 可选 host 权限，用于“已授权后”技术链路；不冒充 action Popup、`activeTab` 用户手势或原生权限门禁，也不执行 `file://`。
+- 公开通用 URL 场景覆盖：URL/query/fragment 不变、PDF.js 左栏、单 URL 任务与 ZIP 解析、第 2 页优先翻译、整篇问答 `[p:2]`、引用双栏定位、智能体收起/展开、关闭/恢复/刷新语义。
+- 认证场景覆盖：无 Cookie 的 200 HTML、带 Cookie 的真实 PDF、同意信息、点击前零上传、点击后单次批量初始化与单次上传。
+- MinerU 失败且左栏保持可读使用 reducer/service 定向单测证据；报告明确没有将其写成浏览器场景。
+
+### E2E 暴露的产品问题与修复
+
+1. 生产 runtime bundle 含原样 `U+FFFF`，Chrome 拒绝 `scripting.executeScript`。根因来自 KaTeX 正则经 Vite 8/Oxc 输出 Unicode noncharacter。构建改用现有 esbuild minifier 的 ASCII 输出；产物从约 `2.686 MB` 变为 `2.704 MB`，noncharacter 扫描 `1 -> 0`。
+2. 认证同意按钮早于 PDF 页数准备完成即可点击，导致 `pageCount=0` 消息被拒。按钮现在在 `documentPageCount < 1` 时禁用。
+3. E2E 为公开与认证场景使用不同 PDF 字节，避免内容哈希缓存正确命中后跳过认证上传路径。
+
+### 新鲜验证证据
+
+- `npm run build`：通过，WXT 总产物约 `6.68 MB`。
+- `npm test -- tests/unit/pdf/workspace-reducer.test.ts tests/unit/pdf/workspace-service.test.ts`：2 个文件、16 个测试通过，duration `931ms`。
+- `npm run test:e2e -- pdf-workspace.spec.ts`：2/2 通过；场景耗时 `2.5s`、`2.2s`，命令总计 `10.6s`。
+- 未运行 `npm run check`。本次修改包含产品构建配置与认证按钮门禁，完整门禁是否重跑由最终控制器统一决定。
+
+### 最终状态
+
+HTTP/HTTPS PDF 产品工作台自动化验收为 `GO`。`file://` 继续延期；真实 action Popup、`activeTab` 与原生权限弹窗仍以既有人工门禁证据为准。

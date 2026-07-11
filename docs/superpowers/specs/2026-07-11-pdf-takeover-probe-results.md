@@ -103,3 +103,38 @@
 ## 后续本地文件动作
 
 本地 `file://` 继续延期。后续必须实现 `chrome.extension.isAllowedFileSchemeAccess()`、真实用户手势中的 `chrome.permissions.request({ origins: ['file:///*'] })`、文件访问引导、结构化失败结果，以及 MinerU 上传前的文件名/大小/目标服务/第三方传输隐私确认。
+
+## PDF 产品工作台最终自动化验收（2026-07-11）
+
+### 结论
+
+`GO（HTTP/HTTPS PDF 产品工作台；file:// 仍不在范围内）`
+
+在基线提交 `3f4167a` 上新增 `web-translate-plugin/tests/e2e/pdf-workspace.spec.ts`。验收只使用本地 HTTP fixture 和本地 MinerU/OpenAI mock，不访问真实 Provider，也不读取真实 API Key 或 Token。
+
+E2E 把生产构建复制到临时目录，仅在临时副本中把 HTTP/HTTPS `optional_host_permissions` 提升为测试 `host_permissions`。该路径只证明用户已经授权后的技术链路，不代表生产 action Popup、`activeTab` 用户手势或原生权限弹窗已经被 Playwright 自动验收；测试没有提升或执行 `file://` 权限。
+
+### 浏览器场景
+
+1. 公开通用 URL：`/download?id=public#page=2`
+   - 地址逐字不变，工作台根节点为 `data-renderer="pdfjs"`，左栏双页可读。
+   - MinerU 只创建一次 URL 单任务，并从 ZIP 中唯一的嵌套 `_content_list.json` 解析结果。
+   - 第 2 页首先完成 OpenAI 翻译；论文问答返回 `[p:2]`，点击“第 2 页”同时定位左右栏。
+   - 智能体可收起/展开；关闭工作台后恢复原生页面，刷新后不会自动重新接管，URL 仍不变。
+2. 认证通用 URL：`/download?id=auth#page=2`
+   - 无 Cookie 请求返回 200 HTML，带 Cookie 且 `credentials: include` 的请求返回 PDF。
+   - 页面显示 MinerU、文件名、大小与第三方传输说明；点击同意前批量初始化和上传计数均为 0。
+   - PDF 页数未准备好时同意按钮禁用；点击同意后只创建一次批量任务并上传一次，随后完成解析和第 2 页翻译。
+
+MinerU 失败后左栏仍可读、安全错误态可重试的场景使用现有 reducer/service 定向单测作为证据，没有冒充第三个浏览器场景。新鲜命令 `npm test -- tests/unit/pdf/workspace-reducer.test.ts tests/unit/pdf/workspace-service.test.ts` 为 `2 files / 16 tests passed`，Vitest duration `931ms`。
+
+### 验收中发现并修复的问题
+
+- Chrome 拒绝注入生产 `pdf-workspace.js`，原始错误为 `It isn't UTF-8 encoded`。产物字符索引约 `2,629,966` 存在 KaTeX 词法正则产生的原样 `U+FFFF`。WXT/Vite 改用项目已有 esbuild minifier 并设置 ASCII 输出后，产物约 `2,704,485` bytes，Unicode noncharacter 扫描从 1 降为 0，后台真实 mount 通过。
+- 认证同意 UI 早于 PDF.js 页数回调出现，立即点击会发送 `pageCount=0` 并在消息校验层失败。产品现在在 `documentPageCount < 1` 时禁用同意按钮。
+
+### 新鲜验证
+
+- `npm run build`：通过；WXT Chrome MV3 构建总计约 `6.68 MB`，`pdf-workspace.js` 约 `2.70 MB`。
+- `npm run test:e2e -- pdf-workspace.spec.ts`：`2 passed (10.6s)`；公开场景 `2.5s`，认证场景 `2.2s`。
+- 未运行全量 `npm run check`；该门禁由最终控制器在本次 feature/build 修复纳入后统一决定是否重跑。

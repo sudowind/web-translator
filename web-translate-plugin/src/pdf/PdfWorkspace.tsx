@@ -247,7 +247,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               <h2>确认发送到第三方解析服务</h2>
               <dl><dt>目标服务</dt><dd>MinerU</dd><dt>文件名</dt><dd>{source.title}</dd><dt>大小</dt><dd>{formatBytes(source.size)}</dd></dl>
               <p>此 PDF 需要认证。点击同意后，文件字节将发送到第三方 MinerU 解析服务。</p>
-              <button type="button" onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
+              <button type="button" disabled={documentPageCount < 1} onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
             </div> : <p role="status">等待 MinerU 解析；PDF 左栏可独立阅读。</p>}
         </section>
         <AgentPanel

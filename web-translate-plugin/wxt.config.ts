@@ -2,6 +2,14 @@ import { defineConfig } from 'wxt';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
+  vite: () => ({
+    build: {
+      minify: 'esbuild',
+    },
+    esbuild: {
+      charset: 'ascii',
+    },
+  }),
   manifest: {
     name: 'Web Translate Probe',
     minimum_chrome_version: '120',
