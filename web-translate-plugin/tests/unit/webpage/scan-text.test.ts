@@ -76,4 +76,37 @@ describe('文本节点扫描', () => {
     expect(rescanned.id).toBe(first.id);
     expect(rescanned.original).toBe('  Original English  ');
   });
+
+  it.each([
+    ['contenteditable 祖先', '<div contenteditable="true"><section>Outer English</section></div>'],
+    ['隐藏祖先', '<div hidden><section>Outer English</section></div>'],
+    ['插件 UI 祖先', '<div data-web-translate-ui><section>Outer English</section></div>'],
+  ])('扫描增量 root 时仍跳过 root 外的%s', (_label, html) => {
+    document.body.innerHTML = html;
+    const root = document.querySelector('section')!;
+
+    expect(scanTextNodes(root)).toEqual([]);
+  });
+
+  it('不把 contenteditable=false 当作可编辑祖先', () => {
+    document.body.innerHTML =
+      '<div contenteditable="false"><section>Allowed English</section></div>';
+
+    expect(
+      scanTextNodes(document.querySelector('section')!).map(
+        ({ original }) => original,
+      ),
+    ).toEqual(['Allowed English']);
+  });
+
+  it('支持扫描 DocumentFragment', () => {
+    const fragment = document.createDocumentFragment();
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'Fragment English';
+    fragment.append(paragraph);
+
+    expect(scanTextNodes(fragment).map(({ original }) => original)).toEqual([
+      'Fragment English',
+    ]);
+  });
 });

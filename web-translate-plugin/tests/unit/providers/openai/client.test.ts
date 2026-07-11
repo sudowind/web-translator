@@ -7,8 +7,6 @@ describe('OpenAI 兼容翻译客户端', () => {
     apiKey: 'secret-key',
     baseUrl: 'https://llm.example/v1/',
     model: 'translator',
-    sourceLanguage: 'en',
-    targetLanguage: 'zh-CN',
   };
 
   it('使用 chat completions JSON Object 协议并按 block id 返回结果', async () => {
@@ -124,5 +122,22 @@ describe('OpenAI 兼容翻译客户端', () => {
         targetLanguage: 'zh-CN',
       }),
     ).rejects.toThrow('翻译请求失败 (503)');
+  });
+
+  it('在发起请求前拒绝重复的 request block id', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const client = new OpenAiTranslationClient(settings, fetcher);
+
+    await expect(
+      client.translate({
+        blocks: [
+          { id: 'duplicate', text: 'First' },
+          { id: 'duplicate', text: 'Second' },
+        ],
+        sourceLanguage: 'en',
+        targetLanguage: 'zh-CN',
+      }),
+    ).rejects.toThrow('翻译请求包含重复 id: duplicate');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

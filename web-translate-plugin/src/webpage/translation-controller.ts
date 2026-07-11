@@ -19,13 +19,9 @@ export class TranslationController {
     }
   }
 
-  revealOriginal(id: string): void {
+  revealOriginal(id: string): string | null {
     const block = this.blocksById.get(id);
-    if (!block || !block.node.isConnected) {
-      return;
-    }
-    block.node.data = block.original;
-    this.appliedIds.delete(id);
+    return block?.original ?? null;
   }
 
   restore(): void {
@@ -33,8 +29,8 @@ export class TranslationController {
       const block = this.blocksById.get(id);
       if (block?.node.isConnected) {
         block.node.data = block.original;
+        this.appliedIds.delete(id);
       }
     }
-    this.appliedIds.clear();
   }
 }

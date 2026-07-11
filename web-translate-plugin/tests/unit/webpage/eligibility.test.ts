@@ -11,20 +11,31 @@ describe('普通网页资格判断', () => {
     'https://example.com/checkout/order',
     'https://example.com/payment/confirm',
     'https://example.com/admin/users',
+    'https://example.com/payments/history',
+    'https://example.com/billingportal',
+    'https://example.com/administration/users',
   ])('拒绝不适合翻译的地址 %s', (url) => {
-    expect(isEligiblePage(url, document)).toBe(false);
+    expect(isEligiblePage(new URL(url), document)).toBe(false);
   });
 
   it('对损坏的 URL 编码安全返回不符合资格', () => {
-    expect(isEligiblePage('https://example.com/%E0%A4%A', document)).toBe(false);
+    expect(
+      isEligiblePage(new URL('https://example.com/%E0%A4%A'), document),
+    ).toBe(false);
   });
 
   it('拒绝包含密码输入框的页面并允许普通 HTTP/HTTPS 页面', () => {
     document.body.innerHTML = '<input type="password">';
-    expect(isEligiblePage('https://example.com/login', document)).toBe(false);
+    expect(isEligiblePage(new URL('https://example.com/login'), document)).toBe(
+      false,
+    );
 
     document.body.innerHTML = '<main>Documentation</main>';
-    expect(isEligiblePage('https://example.com/docs', document)).toBe(true);
-    expect(isEligiblePage('http://localhost/article', document)).toBe(true);
+    expect(isEligiblePage(new URL('https://example.com/docs'), document)).toBe(
+      true,
+    );
+    expect(isEligiblePage(new URL('http://localhost/article'), document)).toBe(
+      true,
+    );
   });
 });

@@ -25,8 +25,8 @@ describe('原位翻译控制器', () => {
     expect(document.querySelector('#second')).toBe(secondParent);
     expect(firstParent.className).toBe('keep');
 
-    controller.revealOriginal(blocks[0].id);
-    expect(firstNode.data).toBe('Hello world');
+    expect(controller.revealOriginal(blocks[0].id)).toBe('Hello world');
+    expect(firstNode.data).toBe('你好，世界');
     expect(secondNode.data).toBe('第二段');
 
     controller.restore();
@@ -53,7 +53,23 @@ describe('原位翻译控制器', () => {
     ).not.toThrow();
     expect(blocks[0].node.data).toBe('已连接');
     expect(blocks[1].node.data).toBe('Detached text');
-    expect(() => controller.revealOriginal('unknown')).not.toThrow();
+    expect(controller.revealOriginal('unknown')).toBeNull();
     expect(() => controller.restore()).not.toThrow();
+  });
+
+  it('断开时保留恢复资格并在重连后的再次 restore 恢复原文', () => {
+    document.body.innerHTML = '<p>Reconnect English</p>';
+    const block = scanTextNodes(document.body)[0];
+    const parent = block.node.parentElement!;
+    const controller = new TranslationController([block]);
+    controller.apply([{ id: block.id, text: '重连文本' }]);
+    parent.remove();
+
+    controller.restore();
+    expect(block.node.data).toBe('重连文本');
+
+    document.body.append(parent);
+    controller.restore();
+    expect(block.node.data).toBe('Reconnect English');
   });
 });

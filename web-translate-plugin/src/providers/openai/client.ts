@@ -1,7 +1,7 @@
 import type {
   TranslationRequest,
   TranslationResult,
-  TranslationSettings,
+  OpenAiSettings,
 } from './contracts';
 
 interface ChatCompletionsResponse {
@@ -10,7 +10,7 @@ interface ChatCompletionsResponse {
 
 export class OpenAiTranslationClient {
   constructor(
-    private readonly settings: TranslationSettings,
+    private readonly settings: OpenAiSettings,
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
@@ -21,6 +21,14 @@ export class OpenAiTranslationClient {
     const { apiKey, baseUrl, model } = this.settings;
     if (!apiKey.trim() || !baseUrl.trim() || !model.trim()) {
       throw new Error('翻译 Provider 配置不完整');
+    }
+
+    const requestIds = new Set<string>();
+    for (const { id } of request.blocks) {
+      if (requestIds.has(id)) {
+        throw new Error(`翻译请求包含重复 id: ${id}`);
+      }
+      requestIds.add(id);
     }
 
     const { sourceLanguage, targetLanguage } = request;
@@ -115,5 +123,5 @@ export type {
   TranslationBlockInput,
   TranslationRequest,
   TranslationResult,
-  TranslationSettings,
+  OpenAiSettings,
 } from './contracts';

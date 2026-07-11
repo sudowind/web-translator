@@ -21,15 +21,21 @@ interface TextMetadata {
 const metadataByNode = new WeakMap<Text, TextMetadata>();
 let nextId = 0;
 
-export function scanTextNodes(root: Document | Element): TextBlock[] {
-  const document = root instanceof Document ? root : root.ownerDocument;
+export function scanTextNodes(root: Node): TextBlock[] {
+  const document =
+    root.nodeType === Node.DOCUMENT_NODE
+      ? (root as Document)
+      : root.ownerDocument;
+  if (!document) {
+    return [];
+  }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const blocks: TextBlock[] = [];
   let current = walker.nextNode();
 
   while (current) {
     const node = current as Text;
-    if (/[A-Za-z]/.test(node.data) && isUsable(node, root)) {
+    if (/[A-Za-z]/.test(node.data) && isUsable(node)) {
       let metadata = metadataByNode.get(node);
       if (!metadata) {
         metadata = {
@@ -46,14 +52,21 @@ export function scanTextNodes(root: Document | Element): TextBlock[] {
   return blocks;
 }
 
-function isUsable(node: Text, root: Document | Element): boolean {
+function isUsable(node: Text): boolean {
   let element = node.parentElement;
   const view = node.ownerDocument.defaultView;
+  let editableStateResolved = false;
 
   while (element) {
+    const contentEditable = element.getAttribute('contenteditable');
+    if (contentEditable !== null && !editableStateResolved) {
+      editableStateResolved = true;
+      if (contentEditable.toLowerCase() !== 'false') {
+        return false;
+      }
+    }
     if (
       SKIPPED_ELEMENTS.has(element.tagName) ||
-      element.hasAttribute('contenteditable') ||
       element.hasAttribute('data-web-translate-ui') ||
       element.hidden ||
       element.getAttribute('aria-hidden') === 'true' ||
@@ -73,9 +86,6 @@ function isUsable(node: Text, root: Document | Element): boolean {
       return false;
     }
 
-    if (element === root) {
-      break;
-    }
     element = element.parentElement;
   }
 

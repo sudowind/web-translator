@@ -1,4 +1,4 @@
-export type { TranslationSettings } from '../../settings/schema';
+export type { OpenAiSettings } from '../../settings/schema';
 
 export interface TranslationBlockInput {
   id: string;

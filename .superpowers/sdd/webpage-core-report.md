@@ -56,3 +56,39 @@ npm test -- tests/unit/settings/store.test.ts tests/unit/providers/openai/client
 ## 关注点
 
 - 无阻塞关注点。Provider 真实网络调用和浏览器消息接线按简报明确不属于本里程碑范围。
+
+## 复核修复（2026-07-11）
+
+### 状态与提交
+
+- 状态：DONE
+- 提交信息：`fix: harden webpage translation core domain`
+
+### 修复内容
+
+- 扫描器签名扩展为 `scanTextNodes(root: Node)`，支持 `Document`、`Element` 和 `DocumentFragment`；扫描增量 root 时继续检查 root 外的全部元素祖先，并正确允许 `contenteditable="false"` 覆盖外层编辑状态。
+- 页面资格接口对齐为 `isEligiblePage(url: URL, document: Document)`，补充拒绝 `payments`、`billingportal`、`administration` 等明显敏感词形。
+- 控制器的 `revealOriginal(id)` 改为只读返回 `string | null`；`restore()` 为断开节点保留待恢复状态，使节点重连后可再次恢复。
+- 设置数据恢复为 `OpenAiSettings` 与包含 `openAi`、源语言、目标语言的 `ExtensionSettings`；Provider 客户端只接收 `OpenAiSettings`。
+- Provider 在网络请求前拒绝重复的 request block id。
+
+### RED → GREEN 证据
+
+RED 定向命令：
+
+```text
+npm test -- tests/unit/settings/store.test.ts tests/unit/providers/openai/client.test.ts tests/unit/webpage/eligibility.test.ts tests/unit/webpage/scan-text.test.ts tests/unit/webpage/translation-controller.test.ts
+```
+
+结果：5 个测试文件中 11 项失败，分别命中嵌套设置、敏感词形、外层祖先、只读 reveal、重连恢复和请求重复 id。随后 `npm run typecheck` 失败，命中 `OpenAiSettings` / `ExtensionSettings`、`URL` 参数和 `DocumentFragment` 类型契约。
+
+GREEN 定向命令同上，结果：exit 0；5 个测试文件、32 项测试全部通过。`npm run typecheck` 同步通过。
+
+最终完整检查：`npm run check`，结果：exit 0；TypeScript 检查通过，13 个测试文件、71 项测试全部通过，Chrome MV3 生产构建成功。
+
+### 自查
+
+- `apply()` / `restore()` 仍只修改 `Text.data`；`revealOriginal()` 不修改 DOM。
+- API Key 仍只进入 local 设置与 Provider 请求头，不进入页面、日志或诊断输出。
+- 未修改 Popup、内容脚本、background、manifest 权限或 PDF 探针。
+- 浏览器集成不在本次复核修复范围内。
