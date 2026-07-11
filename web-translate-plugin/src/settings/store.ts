@@ -6,7 +6,11 @@ const settingsItem = storage.defineItem<ExtensionSettings>(
 );
 
 export async function getSettings(): Promise<ExtensionSettings> {
-  return settingsItem.getValue();
+  const value = await settingsItem.getValue();
+  return {
+    ...value,
+    mineru: value.mineru ?? defaultSettings.mineru,
+  };
 }
 
 export async function saveSettings(

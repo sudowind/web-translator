@@ -12,6 +12,11 @@ const validSettings = {
     apiKey: ' secret ',
     model: ' model-name ',
   },
+  mineru: {
+    baseUrl: 'https://mineru.example.test/',
+    token: ' mineru-secret ',
+    modelVersion: 'vlm' as const,
+  },
   sourceLanguage: 'en',
   targetLanguage: 'zh-CN',
 };
@@ -37,6 +42,11 @@ describe('Provider 设置授权', () => {
         apiKey: 'secret',
         model: 'model-name',
       },
+      mineru: {
+        baseUrl: 'https://mineru.example.test',
+        token: 'mineru-secret',
+        modelVersion: 'vlm',
+      },
     });
     expect(() =>
       validateProviderSettings({
@@ -52,7 +62,32 @@ describe('Provider 设置授权', () => {
       authorizeProviderSettings(validSettings, requestPermission),
     ).rejects.toThrow('授权');
     expect(requestPermission).toHaveBeenCalledWith({
-      origins: ['https://api.example.test:8443/*'],
+      origins: [
+        'https://api.example.test:8443/*',
+        'https://mineru.example.test/*',
+      ],
     });
+  });
+
+  it('MinerU token 为空时不影响 OpenAI 保存且不请求 MinerU Origin', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(true);
+    const settings = {
+      ...validSettings,
+      mineru: { baseUrl: 'not-a-url', token: ' ', modelVersion: 'invalid' as 'vlm' },
+    };
+    const result = await authorizeProviderSettings(settings, requestPermission);
+    expect(result.mineru).toEqual({ baseUrl: 'https://mineru.net', token: '', modelVersion: 'vlm' });
+    expect(requestPermission).toHaveBeenCalledWith({ origins: ['https://api.example.test:8443/*'] });
+  });
+
+  it('MinerU token 已填写时校验 HTTPS 和模型版本', () => {
+    expect(() => validateProviderSettings({
+      ...validSettings,
+      mineru: { ...validSettings.mineru, baseUrl: 'http://mineru.example.test' },
+    })).toThrow('HTTPS');
+    expect(() => validateProviderSettings({
+      ...validSettings,
+      mineru: { ...validSettings.mineru, modelVersion: 'unknown' as 'vlm' },
+    })).toThrow('MinerU 模型');
   });
 });

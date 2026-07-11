@@ -1,4 +1,4 @@
-import type { ExtensionSettings } from './schema';
+import { defaultSettings, type ExtensionSettings } from './schema';
 
 type PermissionRequester = (permissions: {
   origins: string[];
@@ -34,8 +34,22 @@ export function validateProviderSettings(
   }
   providerOriginPattern(settings.openAi.baseUrl);
   const baseUrl = settings.openAi.baseUrl.trim().replace(/\/+$/, '');
+  const token = settings.mineru.token.trim();
+  let mineru = defaultSettings.mineru;
+  if (token) {
+    if (settings.mineru.modelVersion !== 'vlm' && settings.mineru.modelVersion !== 'pipeline') {
+      throw new Error('MinerU 模型版本无效');
+    }
+    providerOriginPattern(settings.mineru.baseUrl);
+    mineru = {
+      baseUrl: settings.mineru.baseUrl.trim().replace(/\/+$/, ''),
+      token,
+      modelVersion: settings.mineru.modelVersion,
+    };
+  }
   return {
     openAi: { apiKey, baseUrl, model },
+    mineru,
     sourceLanguage,
     targetLanguage,
   };
@@ -46,8 +60,11 @@ export async function authorizeProviderSettings(
   requestPermission: PermissionRequester,
 ): Promise<ExtensionSettings> {
   const validated = validateProviderSettings(settings);
-  const origin = providerOriginPattern(validated.openAi.baseUrl);
-  const granted = await requestPermission({ origins: [origin] });
+  const origins = [providerOriginPattern(validated.openAi.baseUrl)];
+  if (validated.mineru.token) {
+    origins.push(providerOriginPattern(validated.mineru.baseUrl));
+  }
+  const granted = await requestPermission({ origins });
   if (!granted) {
     throw new Error('未获得 Provider Origin 授权；请授权后重试');
   }

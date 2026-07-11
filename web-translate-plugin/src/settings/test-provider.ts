@@ -46,18 +46,26 @@ export function isSettingsTestProviderMessage(
   if (
     !hasExactKeys(settings, [
       'openAi',
+      'mineru',
       'sourceLanguage',
       'targetLanguage',
     ]) ||
     !hasExactKeys(settings.openAi, ['apiKey', 'baseUrl', 'model']) ||
+    !hasExactKeys(settings.mineru, ['baseUrl', 'token', 'modelVersion']) ||
     typeof settings.openAi.apiKey !== 'string' ||
     typeof settings.openAi.baseUrl !== 'string' ||
     typeof settings.openAi.model !== 'string' ||
+    typeof settings.mineru.baseUrl !== 'string' ||
+    typeof settings.mineru.token !== 'string' ||
+    typeof settings.mineru.modelVersion !== 'string' ||
     typeof settings.sourceLanguage !== 'string' ||
     typeof settings.targetLanguage !== 'string' ||
     settings.openAi.baseUrl.length > MAX_BASE_URL_LENGTH ||
     settings.openAi.apiKey.length > MAX_API_KEY_LENGTH ||
     settings.openAi.model.length > MAX_MODEL_LENGTH ||
+    settings.mineru.baseUrl.length > MAX_BASE_URL_LENGTH ||
+    settings.mineru.token.length > MAX_API_KEY_LENGTH ||
+    settings.mineru.modelVersion.length > MAX_MODEL_LENGTH ||
     settings.sourceLanguage.length > MAX_LANGUAGE_LENGTH ||
     settings.targetLanguage.length > MAX_LANGUAGE_LENGTH
   ) {

@@ -19,6 +19,11 @@ describe('网页翻译设置', () => {
         baseUrl: '',
         model: '',
       },
+      mineru: {
+        baseUrl: 'https://mineru.net',
+        token: '',
+        modelVersion: 'vlm',
+      },
       sourceLanguage: 'en',
       targetLanguage: 'zh-CN',
     });
@@ -30,6 +35,11 @@ describe('网页翻译设置', () => {
     } satisfies OpenAiSettings;
     const settings = {
       openAi,
+      mineru: {
+        baseUrl: 'https://mineru.example.test',
+        token: 'mineru-secret',
+        modelVersion: 'pipeline' as const,
+      },
       sourceLanguage: 'fr',
       targetLanguage: 'zh-TW',
     } satisfies ExtensionSettings;
@@ -42,5 +52,18 @@ describe('网页翻译设置', () => {
     await expect(
       fakeBrowser.storage.sync.get('webpage-translation-settings'),
     ).resolves.toEqual({});
+  });
+
+  it('读取旧设置时补齐 MinerU 默认配置', async () => {
+    await fakeBrowser.storage.local.set({
+      'webpage-translation-settings': {
+        openAi: { apiKey: 'key', baseUrl: 'https://api.example.test/v1', model: 'm' },
+        sourceLanguage: 'en',
+        targetLanguage: 'zh-CN',
+      },
+    });
+    await expect(getSettings()).resolves.toMatchObject({
+      mineru: { baseUrl: 'https://mineru.net', token: '', modelVersion: 'vlm' },
+    });
   });
 });

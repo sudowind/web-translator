@@ -9,6 +9,11 @@ const settings = {
     apiKey: 'secret',
     model: 'translate-model',
   },
+  mineru: {
+    baseUrl: 'https://mineru.net',
+    token: '',
+    modelVersion: 'vlm' as const,
+  },
   sourceLanguage: 'en',
   targetLanguage: 'zh-CN',
 };

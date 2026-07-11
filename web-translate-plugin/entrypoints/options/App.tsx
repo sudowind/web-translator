@@ -10,7 +10,7 @@ export default function App() {
   const [settings, setSettings] = useState<ExtensionSettings>(defaultSettings);
   const [activity, setActivity] = useState<Activity>('loading');
   const [feedback, setFeedback] = useState('正在读取现有设置');
-  const [fieldError, setFieldError] = useState<Partial<Record<'baseUrl' | 'apiKey' | 'model', string>>>({});
+  const [fieldError, setFieldError] = useState<Partial<Record<'baseUrl' | 'apiKey' | 'model' | 'mineruBaseUrl' | 'mineruToken' | 'mineruModel', string>>>({});
   const showProgress = useDelayedProgress(activity !== 'idle');
 
   useEffect(() => {
@@ -33,6 +33,25 @@ export default function App() {
       openAi: { ...current.openAi, [field]: value },
     }));
     setFieldError((current) => ({ ...current, [field]: undefined }));
+  }
+
+  function updateMineru(
+    field: 'baseUrl' | 'token' | 'modelVersion',
+    value: string,
+  ) {
+    setSettings((current) => ({
+      ...current,
+      mineru: {
+        ...current.mineru,
+        [field]: value,
+      } as ExtensionSettings['mineru'],
+    }));
+    const errorField = field === 'baseUrl'
+      ? 'mineruBaseUrl'
+      : field === 'token'
+        ? 'mineruToken'
+        : 'mineruModel';
+    setFieldError((current) => ({ ...current, [errorField]: undefined }));
   }
 
   async function authorize() {
@@ -79,7 +98,11 @@ export default function App() {
 
   function reportError(error: unknown) {
     const message = errorText(error);
-    const field = /HTTPS|接口地址|凭据/.test(message)
+    const field = /MinerU 模型/.test(message)
+      ? 'mineruModel'
+      : /MinerU/.test(message) && /HTTPS|接口地址|凭据/.test(message)
+        ? 'mineruBaseUrl'
+        : /HTTPS|接口地址|凭据/.test(message)
       ? 'baseUrl'
       : /API Key/.test(message)
         ? 'apiKey'
@@ -106,6 +129,29 @@ export default function App() {
           <p id="base-url-help" className="help">例如 https://api.example.com/v1，仅支持 HTTPS。</p>
           {fieldError.baseUrl && <p id="base-url-error" className="error">{fieldError.baseUrl}</p>}
         </div>
+        <fieldset>
+          <legend>MinerU PDF 解析（可选）</legend>
+          <p className="help">Token 留空时不会启用或申请 MinerU 权限。</p>
+          <div className="field">
+            <label htmlFor="mineru-base-url">MinerU 接口地址</label>
+            <input id="mineru-base-url" type="url" inputMode="url" value={settings.mineru.baseUrl} onChange={(event) => updateMineru('baseUrl', event.target.value)} aria-describedby="mineru-base-url-help mineru-base-url-error" aria-invalid={Boolean(fieldError.mineruBaseUrl)} />
+            <p id="mineru-base-url-help" className="help">默认 https://mineru.net，仅支持 HTTPS。</p>
+            {fieldError.mineruBaseUrl && <p id="mineru-base-url-error" className="error">{fieldError.mineruBaseUrl}</p>}
+          </div>
+          <div className="field">
+            <label htmlFor="mineru-model">MinerU 模型版本</label>
+            <select id="mineru-model" value={settings.mineru.modelVersion} onChange={(event) => updateMineru('modelVersion', event.target.value)} aria-describedby="mineru-model-error" aria-invalid={Boolean(fieldError.mineruModel)}>
+              <option value="vlm">vlm</option>
+              <option value="pipeline">pipeline</option>
+            </select>
+            {fieldError.mineruModel && <p id="mineru-model-error" className="error">{fieldError.mineruModel}</p>}
+          </div>
+          <div className="field">
+            <label htmlFor="mineru-token">MinerU Token</label>
+            <input id="mineru-token" type="password" autoComplete="off" value={settings.mineru.token} onChange={(event) => updateMineru('token', event.target.value)} aria-describedby="mineru-token-error" aria-invalid={Boolean(fieldError.mineruToken)} />
+            {fieldError.mineruToken && <p id="mineru-token-error" className="error">{fieldError.mineruToken}</p>}
+          </div>
+        </fieldset>
         <div className="field">
           <label htmlFor="model">模型</label>
           <input id="model" required value={settings.openAi.model} onChange={(event) => updateOpenAi('model', event.target.value)} aria-describedby="model-error" aria-invalid={Boolean(fieldError.model)} />
