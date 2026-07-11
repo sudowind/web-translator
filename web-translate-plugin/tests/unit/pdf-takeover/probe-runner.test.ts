@@ -25,6 +25,7 @@ describe('runTakeoverProbe', () => {
       href: 'https://example.com/paper.pdf?x=1',
       injected: true,
     });
+    deps.restore.mockResolvedValue(false);
 
     const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
 
@@ -35,6 +36,7 @@ describe('runTakeoverProbe', () => {
       passed: false,
       failure: 'url_changed',
     });
+    expect(deps.restore).toHaveBeenCalledWith(7);
   });
 
   it('所有依赖成功且 URL 逐字一致时通过', async () => {
@@ -87,6 +89,7 @@ describe('runTakeoverProbe', () => {
   it('字节不可读时返回 bytes_unreadable', async () => {
     const deps = createDeps();
     deps.readBytes.mockResolvedValue(false);
+    deps.restore.mockResolvedValue(false);
 
     const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
 
@@ -95,6 +98,7 @@ describe('runTakeoverProbe', () => {
       passed: false,
       failure: 'bytes_unreadable',
     });
+    expect(deps.restore).toHaveBeenCalledWith(7);
   });
 
   it('恢复失败时返回 restore_failed', async () => {

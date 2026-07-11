@@ -69,6 +69,7 @@ export async function runTakeoverProbe(
   }
 
   if (mounted.href !== tab.url) {
+    const restored = await deps.restore(tab.id);
     return {
       tabId: tab.id,
       originalUrl: tab.url,
@@ -76,7 +77,7 @@ export async function runTakeoverProbe(
       kind,
       injected: true,
       bytesReadable: false,
-      restored: false,
+      restored,
       passed: false,
       failure: 'url_changed',
       measuredAt,
@@ -85,6 +86,7 @@ export async function runTakeoverProbe(
 
   const bytesReadable = await deps.readBytes(tab.url);
   if (!bytesReadable) {
+    const restored = await deps.restore(tab.id);
     return {
       tabId: tab.id,
       originalUrl: tab.url,
@@ -92,7 +94,7 @@ export async function runTakeoverProbe(
       kind,
       injected: true,
       bytesReadable: false,
-      restored: false,
+      restored,
       passed: false,
       failure: 'bytes_unreadable',
       measuredAt,
