@@ -84,6 +84,75 @@ describe('MinerU 客户端', () => {
     expect(sleep.mock.calls).toEqual([[1000], [1500]]);
   });
 
+  it.each([
+    [
+      'single',
+      { kind: 'single', id: 't1' } as const,
+      { code: 0, data: { state: 'running' } },
+    ],
+    [
+      'batch',
+      { kind: 'batch', id: 'b1', dataId: 'data-1' } as const,
+      {
+        code: 0,
+        data: { extract_result: [{ data_id: 'data-1', state: 'running' }] },
+      },
+    ],
+  ])('规范化 %s 任务的官方 running 并继续轮询', async (_kind, task, running) => {
+    const done = task.kind === 'single'
+      ? { code: 0, data: { state: 'done', full_zip_url: 'https://cdn.test/result.zip' } }
+      : {
+          code: 0,
+          data: {
+            extract_result: [{
+              data_id: 'data-1',
+              state: 'done',
+              full_zip_url: 'https://cdn.test/result.zip',
+            }],
+          },
+        };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(running))
+      .mockResolvedValueOnce(jsonResponse(done));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const client = new MineruClient(settings, {
+      fetcher,
+      sleep,
+      maxPollAttempts: 2,
+    });
+
+    await expect(client.waitForResult(task)).resolves.toMatchObject({ state: 'done' });
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('退避 sleep 期间 abort 会立即拒绝且不等待注入 sleep 完成', async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      jsonResponse({ code: 0, data: { state: 'pending' } }),
+    );
+    let enterSleep!: () => void;
+    const sleepStarted = new Promise<void>((resolve) => { enterSleep = resolve; });
+    const sleep = vi.fn(() => {
+      enterSleep();
+      return new Promise<void>(() => undefined);
+    });
+    const controller = new AbortController();
+    const client = new MineruClient(settings, {
+      fetcher,
+      sleep,
+      maxPollAttempts: 2,
+    });
+
+    const waiting = client.waitForResult(
+      { kind: 'single', id: 't1' },
+      controller.signal,
+    );
+    await sleepStarted;
+    controller.abort();
+
+    await expect(waiting).rejects.toHaveProperty('name', 'AbortError');
+  });
+
   it('done 缺少 Zip URL、failed 与 HTTP 错误都只暴露结构化错误', async () => {
     for (const response of [
       jsonResponse({ code: 0, data: { state: 'done', full_zip_url: '' } }),

@@ -1,13 +1,11 @@
+import type { MineruSettings } from '../providers/mineru/contracts';
+
+export type { MineruSettings } from '../providers/mineru/contracts';
+
 export interface OpenAiSettings {
   apiKey: string;
   baseUrl: string;
   model: string;
-}
-
-export interface MineruSettings {
-  baseUrl: string;
-  token: string;
-  modelVersion: 'vlm' | 'pipeline';
 }
 
 export interface ExtensionSettings {

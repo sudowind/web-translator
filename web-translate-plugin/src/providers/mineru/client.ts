@@ -15,7 +15,7 @@ interface MineruClientOptions {
 }
 
 const waitingStates = new Set(['pending', 'waiting-file']);
-const runningStates = new Set(['uploading', 'converting']);
+const runningStates = new Set(['running', 'uploading', 'converting']);
 
 export class MineruClient {
   private readonly fetcher: typeof fetch;
@@ -104,10 +104,10 @@ export class MineruClient {
       const result = normalizeResult(resultData);
       if (result.state === 'done' || result.state === 'failed') return result;
       if (attempt + 1 < this.maxPollAttempts) {
-        await this.sleep(Math.min(
+        await this.sleepWithSignal(Math.min(
           this.maxPollDelayMs,
           this.initialPollDelayMs * 2 ** attempt,
-        ));
+        ), signal);
       }
     }
     throw new MineruError('MINERU_TIMEOUT');
@@ -119,6 +119,26 @@ export class MineruClient {
 
   private jsonHeaders(): Record<string, string> {
     return { ...this.authHeaders(), 'content-type': 'application/json' };
+  }
+
+  private async sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      await this.sleep(ms);
+      return;
+    }
+    signal.throwIfAborted();
+    let onAbort!: () => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(
+        signal.reason ?? new DOMException('The operation was aborted', 'AbortError'),
+      );
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      await Promise.race([this.sleep(ms), aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
   }
 
   private async requestJson(

@@ -70,4 +70,54 @@ describe('MinerU 文档规范化', () => {
       expect.objectContaining({ code: 'MINERU_METADATA_INVALID' }),
     );
   });
+
+  it.each([0, 601, Number.MAX_SAFE_INTEGER + 1])(
+    '拒绝不在 1..600 safe integer 范围内的 pageCount：%s',
+    (pageCount) => {
+      expect(() => normalizeMineru([], { ...metadata, pageCount })).toThrowError(
+        expect.objectContaining({ code: 'MINERU_METADATA_INVALID' }),
+      );
+    },
+  );
+
+  it.each(['sourceUrl', 'hash', 'title'] as const)(
+    '拒绝空白 metadata.%s 且不回显字段原文',
+    (field) => {
+      const secret = '  secret document body  ';
+      try {
+        normalizeMineru([], { ...metadata, [field]: '   ' });
+        throw new Error('expected normalization to fail');
+      } catch (error) {
+        expect(error).toMatchObject({ code: 'MINERU_METADATA_INVALID' });
+        expect(String(error)).not.toContain(secret.trim());
+      }
+    },
+  );
+
+  it('修剪 metadata 后再生成稳定 ID', () => {
+    const model = normalizeMineru(
+      [{ page_idx: 0, type: ' text ', text: 'Body' }],
+      {
+        sourceUrl: ' https://example.test/paper.pdf ',
+        hash: ' sha256:trimmed ',
+        title: ' Paper ',
+        pageCount: 1,
+      },
+    );
+    expect(model).toMatchObject({
+      id: 'sha256:trimmed',
+      sourceUrl: 'https://example.test/paper.pdf',
+      hash: 'sha256:trimmed',
+      title: 'Paper',
+    });
+    expect(model.pages[0].id).toBe('sha256:trimmed:p1');
+    expect(model.pages[0].blocks[0]).toMatchObject({ kind: 'paragraph' });
+  });
+
+  it('拒绝空白 raw block type', () => {
+    expect(() => normalizeMineru(
+      [{ page_idx: 0, type: '   ', text: 'secret raw body' }],
+      { ...metadata, pageCount: 1 },
+    )).toThrowError(expect.objectContaining({ code: 'MINERU_FIELD_INVALID' }));
+  });
 });

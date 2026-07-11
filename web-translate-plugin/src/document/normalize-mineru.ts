@@ -30,11 +30,11 @@ export function normalizeMineru(
   input: unknown,
   metadata: DocumentMetadata,
 ): DocumentModel {
-  validateMetadata(metadata);
+  const normalizedMetadata = normalizeMetadata(metadata);
   if (!Array.isArray(input)) throw new MineruDataError('MINERU_INPUT_NOT_ARRAY');
 
-  const pages = Array.from({ length: metadata.pageCount }, (_, index) => ({
-    id: pageId(metadata.hash, index),
+  const pages = Array.from({ length: normalizedMetadata.pageCount }, (_, index) => ({
+    id: pageId(normalizedMetadata.hash, index),
     index,
     blocks: [] as DocumentModel['pages'][number]['blocks'],
   }));
@@ -45,7 +45,7 @@ export function normalizeMineru(
     if (!Number.isInteger(pageIndex)) {
       throw new MineruDataError('MINERU_PAGE_INVALID');
     }
-    if ((pageIndex as number) < 0 || (pageIndex as number) >= metadata.pageCount) {
+    if ((pageIndex as number) < 0 || (pageIndex as number) >= normalizedMetadata.pageCount) {
       throw new MineruDataError('MINERU_PAGE_OUT_OF_RANGE');
     }
     const type = requiredString(value.type);
@@ -63,7 +63,7 @@ export function normalizeMineru(
     const normalizedText = text ?? caption?.join('\n') ?? '';
 
     page.blocks.push({
-      id: blockId(metadata.hash, pageIndex as number, order),
+      id: blockId(normalizedMetadata.hash, pageIndex as number, order),
       pageId: page.id,
       order,
       kind,
@@ -75,20 +75,28 @@ export function normalizeMineru(
     });
   }
 
-  return { id: metadata.hash, ...metadata, pages };
+  return { id: normalizedMetadata.hash, ...normalizedMetadata, pages };
 }
 
-function validateMetadata(metadata: DocumentMetadata): void {
+function normalizeMetadata(metadata: DocumentMetadata): DocumentMetadata {
   if (
     !isRecord(metadata) ||
     typeof metadata.sourceUrl !== 'string' ||
     typeof metadata.hash !== 'string' ||
     typeof metadata.title !== 'string' ||
-    !Number.isInteger(metadata.pageCount) ||
-    metadata.pageCount < 0
+    !Number.isSafeInteger(metadata.pageCount) ||
+    metadata.pageCount < 1 ||
+    metadata.pageCount > 600
   ) {
     throw new MineruDataError('MINERU_METADATA_INVALID');
   }
+  const sourceUrl = metadata.sourceUrl.trim();
+  const hash = metadata.hash.trim();
+  const title = metadata.title.trim();
+  if (!sourceUrl || !hash || !title) {
+    throw new MineruDataError('MINERU_METADATA_INVALID');
+  }
+  return { sourceUrl, hash, title, pageCount: metadata.pageCount };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -97,7 +105,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function requiredString(value: unknown): string {
   if (typeof value !== 'string') throw new MineruDataError('MINERU_FIELD_INVALID');
-  return value;
+  const normalized = value.trim();
+  if (!normalized) throw new MineruDataError('MINERU_FIELD_INVALID');
+  return normalized;
 }
 
 function optionalString(value: unknown): string | undefined {

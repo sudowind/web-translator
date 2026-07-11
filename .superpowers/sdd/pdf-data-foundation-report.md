@@ -53,3 +53,17 @@
 
 - 当前仅交付数据基础；任务恢复的 Service Worker 编排、PDF 工作台 UI 和真实浏览器权限交互验收属于后续产品里程碑。
 - MinerU 远端真实响应仍需后续集成验收；本里程碑使用官方协议形状的定向测试覆盖 single/batch 分流和错误边界。
+
+## 唯一修复波
+
+根据数据基础里程碑复核意见，追加完成以下加固：
+
+- 将官方 `running` 在 single 与 batch 任务中统一规范化为内部运行状态并继续轮询。
+- 轮询退避改为可感知 `AbortSignal` 的 sleep race；取消后不等待完整退避时间，并在完成、失败或取消时移除 abort listener。
+- metadata 的 `pageCount` 限制为 safe integer 且范围为 1..600；`sourceUrl`、`hash`、`title` 修剪后必须非空，稳定 ID 使用修剪后的 hash；raw block `type` 修剪后必须非空。
+- `MineruSettings` 只在 `src/providers/mineru/contracts.ts` 定义，设置 schema 通过 type-only import 与 re-export 使用，未增加运行时循环。
+
+### 修复波 TDD 记录
+
+- RED：client/normalize 两个文件共 11 个新增断言失败；single/batch `running` 返回 `MINERU_STATE_INVALID`，退避中 abort 测试超时，metadata 边界与修剪断言失败。
+- GREEN：client、normalize 与 settings 相关 5 个定向测试文件共 38 个测试通过。
