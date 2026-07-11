@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it, vi } from 'vitest';
 
 import type { TranslationResult } from '../../../src/providers/openai/contracts';

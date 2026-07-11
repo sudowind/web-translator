@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PdfTargetKind } from '../../../src/pdf-takeover/contracts';

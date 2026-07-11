@@ -8,6 +8,8 @@
     "build": "wxt build -b chrome",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:changed": "vitest run --changed",
+    "check:fast": "tsc --noEmit && vitest run --changed",
     "test:e2e": "playwright test",
     "test:e2e:authorized": "playwright test pdf-takeover.spec.ts",
     "check": "npm run typecheck && npm run test && npm run build",
