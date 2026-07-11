@@ -38,6 +38,12 @@ export async function runTakeoverProbe(
   try {
     mounted = await deps.mount(tab.id);
   } catch (error) {
+    let restored = false;
+    try {
+      restored = await deps.restore(tab.id);
+    } catch {
+      // 保留 mount 的主要失败信息，同时已完成尽力恢复。
+    }
     return {
       tabId: tab.id,
       originalUrl: tab.url,
@@ -45,7 +51,7 @@ export async function runTakeoverProbe(
       kind,
       injected: false,
       bytesReadable: false,
-      restored: false,
+      restored,
       passed: false,
       failure: 'script_injection_blocked',
       detail: error instanceof Error ? error.message : String(error),

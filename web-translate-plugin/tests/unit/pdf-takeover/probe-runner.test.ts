@@ -81,9 +81,26 @@ describe('runTakeoverProbe', () => {
       passed: false,
       failure: 'script_injection_blocked',
       detail: '脚本注入被阻止',
+      restored: true,
     });
     expect(deps.readBytes).not.toHaveBeenCalled();
-    expect(deps.restore).not.toHaveBeenCalled();
+    expect(deps.restore).toHaveBeenCalledWith(7);
+  });
+
+  it('mount 与 restore 均抛错时保留原 mount 错误', async () => {
+    const deps = createDeps();
+    deps.mount.mockRejectedValue(new Error('脚本注入被阻止'));
+    deps.restore.mockRejectedValue(new Error('恢复也失败'));
+
+    const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
+
+    expect(result).toMatchObject({
+      passed: false,
+      failure: 'script_injection_blocked',
+      detail: '脚本注入被阻止',
+      restored: false,
+    });
+    expect(deps.restore).toHaveBeenCalledWith(7);
   });
 
   it('字节不可读时返回 bytes_unreadable', async () => {
