@@ -2,7 +2,7 @@
 
 > **供智能体执行：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，按任务逐项实施；所有步骤使用复选框跟踪。
 
-**目标：** 在 PDF 接管探针全部通过后，实现原 URL 不变、PDF.js 重渲染、MinerU 逐页解析翻译和整篇论文问答的 Chrome 插件 MVP。
+**目标：** 在一期 HTTP/HTTPS PDF 接管探针通过后，实现原 URL 不变、PDF.js 重渲染、MinerU 逐页解析翻译和整篇论文问答的 Chrome 插件 MVP；本地 `file://` PDF 延后到后续迭代。
 
 **架构：** 把探针验证通过的接管代码提升为正式 `PdfTakeoverPort`，在当前标签页挂载 React 工作台。PDF.js 直接消费 PDF 字节并渲染左栏；MinerU 输出规范化为 `DocumentModel`，翻译调度器按当前页优先生成右栏译文；智能体上下文构建器基于整篇文档、当前页和选中文本发起问答。
 
@@ -10,14 +10,15 @@
 
 ## 全局约束
 
-- 只有 PDF 探针报告结论为 `GO` 时才能执行本计划。
+- 只有 PDF 探针报告对一期 HTTP/HTTPS 范围给出 `GO` 时才能执行本计划。
 - 所有 plan/spec 使用中文。
 - 所有启用翻译的 PDF 必须由 PDF.js 重渲染，不能降级到原生查看器。
 - 地址栏 URL 必须逐字不变，包括查询参数和 Fragment。
 - PDF.js 渲染不等待 MinerU；MinerU 失败时左栏仍可阅读。
 - 译文严格按页组织，当前页优先。
 - 智能体首版使用整篇解析结果，不实现向量检索。
-- 用户确认前，不上传本地或依赖 Cookie 的 PDF。
+- 用户确认前，不上传依赖 Cookie 的 PDF。
+- 本地 `file://` 不属于一期实现或验收；相关诊断用例保留，但不阻止一期完成。
 - 任何 Provider 凭据都不能进入页面 DOM、日志或 Prompt。
 
 ---
@@ -537,7 +538,7 @@ import { createRoot } from 'react-dom/client';
 import { PdfWorkspace } from '../../src/pdf/PdfWorkspace';
 
 export default defineContentScript({
-  matches: ['http://*/*', 'https://*/*', 'file:///*'], registration: 'runtime', runAt: 'document_start',
+  matches: ['http://*/*', 'https://*/*'], registration: 'runtime', runAt: 'document_start',
   async main() {
     const originalUrl = location.href;
     document.documentElement.innerHTML = '<head><title>PDF 翻译</title></head><body><div id="web-translate-pdf-root"></div></body>';
@@ -811,8 +812,8 @@ git commit -m "feat: add whole-paper agent panel"
 import { expect, it } from 'vitest';
 import { initialLifecycleState, lifecycleReducer } from '../../../src/pdf/workspace-reducer';
 
-it('本地文件必须先确认再上传', () => {
-  const state = lifecycleReducer(initialLifecycleState, { type: 'source-loaded', sourceKind: 'local' });
+it('依赖 Cookie 的 PDF 必须先确认再上传', () => {
+  const state = lifecycleReducer(initialLifecycleState, { type: 'source-loaded', sourceKind: 'authenticated' });
   expect(state.phase).toBe('awaiting-consent');
   expect(lifecycleReducer(state, { type: 'consent-granted' }).phase).toBe('uploading');
 });
@@ -829,7 +830,7 @@ it('MinerU 失败不改变 PDF 可读状态', () => {
 export type LifecyclePhase = 'idle' | 'awaiting-consent' | 'uploading' | 'parsing' | 'translating' | 'ready' | 'failed';
 export interface LifecycleState { phase: LifecyclePhase; pdfReady: boolean; error?: string }
 export type LifecycleAction =
-  | { type: 'source-loaded'; sourceKind: 'remote' | 'authenticated' | 'local' }
+  | { type: 'source-loaded'; sourceKind: 'remote' | 'authenticated' }
   | { type: 'consent-granted' }
   | { type: 'parse-started' }
   | { type: 'parse-done' }
@@ -881,7 +882,7 @@ await sleep(1000 * 2 ** attempts);
 
 - [ ] **步骤 4：实现缓存与隐私操作**
 
-本地文件、Cookie PDF 上传前显示目标服务 `MinerU`、文件名、大小和“将发送到第三方解析服务”提示；只有点击确认后调用 `createUploadTask()`。单篇清理按钮调用 `clearDocumentCache(document.hash)`，全量清理按钮调用 `clearAllCache()`；两者成功后清空对应 React 状态并显示“缓存已清除”。
+依赖 Cookie 的 PDF 上传前显示目标服务 `MinerU`、文件名、大小和“将发送到第三方解析服务”提示；只有点击确认后调用 `createUploadTask()`。单篇清理按钮调用 `clearDocumentCache(document.hash)`，全量清理按钮调用 `clearAllCache()`；两者成功后清空对应 React 状态并显示“缓存已清除”。
 
 运行：`npm test -- tests/unit/pdf/workspace-reducer.test.ts && npm run check`  
 预期：状态测试和全量检查通过。
@@ -960,9 +961,9 @@ test('启用后 URL 不变、当前页优先，并可用引用跳页', async () 
 });
 ```
 
-- [ ] **步骤 2：复跑 Phase 0 全矩阵**
+- [ ] **步骤 2：复跑一期 Phase 0 HTTP/HTTPS 矩阵**
 
-对 arXiv、公开 HTTPS、重定向、Cookie 和本地 PDF 逐项验证：URL 逐字一致、PDF.js 标识、读取、刷新、历史导航、关闭恢复。任何一项失败都阻止 MVP 完成声明。
+对 arXiv、公开 HTTPS、重定向和 Cookie PDF 逐项验证：URL 逐字一致、PDF.js 标识、读取、刷新、历史导航、关闭恢复。任何一期范围内样本失败都阻止 MVP 完成声明。另运行本地 `file://` fixture 诊断回归并单独记录，其结果不计入一期 gate。
 
 - [ ] **步骤 3：验证故障与恢复**
 
@@ -974,7 +975,7 @@ test('启用后 URL 不变、当前页优先，并可用引用跳页', async () 
 预期：类型检查、全部单元测试与生产构建通过。  
 运行：`npm run test:e2e -- pdf-workspace.spec.ts`  
 预期：PDF 工作台端到端用例通过。  
-人工矩阵预期：全部 PDF 类别通过且报告更新为本次构建结果。
+人工矩阵预期：一期 HTTP/HTTPS PDF 类别全部通过且报告更新为本次构建结果；本地 `file://` 明确标注为后续迭代。
 
 - [ ] **步骤 5：提交**
 
@@ -982,3 +983,15 @@ test('启用后 URL 不变、当前页优先，并可用引用跳页', async () 
 git add web-translate-plugin docs/superpowers/specs/2026-07-11-pdf-takeover-probe-results.md
 git commit -m "feat: complete pdf translation workspace mvp"
 ```
+
+## 后续迭代：本地 `file://` PDF
+
+本节不在一期任务 1 至任务 8 中执行，也不计入一期 MVP gate。自动化 `file://` fixture 用例继续作为能力诊断回归。
+
+后续迭代开始前必须把以下工作拆成独立 TDD 任务：
+
+1. 调用 `chrome.extension.isAllowedFileSchemeAccess()` 检查 Chrome 的“允许访问文件网址”状态，未开启时显示可操作的扩展管理页引导。
+2. 在真实用户手势中调用 `chrome.permissions.request({ origins: ['file:///*'] })`，拒绝权限时保持原生 PDF 页面并返回结构化错误。
+3. 取得本地 PDF 字节后再挂载 PDF.js 工作台，验证 URL 逐字不变、字节可读、关闭后恢复和刷新/历史语义。
+4. 上传 MinerU 前展示文件名、大小、目标服务和第三方传输说明，只有用户明确确认后才创建上传任务。
+5. 在真实 Chrome 复核绝对 `file:///` fixture，并把结构化结果写入新的本地文件验收报告；通过前不得宣称支持本地 PDF。

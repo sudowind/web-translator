@@ -15,8 +15,15 @@
 - Chrome 最低版本设为 120。
 - 启用 PDF 翻译后必须重渲染，不能用 Chrome 原生 PDF 查看器降级。
 - 地址栏 URL 必须与启用前逐字一致，包括查询参数和 Fragment。
-- 支持 arXiv、公开网络 PDF、重定向 PDF、依赖 Cookie 的 PDF 和本地 `file://` PDF。
-- Phase 0 未全部通过前，不开始 PDF 产品功能。
+- 一期支持 arXiv、公开网络 PDF、重定向 PDF 和依赖 Cookie 的 HTTP/HTTPS PDF。
+- 一期 HTTP/HTTPS Phase 0 未全部通过前，不开始 PDF 产品功能。
+- 本地 `file://` fixture 保留为诊断回归，不计入一期 Go/No-Go。
+
+## 2026-07-11 范围决策
+
+原计划把本地 `file://` PDF 列为 Phase 0 和 MVP 的硬门槛。真实 Chrome 149.0.7827.201 中 arXiv 探针通过，本地 fixture 则显示 `运行探针失败：Failed to fetch`；自动化 Chromium 在明确授予 host 权限和 file access 后，本地诊断用例通过。
+
+用户据此决定一期产品范围限定为 HTTP/HTTPS PDF，本地文件支持延后到后续迭代。这个决定不是把本地失败改写为通过：生产配置仍缺少运行时可选 `file:///*` host permission 授予流程，后续必须补充 `chrome.extension.isAllowedFileSchemeAccess()`、`chrome.permissions.request({ origins: ['file:///*'] })`、用户引导和 MinerU 上传隐私确认。原本地 E2E 继续保留，但只作为未来能力诊断回归。
 
 ---
 
@@ -509,7 +516,7 @@ git commit -m "feat: wire chrome pdf takeover probe"
 
 **接口：**
 - 产出：包含每类 PDF 的原 URL、最终 URL、注入、字节读取、恢复和结论的正式报告。
-- 后续依赖：只有报告总结果为 `GO` 时，才能执行 PDF 产品计划。
+- 后续依赖：只有报告对一期 HTTP/HTTPS 范围给出 `GO` 时，才能执行 PDF 产品计划；本地诊断结果不阻止一期。
 
 - [ ] **步骤 1：创建自动化 URL 断言**
 
@@ -546,18 +553,18 @@ test('地址栏 URL 必须逐字不变', async () => {
 
 运行：`npm run build`  
 预期：`.output/chrome-mv3/manifest.json` 存在。  
-在 Chrome `chrome://extensions` 中开启开发者模式并加载 `.output/chrome-mv3`，为本地文件测试开启“允许访问文件网址”。
+在 Chrome `chrome://extensions` 中开启开发者模式并加载 `.output/chrome-mv3`。本地文件仅作为诊断回归时开启“允许访问文件网址”，不把该结果计入一期 gate。
 
 - [ ] **步骤 3：逐项执行矩阵**
 
-对以下每项记录启用前 URL、启用后 URL、刷新后 URL、是否出现 `data-renderer="pdfjs-probe"`、PDF 头是否可读、是否成功恢复：
+对以下每项记录启用前 URL、启用后 URL、刷新后 URL、是否出现 `data-renderer="pdfjs-probe"`、PDF 头是否可读、是否成功恢复。前四项属于一期 gate，第五项只作未来能力诊断：
 
 ```text
 1. https://arxiv.org/pdf/2401.00001
 2. 一个公开 HTTPS 直链 PDF
 3. 一个包含 query、fragment 和重定向的 PDF
 4. 一个依赖当前 Chrome Cookie 的 PDF
-5. file:///.../web-translate-plugin/fixtures/probe.pdf
+5. `file:///.../web-translate-plugin/fixtures/probe.pdf`（后续迭代诊断，不计入一期 gate）
 ```
 
 - [ ] **步骤 4：写入结果与硬结论**
@@ -574,7 +581,7 @@ test('地址栏 URL 必须逐字不变', async () => {
 
 ## 决策
 
-只有全部行通过时填写 `GO`；任何一行失败时填写 `NO-GO`，停止 PDF 产品计划并回到设计约束讨论。
+一期 HTTP/HTTPS 行全部通过时填写 `GO（一期 HTTP/HTTPS PDF 范围）`；任一期 gate 行失败时填写 `NO-GO`。本地诊断行必须记录真实结果，但不改变一期结论，也不得写成本地已支持。
 ```
 
 运行：`npm run check`  

@@ -23,11 +23,12 @@ PDF 模式有两个不可降级的硬约束：地址栏必须始终保留原 PDF
 
 ### 2.2 PDF 支持范围
 
-- 支持 arXiv PDF。
-- 支持任意公开 HTTP/HTTPS PDF。
-- 支持依赖当前浏览器 Cookie 才能访问的 PDF。
-- 支持包含重定向、查询参数和 URL Fragment 的 PDF。
-- 支持用户授权后的本地 `file://` PDF；用户需在扩展管理页开启“允许访问文件网址”。
+- 一期支持 arXiv PDF。
+- 一期支持任意公开 HTTP/HTTPS PDF。
+- 一期支持依赖当前浏览器 Cookie 才能访问的 HTTP/HTTPS PDF。
+- 一期支持包含重定向、查询参数和 URL Fragment 的 HTTP/HTTPS PDF。
+- 本地 `file://` PDF 延后到后续迭代，不属于一期 Phase 0 或 MVP 验收门槛。
+- 后续本地文件迭代必须实现 `chrome.extension.isAllowedFileSchemeAccess()` 检查、`chrome.permissions.request({ origins: ['file:///*'] })`、用户开启“允许访问文件网址”的引导，以及上传 MinerU 前的隐私确认。
 
 ### 2.3 PDF 硬约束
 
@@ -36,7 +37,7 @@ PDF 模式有两个不可降级的硬约束：地址栏必须始终保留原 PDF
 - 地址栏 URL 必须与启用前逐字一致，包括查询参数和 Fragment。
 - 刷新、前进、后退、复制链接、新标签页打开和关闭翻译时，都必须维持正确的原 URL 语义。
 - 翻译启用期间不允许把 Chrome 原生 PDF 查看器作为降级结果。
-- 上述能力必须先通过第 10 节定义的 Phase 0 技术可行性门槛。
+- 一期 HTTP/HTTPS 能力必须先通过第 10 节定义的 Phase 0 技术可行性门槛。
 
 ### 2.4 PDF 阅读体验
 
@@ -73,7 +74,7 @@ PDF 模式有两个不可降级的硬约束：地址栏必须始终保留原 PDF
 职责：
 
 - 检测 PDF 导航并协调翻译的启用与关闭。
-- 请求可选 Host 权限和本地文件访问权限。
+- 一期请求 HTTP/HTTPS 可选 Host 权限；本地文件访问权限与授权引导留给后续迭代。
 - 在权限允许时使用当前浏览器会话获取远程 PDF 字节。
 - 协调 MinerU 与 OpenAI 兼容接口调用。
 - 持久化异步任务元数据，并在 Service Worker 被挂起或浏览器重启后恢复任务。
@@ -110,7 +111,7 @@ Chrome 原生 PDF 查看器属于受保护的浏览器内部能力，因此接�
 职责：
 
 - 对 MinerU 可以直接访问的远程 URL 提交精确解析任务。
-- 对本地 PDF、依赖 Cookie 的 PDF，以及 MinerU 无法直接拉取的远程 PDF，使用 MinerU 文件上传流程。
+- 一期对依赖 Cookie 的 PDF 以及 MinerU 无法直接拉取的远程 PDF 使用 MinerU 文件上传流程；本地 PDF 上传流程在后续迭代实现。
 - 轮询异步任务，支持取消、超时和有限次数重试。
 - 将 MinerU 的 Markdown、JSON 和资源文件规范化为 `DocumentModel`。
 - 使用带页码信息的内容列表作为页面映射的主要依据。
@@ -207,7 +208,7 @@ API Key 与 Token 仅保存在 `chrome.storage.local`。设置页必须说明它
 ## 8. 隐私与安全
 
 - 用户未启用对应功能前，不发送 PDF、网页文本或对话内容。
-- 上传本地 PDF 或依赖 Cookie 的 PDF 前，界面明确说明文件将发送给 MinerU，并要求用户确认。
+- 一期上传依赖 Cookie 的 PDF 前，界面明确说明文件将发送给 MinerU，并要求用户确认；后续本地文件迭代沿用同一隐私确认门槛。
 - Provider 凭据不能进入页面 DOM、控制台日志、诊断导出或 Prompt 内容。
 - 插件 UI 与宿主网页的 CSS 和 JavaScript 隔离。
 - 遵守 Manifest V3 要求，所有可执行代码随扩展打包，不加载远程代码。
@@ -223,10 +224,11 @@ API Key 与 Token 仅保存在 `chrome.storage.local`。设置页必须说明它
 - MinerU 之外的 OCR 或文档解析引擎。
 - 主要 UI 中的其他语言对；接口层不能把英译中写死。
 - 自动翻译用户访问的每一个网页。
+- 本地 `file://` PDF 的生产支持；自动化诊断用例继续保留，不代表一期产品承诺。
 
 ## 10. Phase 0：PDF 接管 Go/No-Go 门槛
 
-正式产品开发必须从最小技术探针开始，不能先实现完整 UI。
+一期 PDF 产品开发必须从 HTTP/HTTPS 最小技术探针开始，不能先实现完整 UI。2026-07-11 的真实 Chrome 诊断确认 arXiv 通过、本地 `file://` 读取失败；用户据此决定一期限定为 HTTP/HTTPS，本地文件延期。
 
 ### 10.1 测试矩阵
 
@@ -234,13 +236,14 @@ API Key 与 Token 仅保存在 `chrome.storage.local`。设置页必须说明它
 - 公开 HTTPS 直链 PDF。
 - 包含查询参数、Fragment 和重定向的 PDF。
 - 依赖浏览器 Cookie 的 PDF。
-- 已开启文件访问权限的本地 `file://` PDF。
 - 刷新、前进、后退、复制 URL、复制标签页和在新标签页打开。
 - 启用与关闭翻译全过程的地址栏 URL 检查。
 
+本地 `file://` fixture 保留为后续能力诊断回归，但不计入一期 Go/No-Go。
+
 ### 10.2 通过标准
 
-每一类样本都必须满足：
+每一个一期 HTTP/HTTPS 样本都必须满足：
 
 - 地址栏 URL 与启用前逐字一致，包括查询参数和 Fragment。
 - 启用后展示可证明由 PDF.js 渲染的测试界面。
@@ -250,7 +253,7 @@ API Key 与 Token 仅保存在 `chrome.storage.local`。设置页必须说明它
 
 ### 10.3 失败策略
 
-只要任一必需 PDF 类型不能通过，PDF 正式实现立即停止，产品重新讨论并调整至少一个硬约束。不得以隐藏 URL 变化、原生查看器降级或缩小 PDF 范围的方式继续开发。
+只要任一一期必需 HTTP/HTTPS PDF 类型不能通过，PDF 正式实现立即停止，产品重新讨论并调整至少一个硬约束。不得隐藏 URL 变化或以原生查看器降级。本地 `file://` 已由用户明确移出一期产品范围；这是一项记录在案的阶段范围决策，不代表本地文件已经通过生产验收。
 
 ## 11. 测试策略
 
@@ -273,14 +276,14 @@ API Key 与 Token 仅保存在 `chrome.storage.local`。设置页必须说明它
 
 ### 11.3 浏览器端到端测试
 
-- 完整的 Phase 0 URL 不变接管矩阵。
+- 一期 HTTP/HTTPS Phase 0 URL 不变接管矩阵，以及不计入一期 gate 的 `file://` 诊断回归。
 - PDF 启用、渲染、解析、增量翻译、智能体提问、引用跳转和关闭。
 - 普通网页启用、视口优先翻译、悬停原文、动态插入内容和恢复。
 - 设置校验、权限请求、无效凭据、限流以及缓存清理。
 
 ## 12. MVP 验收标准
 
-- Phase 0 对所有要求的 PDF 类型通过。
+- Phase 0 对一期要求的 HTTP/HTTPS PDF 类型全部通过；本地 `file://` 不属于一期 MVP 验收。
 - 启用 PDF 翻译后始终由 PDF.js 重渲染，且原 URL 逐字不变。
 - PDF 与译文按页同步，并能从手动滚动暂停状态恢复。
 - 当前页译文在全文翻译完成前出现。
