@@ -6,6 +6,7 @@ export function mountProbeSurface() {
   return {
     href: location.href,
     injected: document.getElementById('web-translate-probe-root') !== null,
+    rendererVerified: false,
   };
 }
 

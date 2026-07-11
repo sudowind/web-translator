@@ -23,6 +23,7 @@ describe('探针报告存储', () => {
       finalUrl: 'https://example.com/paper.pdf?x=1#page=2',
       kind: 'remote',
       injected: true,
+      rendererVerified: true,
       bytesReadable: true,
       restored: true,
       passed: true,

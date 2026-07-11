@@ -10,10 +10,7 @@ import {
   getLatestProbeResult,
   saveProbeResult,
 } from '../src/pdf-takeover/report-store';
-import {
-  mountProbeSurface,
-  restoreProbeSurface,
-} from '../src/pdf-takeover/takeover-dom';
+import { restoreProbeSurface } from '../src/pdf-takeover/takeover-dom';
 
 export default defineBackground(() => {
   console.info('PDF takeover probe ready');
@@ -26,15 +23,29 @@ export default defineBackground(() => {
     return { id: tab.id, url: tab.url };
   }
 
-  async function mount(tabId: number) {
-    const [execution] = await browser.scripting.executeScript({
+  async function mount(tabId: number, url: string) {
+    await browser.scripting.executeScript({
       target: { tabId },
-      func: mountProbeSurface,
+      files: ['/content-scripts/pdf-probe-renderer.js'],
     });
-    if (execution?.result === undefined) {
-      throw new Error('探针脚本未返回接管结果');
+
+    const response = (await browser.tabs.sendMessage(tabId, {
+      type: 'pdf-probe-renderer:mount',
+      url,
+    })) as
+      | {
+          ok: true;
+          result: {
+            href: string;
+            injected: boolean;
+            rendererVerified: boolean;
+          };
+        }
+      | { ok: false; error: string };
+    if (!response?.ok) {
+      throw new Error(response?.error ?? 'PDF.js renderer 未返回接管结果');
     }
-    return execution.result;
+    return response.result;
   }
 
   async function restore(tabId: number): Promise<boolean> {

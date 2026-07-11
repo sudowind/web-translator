@@ -12,7 +12,11 @@ const originalUrl = 'https://example.com/paper.pdf?x=1#page=2';
 function createDeps() {
   return {
     classify: vi.fn<(url: string) => PdfTargetKind | null>(() => 'remote'),
-    mount: vi.fn(async () => ({ href: originalUrl, injected: true })),
+    mount: vi.fn(async () => ({
+      href: originalUrl,
+      injected: true,
+      rendererVerified: true,
+    })),
     readBytes: vi.fn(async () => true),
     restore: vi.fn(async () => true),
   };
@@ -24,6 +28,7 @@ describe('runTakeoverProbe', () => {
     deps.mount.mockResolvedValue({
       href: 'https://example.com/paper.pdf?x=1',
       injected: true,
+      rendererVerified: true,
     });
     deps.restore.mockResolvedValue(false);
 
@@ -50,12 +55,33 @@ describe('runTakeoverProbe', () => {
       finalUrl: originalUrl,
       kind: 'remote',
       injected: true,
+      rendererVerified: true,
       bytesReadable: true,
       restored: true,
       passed: true,
     });
     expect(result.failure).toBeUndefined();
     expect(new Date(result.measuredAt).toISOString()).toBe(result.measuredAt);
+  });
+
+  it('PDF.js 未完成真实渲染时返回 renderer_unverified', async () => {
+    const deps = createDeps();
+    deps.mount.mockResolvedValue({
+      href: originalUrl,
+      injected: true,
+      rendererVerified: false,
+    });
+
+    const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
+
+    expect(result).toMatchObject({
+      injected: true,
+      rendererVerified: false,
+      passed: false,
+      failure: 'renderer_unverified',
+      restored: true,
+    });
+    expect(deps.readBytes).not.toHaveBeenCalled();
   });
 
   it('分类为 null 时不调用后续依赖', async () => {
@@ -105,7 +131,11 @@ describe('runTakeoverProbe', () => {
 
   it('mount 返回 injected:false 时尽力恢复并记录恢复结果', async () => {
     const deps = createDeps();
-    deps.mount.mockResolvedValue({ href: originalUrl, injected: false });
+    deps.mount.mockResolvedValue({
+      href: originalUrl,
+      injected: false,
+      rendererVerified: false,
+    });
 
     const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
 
@@ -121,7 +151,11 @@ describe('runTakeoverProbe', () => {
 
   it('injected:false 后 restore 抛错时保留主要失败码', async () => {
     const deps = createDeps();
-    deps.mount.mockResolvedValue({ href: originalUrl, injected: false });
+    deps.mount.mockResolvedValue({
+      href: originalUrl,
+      injected: false,
+      rendererVerified: false,
+    });
     deps.restore.mockRejectedValue(new Error('恢复失败'));
 
     const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
@@ -182,7 +216,7 @@ describe('探针 DOM 接管与恢复', () => {
 
     const result = mountProbeSurface();
 
-    expect(result).toEqual({ href, injected: true });
+    expect(result).toEqual({ href, injected: true, rendererVerified: false });
     expect(
       document.querySelector('[data-renderer="pdfjs-probe"]'),
     ).not.toBeNull();

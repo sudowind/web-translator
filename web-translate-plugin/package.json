@@ -9,12 +9,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:e2e:phase-one": "playwright test pdf-takeover.spec.ts --grep-invert @future-file-diagnostic",
+    "test:e2e:authorized": "playwright test pdf-takeover.spec.ts",
     "check": "npm run typecheck && npm run test && npm run build",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
     "@wxt-dev/module-react": "^1.2.2",
+    "pdfjs-dist": "^6.1.200",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

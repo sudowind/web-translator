@@ -7,7 +7,11 @@ export interface TabInput {
 
 export interface ProbeDeps {
   classify(url: string): PdfTargetKind | null;
-  mount(tabId: number): Promise<{ href: string; injected: boolean }>;
+  mount(tabId: number, url: string): Promise<{
+    href: string;
+    injected: boolean;
+    rendererVerified: boolean;
+  }>;
   readBytes(url: string): Promise<boolean>;
   restore(tabId: number): Promise<boolean>;
 }
@@ -25,6 +29,7 @@ export async function runTakeoverProbe(
       originalUrl: tab.url,
       finalUrl: tab.url,
       injected: false,
+      rendererVerified: false,
       bytesReadable: false,
       restored: false,
       passed: false,
@@ -33,10 +38,10 @@ export async function runTakeoverProbe(
     };
   }
 
-  let mounted: { href: string; injected: boolean };
+  let mounted: { href: string; injected: boolean; rendererVerified: boolean };
 
   try {
-    mounted = await deps.mount(tab.id);
+    mounted = await deps.mount(tab.id, tab.url);
   } catch (error) {
     let restored = false;
     try {
@@ -50,6 +55,7 @@ export async function runTakeoverProbe(
       finalUrl: tab.url,
       kind,
       injected: false,
+      rendererVerified: false,
       bytesReadable: false,
       restored,
       passed: false,
@@ -72,6 +78,7 @@ export async function runTakeoverProbe(
       finalUrl: mounted.href,
       kind,
       injected: false,
+      rendererVerified: mounted.rendererVerified,
       bytesReadable: false,
       restored,
       passed: false,
@@ -88,10 +95,28 @@ export async function runTakeoverProbe(
       finalUrl: mounted.href,
       kind,
       injected: true,
+      rendererVerified: mounted.rendererVerified,
       bytesReadable: false,
       restored,
       passed: false,
       failure: 'url_changed',
+      measuredAt,
+    };
+  }
+
+  if (!mounted.rendererVerified) {
+    const restored = await deps.restore(tab.id);
+    return {
+      tabId: tab.id,
+      originalUrl: tab.url,
+      finalUrl: mounted.href,
+      kind,
+      injected: true,
+      rendererVerified: false,
+      bytesReadable: false,
+      restored,
+      passed: false,
+      failure: 'renderer_unverified',
       measuredAt,
     };
   }
@@ -105,6 +130,7 @@ export async function runTakeoverProbe(
       finalUrl: mounted.href,
       kind,
       injected: true,
+      rendererVerified: true,
       bytesReadable: false,
       restored,
       passed: false,
@@ -121,6 +147,7 @@ export async function runTakeoverProbe(
       finalUrl: mounted.href,
       kind,
       injected: true,
+      rendererVerified: true,
       bytesReadable: true,
       restored: false,
       passed: false,
@@ -135,6 +162,7 @@ export async function runTakeoverProbe(
     finalUrl: mounted.href,
     kind,
     injected: true,
+    rendererVerified: true,
     bytesReadable: true,
     restored: true,
     passed: true,

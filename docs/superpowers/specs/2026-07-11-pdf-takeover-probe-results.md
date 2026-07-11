@@ -2,109 +2,88 @@
 
 ## 结论
 
-`GO（一期 HTTP/HTTPS PDF 范围）`
+`待真实 Chrome 验收（一期 HTTP/HTTPS）`
 
-一期范围包括 arXiv、公开 HTTP/HTTPS、重定向/query/fragment 和依赖浏览器 Cookie 的 HTTP/HTTPS PDF。自动化授权 Chromium 的一期样本全部通过，真实 Chrome arXiv 样本也通过，因此一期 PDF 工作台可以继续开发。
+真实 PDF.js 首页渲染、`rendererVerified`、URL 不变、字节读取、恢复以及刷新/历史/复制标签/新标签语义，已经在明确隔离授权的 Chromium 技术矩阵中通过。但当前 Playwright 无法操作 Chrome 原生 optional-host 权限提示，也无法取得 `chrome.action.openPopup()` 创建的真实 action Popup target，因此尚未自动验证生产构建通过真实 Popup 获得 `activeTab` 后的完整路径。
 
-本地 `file://` PDF 不属于一期范围。真实 Chrome 本地 fixture 显示 `运行探针失败：Failed to fetch`，没有结构化成功结果；本文完整保留该失败，绝不表示本地 PDF 已支持。
-
-## 范围决策
-
-原探针计划把本地 `file://` 作为硬门槛。真实 Chrome 诊断后，用户决定一期仅支持 HTTP/HTTPS PDF，把本地文件延后到后续迭代。本地失败不是当前接管架构的阻塞证据：自动化 Chromium 在临时 manifest 明确授予 `file:///*` host permission 并开启 file access 后，本地 fixture 的 URL、注入、字节读取和恢复断言全部通过。
-
-当前生产配置只有 `optional_host_permissions`，尚未实现运行时可选 `file:///*` host permission 授予流程，也没有完整的文件访问开关检查与用户引导。因此本地真实 Chrome 失败不能改写成通过，但可以作为一项明确、可隔离的后续权限与产品流程任务，而不阻止一期 HTTP/HTTPS 架构。
+在更新后的真实 PDF.js 构建完成实机复核前，不得把一期结论写成 `GO`。本地 `file://` 仍属于后续迭代，不是一期产品范围。
 
 ## 验收环境
 
 - 日期：2026-07-11
-- 真实 Chrome：`149.0.7827.201 (正式版本) （64 位） (cohort: Stable)`
+- 既有真实 Chrome：`149.0.7827.201 (正式版本) （64 位） (cohort: Stable)`
 - 自动化 Chromium：`149.0.7827.55`
 - Playwright：`1.61.1`
-- 插件源基线提交：`9b3db721366614a8dc8f3c5017da94beb0a2d321`
-- 本结果提交：Git `HEAD`，提交信息 `docs: record pdf takeover phase-one go result`
+- PDF.js：`pdfjs-dist 6.1.200`
+- 插件源基线提交：`40e7b0f`
+- 本结果提交：Git `HEAD`，提交信息 `fix: require verified pdfjs takeover for phase one go`
 - 构建目录：`web-translate-plugin/.output/chrome-mv3`
-- Chrome 最低版本：120
-- 扩展格式：Manifest V3
 
-## 自动化验收
+## 已实现的验收强化
 
-E2E 使用持久化、有界面的 Chromium Context。测试把生产构建复制到临时目录，只在临时 manifest 中把 `optional_host_permissions` 合并到 `host_permissions`，用于补偿程序化 harness 没有真实 action 点击所导致的 `activeTab` 授权差异；生产 `wxt.config.ts` 未修改。
+1. runtime content script bundle 使用真实 `pdfjs-dist/legacy` 加载 PDF，并把第一页渲染到 canvas。
+2. 只有 canvas 渲染完成且尺寸有效时才返回 `rendererVerified=true`。
+3. `TakeoverProbeResult` 新增 `rendererVerified`；未验证渲染返回 `renderer_unverified`，不能 `passed=true`。
+4. 生产 manifest 只有 `optional_host_permissions`，没有静态 `host_permissions`。
+5. WXT runtime content script 省略 `matches`，避免构建时自动把匹配模式提升为静态 host 权限；bundle 仅由后台在授权后注入。
 
-每个样本都断言：探针前后 URL 逐字一致、`injected=true`、`bytesReadable=true`、`restored=true`、`passed=true`，并在重定向完成后以探针启用前的实际 `page.url()` 作为原 URL。
+## 授权后技术矩阵
 
-| 验收属性 | 类型 | 样本 | URL 一致 | 注入 | 字节可读 | 恢复 | 结果 |
-|---|---|---|---:|---:|---:|---:|---:|
-| 一期 gate | arXiv / 公开 HTTPS | `https://arxiv.org/pdf/2401.00001#page=2` | 是 | 是 | 是 | 是 | 通过 |
-| 一期 gate | redirect/query/fragment | 本地 HTTP 302；入口含 query 与 fragment | 是 | 是 | 是 | 是 | 通过 |
-| 一期 gate | Cookie | 本地 HTTP `session=probe-ok` 门控 PDF | 是 | 是 | 是 | 是 | 通过 |
-| 后续诊断 | file:// | `file:///D:/Projects/web-translate/web-translate-plugin/fixtures/probe.pdf` | 是 | 是 | 是 | 是 | 通过 |
+该矩阵把生产构建复制到临时目录，只在临时副本中把 optional host 模式加入 `host_permissions`，并通过 `--allow-file-access-from-files` 运行 file 诊断。它验证接管与浏览器语义，不代表生产权限 gate 已通过。
 
-最新完整诊断矩阵：`4 passed (17.2s)`。一期 gate 可通过 `npm run test:e2e:phase-one` 单独执行，使用 `--grep-invert @future-file-diagnostic` 排除本地诊断样本，最新结果为 `3 passed (19.0s)`；完整 `npm run test:e2e -- pdf-takeover.spec.ts` 仍运行四类样本。
+| 属性 | 类型 | URL 一致 | PDF.js 首页 | rendererVerified | 字节可读 | 恢复 | 结果 |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 一期技术证据 | arXiv / 公开 HTTPS | 是 | 是 | 是 | 是 | 是 | 通过 |
+| 一期技术证据 | redirect/query/fragment | 是 | 是 | 是 | 是 | 是 | 通过 |
+| 一期技术证据 | Cookie | 是 | 是 | 是 | 是 | 是 | 通过 |
+| 后续诊断 | file:// | 是 | 是 | 是 | 是 | 是 | 通过 |
+| 一期技术证据 | 刷新、back/forward、duplicate、新标签重开 | 是 | 是 | 是 | 是 | 是 | 通过 |
 
-### 初次未授权轮次
+命令：`npm run test:e2e:authorized`。最终结果：`5 passed (26.0s)`。
 
-初次直接加载生产构建并从扩展页程序化发送消息，没有真实点击扩展 action，`activeTab` 临时授权未生效。arXiv 与本地 fixture 均返回 `script_injection_blocked`，原始错误明确要求 manifest host permission。临时测试构建授予对应 host 权限后四类全部通过，证明初次结果是 harness 权限伪阴性；该轮不参与一期结论。
+浏览器语义场景在同一 HTTP fixture 上依次验证：初次启用、刷新后重新启用、历史后退回 PDF 后重新启用、前进到中间页再后退、`chrome.tabs.duplicate` 复制标签后启用、同 URL 新标签打开后启用；每次都验证恢复和原 URL 逐字不变。
 
-## 真实 Chrome 验收
+## 生产权限路径自动化结果
 
-### arXiv
+### optional-host 请求尝试
 
-- tabId：`253795698`
-- originalUrl：`https://arxiv.org/pdf/2401.00001#page=2`
-- finalUrl：`https://arxiv.org/pdf/2401.00001#page=2`
-- kind：`arxiv`
-- injected：`true`
-- bytesReadable：`true`
-- restored：`true`
-- passed：`true`
-- measuredAt：`2026-07-11T08:22:28.797Z`
+曾在 Popup 真实按钮点击中调用 `chrome.permissions.request`。Chromium 原生权限提示不属于 Playwright web-content target，Promise 在 30 秒内一直 pending，Popup 按钮保持“运行中…”。该实现已移除，生产 HTTP/HTTPS 路径不再主动弹出该请求。
 
-结论：真实 Chrome arXiv 样本通过，地址栏 URL 含 fragment 且逐字不变。
+### action Popup / activeTab 尝试
 
-### 本地 file fixture
+随后从扩展测试页的真实点击调用 `chrome.action.openPopup()`，保持 PDF 标签在前台，以验证 Chrome 打开 action Popup 时授予的 `activeTab`。`browserContext.waitForEvent('page')` 在 5 秒后超时，说明 Playwright 没有暴露实际 action Popup target，无法继续点击其中的“运行探针”按钮。
 
-- 样本：`file:///D:/Projects/web-translate/web-translate-plugin/fixtures/probe.pdf`
-- Popup 原始错误：`运行探针失败：Failed to fetch`
-- 结构化结果：没有返回
-- URL 一致：无法证明；错误响应没有 `originalUrl` 或 `finalUrl`
-- 注入：无法证明；错误响应没有 `injected`
-- 字节可读：否；PDF 读取抛出 `Failed to fetch`
-- 恢复：无法证明；错误响应没有 `restored`
-- 产品状态：后续迭代，不属于一期 gate
+因此生产 activeTab 路径当前是“自动化工具不可见”，不是“已通过”。没有继续通过静态提升生产权限或弱化断言来改写结果。
 
-真实 Chrome 没有继续重复公开 HTTPS、重定向和 Cookie 类别；这些类别已有授权自动化证据。真实 Chrome 结果与自动化结果分别记录，没有把自动化冒充为实机结果。
+## 既有真实 Chrome 证据的适用范围
 
-## 根因评估
+旧构建在真实 Chrome arXiv 上返回：原 URL 与最终 URL 都是 `https://arxiv.org/pdf/2401.00001#page=2`，`injected`、`bytesReadable`、`restored`、`passed` 均为 `true`。但旧构建只挂载 `data-renderer="pdfjs-probe"` marker，没有真实 PDF.js canvas，也没有 `rendererVerified` 字段。
 
-已知证据支持“生产权限授予流程缺失”，不支持“PDF 接管架构无法处理本地文件”：
+所以旧 arXiv 结果只能证明旧 marker 接管、字节和恢复路径，不能证明更新后的真实 PDF.js/activeTab 生产路径。更新构建必须在真实 Chrome 重新复核。
 
-1. 自动化在明确授予 `file:///*` host permission 并允许 file access 后，本地 fixture 全部断言通过。
-2. 真实 Chrome 生产构建的 Popup 在字节读取阶段显示 `Failed to fetch`。
-3. 生产 manifest 把 `file:///*` 放在 `optional_host_permissions`，但当前产品没有在真实用户手势中调用运行时权限请求，也没有先检查 Chrome 文件 scheme 访问开关。
-4. 因此一期不宣称支持本地文件；后续通过权限检查、请求和用户引导闭合该差距。
+旧本地 fixture 仍显示 `运行探针失败：Failed to fetch`。本地没有被写成已支持；授权后 file 自动化仅作为未来能力诊断。
 
 ## 项目检查
 
 - `npm run check`：通过
 - TypeScript：通过
-- Vitest：6 个测试文件、32 个测试全部通过
+- Vitest：7 个测试文件、37 个测试全部通过
 - WXT Chrome MV3 构建：通过
-- fixture 签名：以 `%PDF-` 开头
-- fixture 内容：包含 ASCII 文本 `PDF takeover probe fixture`
-- fixture 结构：流长度 `57` 与实际一致，`startxref=418` 与实际 xref 偏移一致
+- 构建产物包含 `content-scripts/pdf-probe-renderer.js`
+- 生产 manifest：无 `host_permissions`；`optional_host_permissions` 为 HTTP、HTTPS 和 file 模式
+- fixture：以 `%PDF-` 开头，包含 `PDF takeover probe fixture`，流长度和 xref 偏移一致
 
-## 决策理由
+## 转为一期 GO 的剩余验收
 
-1. 一期所有 HTTP/HTTPS 自动化 gate 样本通过。
-2. 真实 Chrome arXiv 的 URL、注入、字节读取和恢复全部通过。
-3. 本地失败可以由明确的权限与用户引导流程单独解决，不要求改变 URL 不变或 PDF.js 接管架构。
-4. 用户明确把本地 `file://` 移到后续迭代，因此它不是一期 Phase 0 或 MVP 的完成门槛。
-5. 一期仍不得通过 URL 跳转或原生 PDF 查看器降级来绕过 HTTP/HTTPS 硬约束。
+在真实 Chrome 149.0.7827.201 或更新稳定版中加载本次构建，至少完成：
+
+1. 前台打开 arXiv PDF，通过真实扩展 action Popup 点击“运行探针”。
+2. 确认结果包含 `rendererVerified=true`、`bytesReadable=true`、`restored=true`、`passed=true`。
+3. 确认 `originalUrl`、`finalUrl` 与地址栏 URL 逐字一致。
+4. 对一个 HTTP fixture 复核刷新、后退/前进、复制标签和新标签打开后的重新启用与恢复。
+
+任一项未通过时不能给出一期 `GO`。
 
 ## 后续本地文件动作
 
-1. 调用 `chrome.extension.isAllowedFileSchemeAccess()`，识别 Chrome 的“允许访问文件网址”状态。
-2. 在真实用户手势中调用 `chrome.permissions.request({ origins: ['file:///*'] })`，并为拒绝或未开启 file access 提供明确引导。
-3. 让 PDF 字节读取异常返回结构化结果，保留 URL、注入、尽力恢复状态、失败码与原始错误。
-4. 上传 MinerU 前展示文件名、大小、目标服务和第三方传输说明，只有用户确认后才上传。
-5. 完成后重新运行本地诊断自动化，并在真实 Chrome 复核绝对 `file:///` fixture；通过前不得宣称支持本地 PDF。
+本地 `file://` 继续延期。后续必须实现 `chrome.extension.isAllowedFileSchemeAccess()`、真实用户手势中的 `chrome.permissions.request({ origins: ['file:///*'] })`、文件访问引导、结构化失败结果，以及 MinerU 上传前的文件名/大小/目标服务/第三方传输隐私确认。

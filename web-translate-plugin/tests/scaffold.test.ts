@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -53,5 +54,39 @@ describe('Chrome 扩展探针骨架', () => {
     expect(app).toContain("type: 'pdf-probe:run'");
     expect(app).toContain('response.ok');
     expect(app).toContain('<pre>');
+  });
+
+  it('Popup 不静态请求 HTTP 权限并保留探针操作', async () => {
+    const app = await readProjectFile('entrypoints/popup/App.tsx');
+
+    expect(app).not.toContain('browser.permissions.request');
+    expect(app).toContain("type: 'pdf-probe:run'");
+  });
+
+  it('runtime content script 使用 pdfjs-dist 真实渲染第一页', async () => {
+    const rendererPath = 'entrypoints/pdf-probe-renderer.content.ts';
+
+    expect(existsSync(resolve(process.cwd(), rendererPath))).toBe(true);
+    const [renderer, helper, packageJson] = await Promise.all([
+      readProjectFile(rendererPath),
+      readProjectFile('src/pdf-takeover/render-first-page.ts'),
+      readProjectFile('package.json'),
+    ]);
+    expect(renderer).toContain("from 'pdfjs-dist/legacy/build/pdf.mjs'");
+    expect(helper).toContain('rendererVerified');
+    expect(JSON.parse(packageJson).dependencies?.['pdfjs-dist']).toBeTruthy();
+  });
+
+  it('E2E 走 Popup 按钮与生产权限路径并覆盖浏览器导航语义', async () => {
+    const e2e = await readProjectFile('tests/e2e/pdf-takeover.spec.ts');
+
+    expect(e2e).toContain('授权后技术矩阵（不代表生产权限 gate）');
+    expect(e2e).toContain('testExtensionPath');
+    expect(e2e).toContain('manifest.host_permissions');
+    expect(e2e).toContain('.reload(');
+    expect(e2e).toContain('.goBack(');
+    expect(e2e).toContain('.goForward(');
+    expect(e2e).toContain('tabs.duplicate');
+    expect(e2e).toContain('context.newPage()');
   });
 });
