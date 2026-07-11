@@ -56,3 +56,45 @@
 - 智能体、任务恢复、浏览器重启恢复和认证上传明确同意编排属于后续顺序批次。
 - 本批次不做任务 8 的真实 Chrome 人工矩阵或 E2E，正式 action Popup、activeTab、原生权限弹窗仍需后续人工验收。
 - KaTeX 与 PDF.js 使 runtime bundle/CSS 较大；当前优先保证离线渲染能力，后续可评估资源拆分，但不影响本批次正确性。
+
+## 第二顺序批次：论文智能体、同意门禁与任务恢复
+
+### 实现摘要
+
+- 新增整篇论文上下文构建器。预算充足时按 `[p:N]` 包含整篇；超限时明确返回中文 compressed notice，并包含所有页摘要、当前页全文和用户选中文本。
+- 新增后台 OpenAI 论文问答客户端，Prompt 限定仅依据论文回答、事实必须带 `[p:N]` 且不得编造页码。HTTP、网络和响应格式错误只暴露结构化安全码。
+- 新增可收起 `AgentPanel`。对话状态保存在工作台父组件，收起/展开不丢失；支持发送、停止、错误、压缩提示。仅文档范围内引用转换为可访问页码按钮，点击同时定位左右栏。
+- 认证 PDF 在 UI 展示 MinerU、文件名、大小和第三方传输说明；只有点击“同意并上传到 MinerU”后才调用上传批任务。未同意时后台返回 `PDF_AUTH_UPLOAD_REQUIRES_CONSENT`，不创建上传任务。
+- 公共 PDF URL 任务创建或轮询失败时只进行一次字节上传回退，支持取消，不会无界重复上传。
+- MinerU task 创建后立即写入 IndexedDB。数据库版本升级至 2，旧 store 保持兼容；任务新增可选 `errorCode`、`updatedAt`，无需重写旧记录。
+- Service Worker 启动调用 `resumePending()`，恢复 `parsing` 任务并按内部 task id 去重；成功写入 document 并标记 done，失败只保存安全错误码。
+- 工作台补充解析重试、失败页重试、停止/取消、清理单篇缓存、设置入口与 `aria-live` 状态。缓存清理同步重置 React 文档、译文和状态。
+
+### TDD 记录
+
+1. Agent context 与 consent/recovery
+   - RED：context 模块不存在；consent=true 仍拒绝；公共 URL 不回退上传；`resumePending()` 不存在。
+   - GREEN：agent context、workspace service、storage 共 3 个文件、11 个测试通过。
+2. Agent client、Panel 与消息
+   - RED：客户端和 Panel 模块不存在，`pdf:agent-ask` 未被精确消息校验接受。
+   - GREEN：3 个文件、12 个测试通过。
+3. 后台问答接线
+   - RED：agent 请求误入逐页翻译分支并返回 `PDF_PAGE_MISSING`。
+   - GREEN：workspace service 问答接线 6/6 通过。
+4. URL 创建失败回退
+   - RED：`createUrlTask()` 抛错直接向上泄出，未进入上传回退。
+   - GREEN：workspace service 7/7 通过，创建失败与轮询失败均只回退一次。
+
+### 最终验证
+
+- 第二批新增与受影响定向测试：16 个文件、65 个测试全部通过。
+- `npm run typecheck`：通过。
+- `npm run build`：通过，WXT Chrome MV3 构建完成。
+- manifest 保持 `content_scripts: []`，无静态 `host_permissions`；未新增 `file://` 支持。
+- 未运行全量 `npm run check` 或 E2E。
+
+### 隐私与后续边界
+
+- MinerU/OpenAI 设置、Authorization 与 Provider 请求只存在于后台；内容脚本不构造 Provider 客户端。
+- 错误响应、DOM、日志和本报告不包含 API Key、Token、Provider 原始正文或论文全文。
+- 本批完成后暂不进行独立复核；真实 Chrome action Popup、activeTab、认证 PDF 同意交互与任务 8 E2E/人工矩阵仍由后续统一验收负责。

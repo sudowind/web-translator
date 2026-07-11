@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { AgentPanel } from '../agent/AgentPanel';
+import type { AgentMessage } from '../agent/context-builder';
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import { PageScheduler } from '../translation/page-scheduler';
@@ -18,6 +20,12 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [activePage, setActivePage] = React.useState(1);
   const [scale, setScale] = React.useState(1.1);
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
+  const [documentPageCount, setDocumentPageCount] = React.useState(0);
+  const [agentOpen, setAgentOpen] = React.useState(true);
+  const [agentMessages, setAgentMessages] = React.useState<AgentMessage[]>([]);
+  const [agentBusy, setAgentBusy] = React.useState(false);
+  const [agentNotice, setAgentNotice] = React.useState<string>();
+  const [agentError, setAgentError] = React.useState<string>();
   const leftRef = React.useRef<HTMLDivElement>(null);
   const rightRef = React.useRef<HTMLDivElement>(null);
   const schedulerRef = React.useRef<PageScheduler | null>(null);
@@ -63,30 +71,38 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     };
   }, [sourceUrl]);
 
-  const onDocumentReady = React.useCallback((pageCount: number) => {
+  const startParse = React.useCallback((pageCount: number, consent: boolean) => {
     if (!source || parseStarted.current) return;
     parseStarted.current = true;
-    dispatch({ type: 'source-loaded', sourceKind: source.kind });
-    if (source.kind === 'authenticated') {
-      setFeedback('此 PDF 需要认证；第三方上传同意将在后续批次提供，左栏仍可阅读');
-      return;
-    }
+    dispatch({ type: consent ? 'consent-granted' : 'parse-started' });
     setFeedback('MinerU 正在解析，左栏可继续阅读');
     void sendPdfMessage({
       type: 'pdf:parse-start',
       source,
       pageCount,
-      consent: false,
+      consent,
     }).then((value) => {
       if (!isDocument(value)) throw new Error('PDF_DOCUMENT_INVALID');
       setModel(value);
       dispatch({ type: 'parse-done' });
       setFeedback('解析完成，正在按当前页优先翻译');
     }, () => {
+      parseStarted.current = false;
       dispatch({ type: 'parse-failed', error: 'MINERU_PARSE_FAILED' });
       setFeedback('MinerU 解析失败；左栏不受影响');
     });
   }, [source]);
+
+  const onDocumentReady = React.useCallback((pageCount: number) => {
+    if (!source) return;
+    setDocumentPageCount(pageCount);
+    dispatch({ type: 'source-loaded', sourceKind: source.kind });
+    if (source.kind === 'authenticated') {
+      setFeedback('需要明确同意后才能把此 PDF 上传到 MinerU；左栏仍可阅读');
+      return;
+    }
+    startParse(pageCount, false);
+  }, [source, startParse]);
 
   React.useEffect(() => {
     if (!model) return;
@@ -157,8 +173,42 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     setModel(null);
     setTranslations(new Map());
     setPageStatus(new Map());
+    parseStarted.current = false;
     dispatch({ type: 'cache-cleared' });
     setFeedback('缓存已清除');
+  }
+
+  async function askAgent(question: string) {
+    if (!model) return;
+    const user: AgentMessage = { role: 'user', content: question };
+    const recentMessages = [...agentMessages, user].slice(-12);
+    setAgentMessages(recentMessages);
+    setAgentBusy(true);
+    setAgentError(undefined);
+    try {
+      const value = await sendPdfMessage({
+        type: 'pdf:agent-ask',
+        hash: model.hash,
+        activePage,
+        selection: globalThis.getSelection?.()?.toString() ?? '',
+        recentMessages: agentMessages.slice(-10),
+        question,
+        maxCharacters: 60_000,
+      });
+      if (!isAgentAnswer(value)) throw new Error('AGENT_RESPONSE_INVALID');
+      setAgentNotice(value.notice);
+      setAgentMessages((messages) => [...messages, { role: 'assistant', content: value.answer }]);
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : 'AGENT_FAILED');
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
+  function stopAgent() {
+    void sendPdfMessage({ type: 'pdf:cancel' }).catch(() => undefined);
+    setAgentBusy(false);
+    setAgentError('已停止当前请求');
   }
 
   return (
@@ -170,12 +220,14 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         <button type="button" onClick={() => setScale((value) => Math.min(3, value + 0.1))}>放大</button>
         <button type="button" onClick={retryCurrent}>重试当前页</button>
         <button type="button" onClick={retryFailed}>重试失败页</button>
+        {lifecycle.phase === 'failed' && source?.kind === 'remote' && <button type="button" onClick={() => startParse(documentPageCount, false)}>重试解析</button>}
+        <button type="button" onClick={stopAgent}>取消当前任务</button>
         <button type="button" onClick={() => void clearCache()}>清理本文缓存</button>
         <button type="button" onClick={() => void browser.runtime.openOptionsPage()}>设置</button>
         <button type="button" onClick={() => void browser.runtime.sendMessage({ type: 'pdf-workspace:disable' })}>关闭工作台</button>
       </header>
       <p className="workspace-status" aria-live="polite" data-phase={lifecycle.phase}>{feedback}</p>
-      <div className="workspace-columns">
+      <div className={`workspace-columns ${agentOpen ? 'agent-open' : 'agent-collapsed'}`}>
         <section ref={leftRef} className="pdf-column" onScroll={() => syncRef.current?.userScroll('pdf')}>
           {source && pdfBytes
             ? <PdfViewer bytes={pdfBytes} scale={scale} activePage={activePage} onDocumentReady={onDocumentReady} onPageVisible={(page, progress) => visibleFrom('pdf', page, progress)} />
@@ -184,8 +236,25 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         <section ref={rightRef} className="translation-column" onScroll={() => syncRef.current?.userScroll('translation')}>
           {model
             ? <TranslationPane model={model} translations={translations} pageStatus={pageStatus} onPageVisible={(page, progress) => visibleFrom('translation', page, progress)} />
-            : <p role="status">等待 MinerU 解析；PDF 左栏可独立阅读。</p>}
+            : source?.kind === 'authenticated' ? <div className="upload-consent" role="region" aria-label="MinerU 上传同意">
+              <h2>确认发送到第三方解析服务</h2>
+              <dl><dt>目标服务</dt><dd>MinerU</dd><dt>文件名</dt><dd>{source.title}</dd><dt>大小</dt><dd>{formatBytes(source.size)}</dd></dl>
+              <p>此 PDF 需要认证。点击同意后，文件字节将发送到第三方 MinerU 解析服务。</p>
+              <button type="button" onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
+            </div> : <p role="status">等待 MinerU 解析；PDF 左栏可独立阅读。</p>}
         </section>
+        <AgentPanel
+          open={agentOpen}
+          pageCount={model?.pageCount ?? documentPageCount}
+          notice={agentNotice}
+          messages={agentMessages}
+          busy={agentBusy}
+          error={agentError}
+          onAsk={askAgent}
+          onStop={stopAgent}
+          onNavigate={(page) => { setActivePage(page); syncRef.current?.navigateToPage(page); }}
+          onToggle={() => setAgentOpen((open) => !open)}
+        />
       </div>
     </main>
   );
@@ -207,4 +276,12 @@ function isDocument(value: unknown): value is DocumentModel {
 
 function isTranslations(value: unknown): value is TranslationResult[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'object' && item !== null && 'id' in item && 'text' in item);
+}
+
+function isAgentAnswer(value: unknown): value is { answer: string; mode: 'full' | 'compressed'; notice?: string } {
+  return typeof value === 'object' && value !== null && 'answer' in value && typeof (value as { answer?: unknown }).answer === 'string';
+}
+
+function formatBytes(size: number): string {
+  return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }

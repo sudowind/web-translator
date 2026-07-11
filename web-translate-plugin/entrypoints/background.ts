@@ -32,6 +32,7 @@ export default defineBackground(() => {
   const pdfWorkspace = new PdfWorkspaceService();
   const pdfTakeover = new ChromePdfTakeoverAdapter();
   const enabledPdfTabs = new Set<number>();
+  void pdfWorkspace.resumePending().catch(() => undefined);
 
   async function getActiveTab() {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -214,7 +215,7 @@ function safePdfError(error: unknown): string {
   const code = typeof error === 'object' && error !== null && 'code' in error
     ? (error as { code?: unknown }).code
     : error instanceof Error ? error.message : undefined;
-  return typeof code === 'string' && /^(PDF|MINERU|TRANSLATION)_[A-Z0-9_]+$/.test(code)
+  return typeof code === 'string' && /^(PDF|MINERU|TRANSLATION|AGENT)_[A-Z0-9_]+$/.test(code)
     ? code
     : 'PDF_OPERATION_FAILED';
 }

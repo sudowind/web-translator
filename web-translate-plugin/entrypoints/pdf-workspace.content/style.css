@@ -18,7 +18,9 @@
 .workspace-toolbar button:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
 .workspace-status { min-height: 30px; margin: 0; padding: 4px 12px; color: var(--pdf-muted); background: #f8fafc; }
 .workspace-status[data-phase="failed"] { color: var(--pdf-error); font-weight: 650; }
-.workspace-columns { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, .72fr); gap: 8px; padding: 8px; }
+.workspace-columns { min-height: 0; display: grid; gap: 8px; padding: 8px; }
+.workspace-columns.agent-open { grid-template-columns: minmax(0, 1fr) minmax(300px, .7fr) minmax(260px, .3fr); }
+.workspace-columns.agent-collapsed { grid-template-columns: minmax(0, 1fr) minmax(320px, .72fr) 180px; }
 .pdf-column, .translation-column { min-width: 0; min-height: 0; border: 1px solid var(--pdf-border); border-radius: 10px; overflow: hidden; background: var(--pdf-panel); }
 .pdf-pages, .translation-pages { height: 100%; overflow: auto; padding: 16px; overscroll-behavior: contain; }
 .pdf-page-slot { min-height: 780px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 6px; background: #dbe2ea; }
@@ -32,6 +34,17 @@
 .translation-pages p { white-space: pre-wrap; }
 .translation-pages pre { max-width: 100%; overflow: auto; white-space: pre-wrap; }
 .translation-formula { max-width: 100%; overflow-x: auto; padding: 8px 0; }
+.upload-consent { padding: 24px; }
+.upload-consent dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.upload-consent dt { font-weight: 700; }
+.upload-consent dd { margin: 0; overflow-wrap: anywhere; }
+.agent-panel { min-width: 0; min-height: 0; padding: 16px; overflow: auto; border: 1px solid var(--pdf-border); border-radius: 10px; background: #fff; }
+.agent-panel > header { display: flex; align-items: center; justify-content: space-between; }
+.agent-panel textarea { width: 100%; min-height: 100px; resize: vertical; }
+.agent-messages { display: grid; gap: 10px; margin: 12px 0; }
+.agent-messages [data-role] { padding: 10px; border-radius: 8px; background: #f1f5f9; white-space: pre-wrap; }
+.agent-messages [data-role="user"] { background: #dbeafe; }
+.agent-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 @media (max-width: 860px) {
   .workspace-toolbar { flex-wrap: wrap; }

@@ -26,6 +26,8 @@ export interface StoredTask {
   hash: string;
   title: string;
   pageCount: number;
+  errorCode?: string;
+  updatedAt?: number;
 }
 
 export interface ReadingRecord {

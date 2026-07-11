@@ -8,6 +8,7 @@ describe('PDF 工作台消息', () => {
     { type: 'pdf:parse-start', source: { url: 'https://example.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 12, kind: 'remote', bytes: [1, 2] }, pageCount: 2, consent: false },
     { type: 'pdf:document-get', hash: 'sha256:x' },
     { type: 'pdf:translate-page', hash: 'sha256:x', page: 1 },
+    { type: 'pdf:agent-ask', hash: 'sha256:x', activePage: 1, selection: '', recentMessages: [], question: '贡献？', maxCharacters: 1000 },
     { type: 'pdf:cancel' },
     { type: 'pdf:cache-clear', hash: 'sha256:x' },
   ])('接受精确合法消息：$type', (message) => {

@@ -31,9 +31,10 @@ interface WebTranslateDb extends DBSchema {
 
 export const dbPromise: Promise<IDBPDatabase<WebTranslateDb>> = openDB<WebTranslateDb>(
   'web-translate',
-  1,
+  2,
   {
-    upgrade(db) {
+    upgrade(db, oldVersion) {
+      if (oldVersion >= 1) return;
       db.createObjectStore('documents', { keyPath: 'id' });
       const translations = db.createObjectStore('translations', { keyPath: 'id' });
       translations.createIndex('by-hash', 'hash');

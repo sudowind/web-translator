@@ -1,5 +1,6 @@
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
+import type { AgentMessage } from '../agent/context-builder';
 
 export interface PdfSourceTransfer {
   url: string;
@@ -15,6 +16,7 @@ export type PdfMessage =
   | { type: 'pdf:parse-start'; source: PdfSourceTransfer; pageCount: number; consent: boolean }
   | { type: 'pdf:document-get'; hash: string }
   | { type: 'pdf:translate-page'; hash: string; page: number }
+  | { type: 'pdf:agent-ask'; hash: string; activePage: number; selection: string; recentMessages: AgentMessage[]; question: string; maxCharacters: number }
   | { type: 'pdf:cancel' }
   | { type: 'pdf:cache-clear'; hash: string };
 
@@ -22,6 +24,7 @@ export type PdfMessageValue =
   | PdfSourceTransfer
   | DocumentModel
   | TranslationResult[]
+  | { answer: string; mode: 'full' | 'compressed'; notice?: string }
   | { cancelled: true }
   | { cleared: true }
   | null;
@@ -44,6 +47,14 @@ export function isPdfMessage(value: unknown): value is PdfMessage {
       return exact(value, ['type', 'hash']) && nonEmpty(value.hash);
     case 'pdf:translate-page':
       return exact(value, ['type', 'hash', 'page']) && nonEmpty(value.hash) && positiveInteger(value.page);
+    case 'pdf:agent-ask':
+      return exact(value, ['type', 'hash', 'activePage', 'selection', 'recentMessages', 'question', 'maxCharacters']) &&
+        nonEmpty(value.hash) && positiveInteger(value.activePage) &&
+        typeof value.selection === 'string' && nonEmpty(value.question) &&
+        positiveInteger(value.maxCharacters) && (value.maxCharacters as number) <= 200_000 &&
+        Array.isArray(value.recentMessages) && value.recentMessages.every((message) =>
+          isRecord(message) && exact(message, ['role', 'content']) &&
+          (message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string');
     case 'pdf:cancel':
       return exact(value, ['type']);
     default:
