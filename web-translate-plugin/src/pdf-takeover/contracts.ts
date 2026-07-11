@@ -17,7 +17,7 @@ export interface TakeoverProbeResult {
   tabId: number;
   originalUrl: string;
   finalUrl: string;
-  kind: PdfTargetKind;
+  kind?: PdfTargetKind;
   injected: boolean;
   bytesReadable: boolean;
   restored: boolean;
