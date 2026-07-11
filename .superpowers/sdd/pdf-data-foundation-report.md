@@ -67,3 +67,9 @@
 
 - RED：client/normalize 两个文件共 11 个新增断言失败；single/batch `running` 返回 `MINERU_STATE_INVALID`，退避中 abort 测试超时，metadata 边界与修剪断言失败。
 - GREEN：client、normalize 与 settings 相关 5 个定向测试文件共 38 个测试通过。
+
+### 修复波追加 Important
+
+- 修正可选 MinerU 字符串字段校验：仅 metadata 的 `sourceUrl`、`hash`、`title` 和 raw block `type` 需要 trim 后非空；`text`、`img_path`、`table_body` 只校验字符串类型，显式空串与空白合法，非空内容逐字保留。
+- RED：新增“空 text 搭配 caption/table HTML 与可选字符串原样保留”回归后，规范化定向测试 1 个失败，错误为 `MINERU_FIELD_INVALID`。
+- GREEN：`npm test -- tests/unit/document/normalize-mineru.test.ts` 通过，1 个文件、17 个测试；`npm run typecheck` 通过。按修复要求未运行 build、全量 check 或 E2E。

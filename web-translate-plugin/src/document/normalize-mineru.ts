@@ -112,7 +112,8 @@ function requiredString(value: unknown): string {
 
 function optionalString(value: unknown): string | undefined {
   if (value === undefined) return undefined;
-  return requiredString(value);
+  if (typeof value !== 'string') throw new MineruDataError('MINERU_FIELD_INVALID');
+  return value;
 }
 
 function optionalStringArray(value: unknown): string[] | undefined {

@@ -120,4 +120,46 @@ describe('MinerU 文档规范化', () => {
       { ...metadata, pageCount: 1 },
     )).toThrowError(expect.objectContaining({ code: 'MINERU_FIELD_INVALID' }));
   });
+
+  it('允许空 text 搭配 caption 与表格 HTML 并原样保留可选字符串', () => {
+    const model = normalizeMineru([
+      {
+        page_idx: 0,
+        type: 'table',
+        text: '',
+        table_caption: ['Table caption'],
+        table_body: '  <table><tr><td>x</td></tr></table>  ',
+      },
+      {
+        page_idx: 0,
+        type: 'image',
+        text: '  Figure body  ',
+        img_path: '  images/figure.png  ',
+      },
+      {
+        page_idx: 0,
+        type: 'image',
+        text: '   ',
+        img_path: '',
+      },
+    ], { ...metadata, pageCount: 1 });
+
+    expect(model.pages[0].blocks).toMatchObject([
+      {
+        kind: 'table',
+        text: '',
+        html: '  <table><tr><td>x</td></tr></table>  ',
+      },
+      {
+        kind: 'figure',
+        text: '  Figure body  ',
+        resourceUrl: '  images/figure.png  ',
+      },
+      {
+        kind: 'figure',
+        text: '   ',
+        resourceUrl: '',
+      },
+    ]);
+  });
 });
