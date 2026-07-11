@@ -1,290 +1,300 @@
-# Web Translation Chrome Extension Design
+# 网页翻译 Chrome 插件设计规格
 
-Date: 2026-07-11
-Status: Approved design, pending written-spec review
+日期：2026-07-11
+状态：设计已口头批准，等待中文书面规格复审
 
-## 1. Product Goal
+## 1. 产品目标
 
-Build a Chrome Manifest V3 extension with two translation modes:
+在 `web-translate-plugin` 目录中实现一个 Chrome Manifest V3 插件，提供两类翻译能力：
 
-1. Translate ordinary English web pages into Chinese while preserving the original page layout and interactions.
-2. Replace the active PDF viewer with a custom bilingual paper-reading workspace intended primarily for arXiv papers.
+1. 把普通英文网页原位翻译为中文，同时保留原页面布局、链接、控件和交互。
+2. 在用户启用 PDF 翻译时接管当前 PDF 页面，使用 PDF.js 重新渲染，并提供面向 arXiv 论文阅读的双栏翻译与智能体问答体验。
 
-The PDF workspace must preserve the original address-bar URL and must re-render every PDF with PDF.js whenever PDF translation is enabled. It must not silently fall back to Chrome's native PDF viewer. The initial version calls MinerU and an OpenAI-compatible API directly from the extension. A separate backend may be added later behind stable provider interfaces.
+PDF 模式有两个不可降级的硬约束：地址栏必须始终保留原 PDF URL；启用翻译后必须由 PDF.js 重渲染，不能退回 Chrome 原生 PDF 查看器。首版由插件直接调用 MinerU 和 OpenAI 兼容接口，后续可在不改动阅读器 UI 的前提下接入自建后端。
 
-## 2. Confirmed Requirements
+## 2. 已确认需求
 
-### 2.1 Translation providers
+### 2.1 模型与解析服务
 
-- Users configure an OpenAI-compatible base URL, model name, and API key.
-- Users configure a MinerU token for precision PDF parsing.
-- Translation, chat, and MinerU integrations are isolated behind provider interfaces so a future backend can replace direct calls without changing the reader UI.
+- 用户在设置页配置 OpenAI 兼容接口地址、模型名称和 API Key。
+- 用户配置 MinerU Token，PDF 解析优先使用精确解析接口。
+- 翻译、智能体和 MinerU 均通过独立 Provider 接口调用，为后续后端代理保留替换边界。
+- 首版不实现自建后端。
 
-### 2.2 PDF scope and hard constraints
+### 2.2 PDF 支持范围
 
-- Support arXiv PDFs, arbitrary public HTTP/HTTPS PDFs, authenticated PDFs that depend on browser cookies, redirected PDFs, and local `file://` PDFs.
-- Chrome's "Allow access to file URLs" permission is required for local PDFs.
-- When PDF translation is enabled, the extension must replace the PDF display with a PDF.js-based reader.
-- The address-bar URL must remain byte-for-byte identical to the original PDF URL, including query parameters and fragments, throughout activation, reading, refresh, forward/back navigation, and deactivation.
-- Native Chrome PDF rendering is not an accepted fallback while translation is enabled.
-- These requirements are subject to a Phase 0 technical feasibility gate described in section 10.
+- 支持 arXiv PDF。
+- 支持任意公开 HTTP/HTTPS PDF。
+- 支持依赖当前浏览器 Cookie 才能访问的 PDF。
+- 支持包含重定向、查询参数和 URL Fragment 的 PDF。
+- 支持用户授权后的本地 `file://` PDF；用户需在扩展管理页开启“允许访问文件网址”。
 
-### 2.3 PDF reading experience
+### 2.3 PDF 硬约束
 
-- Use a two-column reading layout: PDF.js-rendered PDF on the left and Chinese translation on the right.
-- Organize translation by original PDF page.
-- Synchronize the two columns using page and paragraph-block anchors.
-- Prioritize translation of the current page, then adjacent pages, then the remainder of the document.
-- Preserve formulas, tables, figures, captions, headings, and page references in the normalized document model.
-- Provide a collapsible agent panel at the far right. Collapsing it returns space to the translation column.
+- 只有用户主动启用 PDF 翻译后才接管页面。
+- 启用后必须使用 PDF.js 重渲染 PDF。
+- 地址栏 URL 必须与启用前逐字一致，包括查询参数和 Fragment。
+- 刷新、前进、后退、复制链接、新标签页打开和关闭翻译时，都必须维持正确的原 URL 语义。
+- 翻译启用期间不允许把 Chrome 原生 PDF 查看器作为降级结果。
+- 上述能力必须先通过第 10 节定义的 Phase 0 技术可行性门槛。
 
-### 2.4 Agent behavior
+### 2.4 PDF 阅读体验
 
-- The initial agent receives the complete MinerU-parsed document as fixed conversation context.
-- Each request additionally includes the active page, selected text, and recent conversation turns.
-- Answers cite source page numbers; clicking a page citation navigates both reader columns.
-- If the full paper exceeds the configured model's context allowance, the extension must not silently truncate it. It creates a chapter-level compression plus the full active-page text and informs the user that compressed context is being used.
-- Vector search, embeddings, and server-side RAG are intentionally excluded from the initial version.
+- 主区域左侧为 PDF.js 渲染的 PDF，右侧为中文译文。
+- 译文严格按原 PDF 页码组织。
+- 左右两栏根据页码和段落块锚点同步。
+- 优先翻译当前页，其次翻译前后相邻页，再后台翻译剩余页面。
+- 标题、段落、公式、表格、图片、图注、脚注和页码关系需保留在统一文档模型中。
+- 最右侧提供可收起的智能体面板；收起后空间归还给译文区域。
+- 各栏宽度可以拖动调整，阅读位置自动保存。
 
-### 2.5 Ordinary webpage experience
+### 2.5 智能体行为
 
-- Translate English text into Chinese in place while preserving the original DOM structure, links, controls, and page behavior.
-- Let the user reveal original text by hover or keyboard shortcut.
-- Support one-click restoration of the original page.
-- Prioritize visible content and translate additional content as it approaches the viewport.
-- Observe dynamically inserted content for infinite-scroll and single-page applications.
+- 首版直接把 MinerU 解析出的整篇论文结构化文本作为固定上下文，不实现向量检索或复杂 RAG。
+- 每次提问额外加入当前页、用户选中文本和最近对话。
+- 回答必须包含来源页码；点击页码可以让 PDF 与译文同时跳转。
+- 当整篇内容超过模型上下文上限时，不能静默截断。系统应使用“章节压缩摘要 + 当前页完整文本”，并明确提示当前使用了压缩上下文。
 
-## 3. Architecture
+### 2.6 普通网页翻译
 
-The extension is divided into independently testable units with explicit message contracts.
+- 将英文文本原位替换为中文，不替换承载文本的父级 DOM 元素。
+- 保留链接、按钮、表单和页面已有事件。
+- 用户可以通过悬停或快捷键查看原文。
+- 支持一键恢复全部原文。
+- 优先翻译当前视口及其附近内容，继续滚动时按需翻译后续内容。
+- 支持无限滚动和单页应用动态插入的新内容。
 
-### 3.1 Extension service worker
+## 3. 总体架构
 
-Responsibilities:
+插件拆分为职责单一、可以独立测试的模块，各模块通过明确的消息和数据接口通信。
 
-- Detect supported PDF navigation and coordinate activation/deactivation.
-- Request optional host and file URL permissions.
-- Fetch remote PDF bytes using the active browser session where permissions allow.
-- Coordinate MinerU and OpenAI-compatible requests.
-- Persist task metadata and recover interrupted asynchronous work.
-- Route messages between content scripts, the PDF workspace, settings, and provider adapters.
+### 3.1 扩展 Service Worker
 
-The service worker does not own UI state and does not assume it remains alive between events.
+职责：
 
-### 3.2 PDF Takeover Adapter
+- 检测 PDF 导航并协调翻译的启用与关闭。
+- 请求可选 Host 权限和本地文件访问权限。
+- 在权限允许时使用当前浏览器会话获取远程 PDF 字节。
+- 协调 MinerU 与 OpenAI 兼容接口调用。
+- 持久化异步任务元数据，并在 Service Worker 被挂起或浏览器重启后恢复任务。
+- 在内容脚本、PDF 工作台、设置页和 Provider 之间转发消息。
 
-Responsibilities:
+Service Worker 不保存只存在于内存中的关键状态，也不假设自身会持续运行。
 
-- Replace the current PDF presentation without changing its address-bar URL.
-- Mount and unmount the workspace in the current tab.
-- Preserve refresh, forward/back, original-link copying, and deactivation semantics.
-- Expose the original PDF bytes or a readable byte source to PDF.js and the parsing pipeline.
-- Report an explicit unsupported error when the hard takeover conditions cannot be met.
+### 3.2 PDF 接管适配器
 
-This unit is the primary subject of the Phase 0 feasibility gate. Its implementation mechanism is deliberately not predetermined because Chrome's protected PDF viewer behavior must be verified experimentally.
+职责：
 
-### 3.3 PDF workspace
+- 在地址栏 URL 不变的前提下替换当前 PDF 展示层。
+- 在当前标签页中挂载与卸载 PDF 工作台。
+- 保留刷新、前进、后退、复制原链接和关闭翻译的浏览器语义。
+- 向 PDF.js 与解析流程提供原始 PDF 字节或可读取的字节源。
+- 无法满足硬约束时返回明确的不支持错误。
 
-The workspace contains:
+Chrome 原生 PDF 查看器属于受保护的浏览器内部能力，因此接管机制不能在设计阶段凭假设确定。该适配器必须通过 Phase 0 实验决定具体实现方式。
 
-- A top toolbar for page navigation, zoom, search, translation state, original-text display, and settings.
-- A left PDF.js viewer.
-- A right translated-page stream.
-- A resizable and collapsible agent panel.
-- Resizable separators between all visible columns.
+### 3.3 PDF 工作台
 
-It consumes a normalized `DocumentModel` rather than MinerU-specific response objects.
+工作台包含：
+
+- 顶部工具栏：页码、缩放、搜索、翻译进度、原文显示和设置入口。
+- 左侧 PDF.js 阅读器。
+- 右侧逐页译文流。
+- 最右侧可调整宽度、可收起的智能体面板。
+- 各区域之间可拖动的分隔条。
+
+工作台只依赖统一的 `DocumentModel`，不直接读取 MinerU 原始响应。
 
 ### 3.4 MinerU Provider
 
-Responsibilities:
+职责：
 
-- Submit URL-based precision extraction tasks for accessible remote files.
-- Use MinerU's file-upload workflow for local PDFs and remote PDFs that MinerU cannot fetch directly.
-- Poll asynchronous tasks with cancellation, timeout, and bounded retry behavior.
-- Normalize Markdown/JSON extraction artifacts into `DocumentModel`.
-- Retain page indices from MinerU content-list output as the canonical mapping source.
+- 对 MinerU 可以直接访问的远程 URL 提交精确解析任务。
+- 对本地 PDF、依赖 Cookie 的 PDF，以及 MinerU 无法直接拉取的远程 PDF，使用 MinerU 文件上传流程。
+- 轮询异步任务，支持取消、超时和有限次数重试。
+- 将 MinerU 的 Markdown、JSON 和资源文件规范化为 `DocumentModel`。
+- 使用带页码信息的内容列表作为页面映射的主要依据。
 
-MinerU supports precision parsing with formulas, tables, structured output, and asynchronous task polling. The provider must remain compatible with the documented URL task and upload task workflows rather than assuming direct file upload to the single-file URL endpoint.
+Provider 必须兼容 MinerU 文档中的 URL 任务与文件上传流程，不能假定单文件 URL 接口支持直接上传文件。
 
-### 3.5 Translation Provider and Scheduler
+### 3.5 翻译 Provider 与调度器
 
-The OpenAI-compatible translation provider accepts semantic page blocks and returns translations keyed by stable block identifiers. The scheduler:
+OpenAI 兼容翻译 Provider 接收带稳定标识的语义块，并返回按块标识关联的译文。调度器负责：
 
-- Places the active page at highest priority.
-- Places the immediately previous and next pages at second priority.
-- Processes remaining pages in reading order.
-- Batches small compatible blocks without crossing page identity.
-- Limits concurrency and observes provider rate-limit responses.
-- Stores partial success so one failed page does not invalidate the document.
+- 当前页最高优先级。
+- 当前页的前一页和后一页为第二优先级。
+- 其余页面按阅读顺序后台处理。
+- 小型相邻语义块可以批量请求，但不能丢失页面归属。
+- 限制并发数并处理服务端限流。
+- 保存部分成功结果，单页失败不能使整篇任务失效。
 
-### 3.6 Agent Context Builder
+### 3.6 智能体上下文构建器
 
-The context builder creates a stable prompt package containing:
+每次请求构建以下上下文：
 
-- Complete normalized paper text when it fits.
-- Active page and selected block metadata.
-- Recent conversation turns within a fixed budget.
-- Explicit page anchors used for citations.
+- 模型容量允许时的整篇规范化论文文本。
+- 当前页、选中块和对应页码元数据。
+- 在固定预算内的最近对话。
+- 用于回答引用与跳转的显式页码锚点。
 
-When compression is necessary, it replaces only the non-active portions with chapter summaries and records that fact in the UI.
+需要压缩时，只压缩非当前页内容，并在界面上记录和展示压缩状态。
 
-### 3.7 Webpage Translation Content Script
+### 3.7 网页翻译内容脚本
 
-Responsibilities:
+职责：
 
-- Discover translatable text nodes with a DOM walker.
-- Exclude scripts, styles, inputs, editable regions, code/preformatted blocks, and extension-owned UI.
-- Group nodes into semantic batches.
-- Replace text without replacing parent elements or event-bound DOM.
-- Maintain a stable original/translated node map.
-- Observe new content with `MutationObserver` while preventing self-triggered loops.
-- Restore all original text and remove extension metadata on deactivation.
+- 通过 DOM Walker 发现可翻译文本节点。
+- 跳过 `script`、`style`、输入框、可编辑区域、代码块、预格式化文本和插件自身 UI。
+- 按语义关系组合翻译批次。
+- 只替换文本节点内容，避免破坏父节点事件和状态。
+- 保存稳定的原文与译文映射。
+- 使用 `MutationObserver` 处理新内容，并防止插件自身修改触发观察器循环。
+- 关闭翻译时恢复全部原文并清理插件元数据。
 
-### 3.8 Storage
+### 3.8 本地存储
 
-- `chrome.storage.local`: provider settings, non-secret preferences, task references, and small session metadata.
-- IndexedDB: PDF content hashes, normalized document models, per-page translations, conversation state, and reading positions.
-- Cache keys include the PDF content hash, source and target languages, provider identity, model identity, and prompt/schema version.
+- `chrome.storage.local`：Provider 设置、用户偏好、任务引用和少量会话元数据。
+- IndexedDB：PDF 内容哈希、`DocumentModel`、逐页译文、对话、阅读位置和任务缓存。
+- 缓存键至少包含 PDF 内容哈希、源语言、目标语言、Provider、模型以及 Prompt/Schema 版本。
 
-API keys and tokens are stored only in `chrome.storage.local`. The UI must clearly state that this is local extension storage, not an operating-system credential vault.
+API Key 与 Token 仅保存在 `chrome.storage.local`。设置页必须说明它是扩展本地存储，不是操作系统级凭据保险库。
 
-## 4. Core Data Model
+## 4. 核心数据模型
 
-`DocumentModel` is the boundary between parsing, rendering, translation, and agent features. It contains:
+`DocumentModel` 是解析、渲染、翻译和智能体之间的稳定边界，包含：
 
-- Document identity, source URL, content hash, title, and page count.
-- Ordered pages with stable page identifiers.
-- Ordered blocks per page with stable block identifiers.
-- Block type: heading, paragraph, list, formula, table, figure, caption, footnote, or other.
-- Original text, optional LaTeX/HTML representation, resource references, and source geometry when available.
-- Translation state and translated content kept outside the immutable source fields.
+- 文档标识、源 URL、内容哈希、标题和总页数。
+- 按阅读顺序排列、具有稳定 ID 的页面。
+- 每页内按顺序排列、具有稳定 ID 的内容块。
+- 内容块类型：标题、段落、列表、公式、表格、图片、图注、脚注或其他。
+- 原文、可选 LaTeX/HTML 表示、资源引用，以及 MinerU 可提供时的源版面坐标。
+- 独立于不可变原始内容的翻译状态与译文。
 
-No consumer reads raw MinerU response shapes directly.
+任何下游模块都不能直接依赖 MinerU 原始响应结构。
 
-## 5. PDF Data Flow
+## 5. PDF 数据流
 
-1. The user explicitly enables PDF translation for the active tab.
-2. The Takeover Adapter validates that the document can be replaced while retaining the original URL.
-3. The adapter obtains the PDF byte stream and mounts the workspace.
-4. PDF.js renders the left column immediately; MinerU completion is not required for basic reading.
-5. The MinerU Provider computes or receives the document identity, checks the local cache, and submits a parsing task when necessary.
-6. The task controller polls until completion, cancellation, failure, or timeout.
-7. The provider converts the result into `DocumentModel` and persists it.
-8. The scheduler translates the active page, neighboring pages, and then remaining pages.
-9. The translated stream renders completed page blocks incrementally.
-10. The agent becomes available after the normalized document is ready. It may answer while background translation is still running.
+1. 用户在当前标签页主动启用 PDF 翻译。
+2. PDF 接管适配器验证当前文档能否在 URL 不变的条件下被替换。
+3. 适配器取得 PDF 字节流并挂载工作台。
+4. PDF.js 立即渲染左栏，不等待 MinerU 完成。
+5. MinerU Provider 计算文档标识、查询缓存，并在需要时提交解析任务。
+6. 任务控制器持续轮询，直到完成、取消、失败或超时。
+7. Provider 把结果转换为 `DocumentModel` 并写入本地缓存。
+8. 调度器依次翻译当前页、相邻页和剩余页。
+9. 右侧译文区域增量展示已经完成的页面。
+10. `DocumentModel` 准备完成后即可启用智能体，不必等待整篇翻译完成。
 
-## 6. Page Synchronization
+## 6. 左右同步机制
 
-- Each PDF page and translated page owns the same stable page anchor.
-- When the user scrolls one column, the synchronization controller selects the dominant visible page and aligns the other column to that page.
-- Block-level alignment is used only when reliable block geometry exists.
-- Direct user interaction in the destination column temporarily suspends automatic following to avoid scroll contention.
-- A visible "Resync" action restores automatic alignment.
-- Page navigation, search results, and agent citations use the same navigation command so both columns remain consistent.
+- PDF 页面和译文页面共享同一个稳定页码锚点。
+- 用户滚动任意一栏时，同步控制器选择占据视口主要区域的页面，并让另一栏对齐到同页。
+- 只有在 MinerU 提供可靠版面坐标时，才启用段落块级精确对齐。
+- 用户主动操作被跟随栏时，自动同步暂时暂停，防止两栏争抢滚动位置。
+- 界面提供明显的“重新同步”操作。
+- 页码跳转、搜索结果和智能体引用共用同一导航命令，保证两栏一致。
 
-## 7. Failure Handling
+## 7. 失败处理
 
-- PDF.js rendering and MinerU parsing fail independently. A MinerU failure leaves the re-rendered PDF readable and provides retry and diagnostic actions in the translation column.
-- Page translation failures are isolated per page and can be retried individually or as a group.
-- Network errors, rate limits, and transient server failures use bounded exponential backoff with visible status.
-- Authentication errors stop immediately and direct the user to settings.
-- Task state is persisted so service-worker suspension or browser restart can resume polling safely.
-- Deactivation restores the native document presentation at the same URL and best-effort reading position.
-- A takeover failure never redirects to an extension URL and never presents the native viewer as translated mode.
+- PDF.js 渲染与 MinerU 解析相互独立。MinerU 失败时，重渲染后的 PDF 仍可阅读，右栏显示错误、诊断和重试入口。
+- 翻译失败按页隔离，支持重试当前失败页或全部失败页。
+- 网络错误、限流和临时服务错误使用可见状态下的有限次数指数退避。
+- 凭据错误立即停止重试并引导用户前往设置页。
+- 任务状态持久化，确保 Service Worker 挂起或浏览器重启后可以恢复。
+- 关闭 PDF 翻译时，在同一 URL 下恢复原生查看，并尽量恢复原阅读页码。
+- PDF 接管失败时不跳转到扩展 URL，也不把原生查看器伪装成翻译模式。
 
-## 8. Privacy and Security
+## 8. 隐私与安全
 
-- No PDF, webpage text, or conversation content is sent until the user enables the relevant feature.
-- Before uploading a local or authenticated PDF to MinerU, the UI identifies the destination service and requests confirmation.
-- Provider credentials never enter page DOM, console logs, exported diagnostics, or prompt content.
-- Extension UI is isolated from host-page CSS and JavaScript.
-- Remote code is not loaded; all executable code ships in the extension package as required by Manifest V3.
-- Cache entries can be deleted per document or globally.
-- Webpage translation is not automatically enabled on password, payment, browser-internal, or administrative pages.
+- 用户未启用对应功能前，不发送 PDF、网页文本或对话内容。
+- 上传本地 PDF 或依赖 Cookie 的 PDF 前，界面明确说明文件将发送给 MinerU，并要求用户确认。
+- Provider 凭据不能进入页面 DOM、控制台日志、诊断导出或 Prompt 内容。
+- 插件 UI 与宿主网页的 CSS 和 JavaScript 隔离。
+- 遵守 Manifest V3 要求，所有可执行代码随扩展打包，不加载远程代码。
+- 支持按文档清除缓存和清空全部缓存。
+- 密码、支付、浏览器内部页和后台管理页默认不自动启用网页翻译。
 
-## 9. Deliberate Initial-Version Exclusions
+## 9. 首版明确不做
 
-- Self-hosted backend service.
-- User accounts or cross-device synchronization.
-- Vector database, embeddings, or server-side RAG.
-- Collaborative notes and annotations.
-- OCR or document parsing engines other than MinerU.
-- Languages other than English-to-Chinese in the primary UX, although interfaces must not hard-code the pair.
-- Automatic translation of every visited page.
+- 自建后端服务。
+- 用户账号和跨设备同步。
+- 向量数据库、Embedding 或服务端 RAG。
+- 协作笔记和批注。
+- MinerU 之外的 OCR 或文档解析引擎。
+- 主要 UI 中的其他语言对；接口层不能把英译中写死。
+- 自动翻译用户访问的每一个网页。
 
-## 10. Phase 0: PDF Takeover Go/No-Go Gate
+## 10. Phase 0：PDF 接管 Go/No-Go 门槛
 
-Implementation must begin with a minimal technical probe, not the full product UI.
+正式产品开发必须从最小技术探针开始，不能先实现完整 UI。
 
-### 10.1 Test matrix
+### 10.1 测试矩阵
 
-- An arXiv PDF URL.
-- A direct public HTTPS PDF.
-- A PDF reached through redirects and query parameters.
-- A PDF requiring browser cookies.
-- A local `file://` PDF with file URL access enabled.
-- Refresh, forward, back, duplicate tab, copy URL, and open in a new tab.
-- Activation and deactivation while preserving the exact address-bar URL.
+- arXiv PDF URL。
+- 公开 HTTPS 直链 PDF。
+- 包含查询参数、Fragment 和重定向的 PDF。
+- 依赖浏览器 Cookie 的 PDF。
+- 已开启文件访问权限的本地 `file://` PDF。
+- 刷新、前进、后退、复制 URL、复制标签页和在新标签页打开。
+- 启用与关闭翻译全过程的地址栏 URL 检查。
 
-### 10.2 Pass criteria
+### 10.2 通过标准
 
-Every sample must:
+每一类样本都必须满足：
 
-- Keep the byte-for-byte exact original address-bar URL, including query parameters and fragments.
-- Display a demonstrably PDF.js-rendered test surface after activation.
-- Survive refresh and history navigation with correct enablement semantics.
-- Allow the original PDF bytes to be read by the extension.
-- Restore native viewing on deactivation.
+- 地址栏 URL 与启用前逐字一致，包括查询参数和 Fragment。
+- 启用后展示可证明由 PDF.js 渲染的测试界面。
+- 刷新和历史导航后仍维持正确的启用状态与页面语义。
+- 插件能够读取原始 PDF 字节。
+- 关闭翻译后可以恢复原生查看。
 
-### 10.3 Failure policy
+### 10.3 失败策略
 
-If any required class of PDF cannot meet the criteria, PDF implementation stops. The project returns to product design to revise at least one hard constraint. It does not proceed with a hidden URL change, native-viewer fallback, or reduced PDF scope.
+只要任一必需 PDF 类型不能通过，PDF 正式实现立即停止，产品重新讨论并调整至少一个硬约束。不得以隐藏 URL 变化、原生查看器降级或缩小 PDF 范围的方式继续开发。
 
-## 11. Testing Strategy
+## 11. 测试策略
 
-### 11.1 Unit tests
+### 11.1 单元测试
 
-- MinerU response normalization into `DocumentModel`.
-- Stable page and block identifiers.
-- Translation scheduling and reprioritization.
-- Context budgeting and compression disclosure.
-- Cache key generation and invalidation.
-- Bounded retry and task recovery logic.
-- Webpage node filtering, replacement, and restoration.
+- MinerU 响应到 `DocumentModel` 的规范化。
+- 稳定页面 ID 和内容块 ID。
+- 翻译优先级、重排和失败隔离。
+- 智能体上下文预算与压缩提示。
+- 缓存键生成与失效。
+- 有限重试和任务恢复。
+- 网页文本节点过滤、替换与恢复。
 
-### 11.2 Integration tests
+### 11.2 集成测试
 
-- Provider adapters against recorded, sanitized responses.
-- IndexedDB persistence and interrupted-task recovery.
-- PDF page/translation synchronization commands.
-- Webpage dynamic-content translation without observer loops.
+- Provider 对脱敏录制响应的处理。
+- IndexedDB 持久化和中断任务恢复。
+- PDF 页与译文页的同步导航命令。
+- 动态网页翻译及 `MutationObserver` 循环防护。
 
-### 11.3 Browser end-to-end tests
+### 11.3 浏览器端到端测试
 
-- The complete Phase 0 URL-preserving takeover matrix.
-- PDF activation, rendering, parsing, incremental translation, agent questions, citations, and deactivation.
-- Ordinary page activation, viewport-priority translation, hover original, dynamic insertion, and restoration.
-- Settings validation, permission prompts, invalid credentials, rate limits, and cache clearing.
+- 完整的 Phase 0 URL 不变接管矩阵。
+- PDF 启用、渲染、解析、增量翻译、智能体提问、引用跳转和关闭。
+- 普通网页启用、视口优先翻译、悬停原文、动态插入内容和恢复。
+- 设置校验、权限请求、无效凭据、限流以及缓存清理。
 
-## 12. MVP Acceptance Criteria
+## 12. MVP 验收标准
 
-- The Phase 0 gate passes for all required PDF classes.
-- Enabling PDF translation always produces a PDF.js-rendered workspace without changing the original URL.
-- The PDF and translation columns stay aligned by page and recover from manual-scroll suspension.
-- Current-page translation appears before full-document translation completes.
-- Formulas, tables, figures, headings, captions, and page identity survive MinerU normalization.
-- The agent can answer from the complete paper context and produces navigable page citations.
-- Ordinary pages translate in place, preserve interactions, handle dynamic content, reveal original text, and restore cleanly.
-- Provider configuration, resumable tasks, local caching, error reporting, retry, and cache deletion work as specified.
-- Automated tests cover the critical data model, scheduling, provider, caching, DOM translation, and browser workflows.
+- Phase 0 对所有要求的 PDF 类型通过。
+- 启用 PDF 翻译后始终由 PDF.js 重渲染，且原 URL 逐字不变。
+- PDF 与译文按页同步，并能从手动滚动暂停状态恢复。
+- 当前页译文在全文翻译完成前出现。
+- 公式、表格、图片、标题、图注与页码关系在 MinerU 规范化后仍然保留。
+- 智能体可以基于整篇论文回答，并提供可点击的页码引用。
+- 普通网页能够原位翻译、保留交互、处理动态内容、查看原文并完整恢复。
+- Provider 配置、任务恢复、本地缓存、错误显示、重试和缓存删除可用。
+- 自动化测试覆盖关键数据模型、调度、Provider、缓存、DOM 翻译和浏览器工作流。
 
-## 13. References
+## 13. 参考资料
 
-- Chrome Extensions content scripts: https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
-- Chrome `scripting` API: https://developer.chrome.com/docs/extensions/reference/api/scripting
-- Chrome Manifest V3 overview: https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3
-- MinerU API overview and limits: https://mineru.net/doc/docs/index_en/
-- MinerU API documentation: https://mineru.net/apiManage/docs
-- MinerU project documentation: https://github.com/opendatalab/MinerU
+- Chrome Content Scripts：https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
+- Chrome `scripting` API：https://developer.chrome.com/docs/extensions/reference/api/scripting
+- Chrome Manifest V3：https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3
+- MinerU API 概览与限制：https://mineru.net/doc/docs/index_en/
+- MinerU API 文档：https://mineru.net/apiManage/docs
+- MinerU 项目：https://github.com/opendatalab/MinerU
