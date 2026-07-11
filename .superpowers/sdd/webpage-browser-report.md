@@ -21,7 +21,6 @@
 - 生命周期：先验证 mutation/runtime 模块及 `add()` 缺失 RED，再实现动态去重、幂等、中止、迟到结果和恢复。
 - Provider 与 Popup：先验证权限 Origin、设置校验、连接测试及 activeTab 注入模块缺失 RED，再实现 GREEN。
 - 回归：Worker 原生 `fetch` 因错误绑定 `this` 触发 `Illegal invocation`，已用失败单测复现并改为无绑定调用；首次 Provider 错误传播与 arXiv `/pdf/` 分流也均先取得 RED 后修复。
-- 最终 `npm run check`：20 个测试文件、95 个测试全部通过；TypeScript 检查与 WXT 生产构建通过。
 - 最终 `npm run test:e2e -- webpage-translation.spec.ts`：2 个 Chromium 用例全部通过，覆盖静态/动态文本、首屏优先、查看原文、按钮事件、关闭恢复和敏感页面拒绝。
 
 ## 生产构建与权限自查
@@ -47,4 +46,11 @@
 - `settings:test-provider` 增加扩展 options sender 边界与字符串长度上限。Chrome 的 options 页面本身运行在扩展标签页，技术核验表明不能以 `sender.tab` 缺失作为条件；实现改为同时校验精确 options URL 和扩展 ID，因此正常 options 标签页可用，而网页 content script、Popup 和其他扩展均被拒绝。
 - Popup 将 `chrome://`、扩展商店及其他不可注入 URL 的错误显示为“当前页面不支持网页翻译”，不再误导用户检查 Provider。
 - 本波次未监听 `characterData`。当前 observer 仅监听 `childList`，自身 `Text.data` 应用不会形成反馈循环；若支持外部原位文本更新，还需要同时定义稳定 original 的更新、恢复语义、与迟到翻译结果的冲突解决。仅比较当前值与 translated 值无法可靠区分外部编辑，因此本次按绑定需求聚焦新增节点，避免引入错误恢复行为。
-- 本波次最终 `npm run check`：20 个测试文件、107 个测试全部通过，TypeScript 检查与 WXT 生产构建通过；网页翻译 E2E 保留真实 options UI 测试/保存流程，2 个 Chromium 用例全部通过。
+
+## 移动 Text tooltip 清理修复
+
+- controller 现在记录每个已应用 block 的当前 tooltip parent，并记录 session 内所有触碰过的 parents。已翻译 direct Text 移动并重扫时，旧 parent 在没有其他已应用 block 后立即清理，新 parent 获得聚合后的完整原文 tooltip。
+- `restore()` 会清理所有触碰过的 parent，同时只恢复仍连接的 Text；断开 Text 的 applied 资格继续保留，重连后再次恢复仍可写回原文。
+- 该修复仍只移动和修改既有 `Text.data`，不包裹或替换 Text/父元素。
+- Minor：tooltip CSS 为承载元素设置 `position: relative`，可能影响少数依赖原始定位上下文的页面。本波次不重构 tooltip 机制，后续可评估不改变宿主布局的独立浮层方案。
+- 最新验证：`npm run check` 的 20 个测试文件、109 个测试全部通过，TypeScript 检查与 WXT 生产构建通过；网页翻译 Chromium E2E 2 个用例全部通过。

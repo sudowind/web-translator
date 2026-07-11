@@ -36,8 +36,8 @@ export function scanTextNodes(root: Node): TextBlock[] {
 
   while (current) {
     const node = current as Text;
-    if (/[A-Za-z]/.test(node.data) && isUsable(node)) {
-      let metadata = metadataByNode.get(node);
+    let metadata = metadataByNode.get(node);
+    if ((metadata || /[A-Za-z]/.test(node.data)) && isUsable(node)) {
       if (!metadata) {
         metadata = {
           id: `web-translate-${++nextId}`,

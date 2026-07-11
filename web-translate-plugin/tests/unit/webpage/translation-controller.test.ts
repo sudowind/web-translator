@@ -117,4 +117,29 @@ describe('原位翻译控制器', () => {
     controller.restore();
     expect(block.node.data).toBe('Reconnect English');
   });
+
+  it('已翻译 direct Text 移动后迁移 tooltip 并在恢复时清理所有父元素', () => {
+    document.body.innerHTML = '<p id="p1">Moving English</p><p id="p2">目标：</p>';
+    const p1 = document.querySelector('#p1')!;
+    const p2 = document.querySelector('#p2')!;
+    const block = scanTextNodes(p1)[0];
+    const controller = new TranslationController([block]);
+    controller.apply([{ id: block.id, text: '移动译文' }]);
+
+    p2.append(block.node);
+    expect(controller.add(scanTextNodes(block.node))).toEqual([]);
+
+    expect(p1.hasAttribute('data-web-translate-original')).toBe(false);
+    expect(p1.hasAttribute('data-web-translate-id')).toBe(false);
+    expect(p2.getAttribute('data-web-translate-original')).toBe(
+      '目标：Moving English',
+    );
+
+    controller.restore();
+    expect(block.node.data).toBe('Moving English');
+    for (const parent of [p1, p2]) {
+      expect(parent.hasAttribute('data-web-translate-original')).toBe(false);
+      expect(parent.hasAttribute('data-web-translate-id')).toBe(false);
+    }
+  });
 });

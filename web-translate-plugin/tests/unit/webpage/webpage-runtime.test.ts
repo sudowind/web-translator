@@ -82,6 +82,46 @@ describe('WebpageTranslationRuntime', () => {
     await runtime.disable();
   });
 
+  it('已翻译 direct Text 从 p1 移到 p2 后迁移 tooltip 且 disable 完整恢复', async () => {
+    document.body.innerHTML = '<p id="p1">Moving English</p><p id="p2">目标：</p>';
+    const translationMessages: unknown[] = [];
+    const sendMessage = vi.fn(async (message: unknown) => {
+      if ((message as { type: string }).type === 'translation:cancel') {
+        return { canceled: true };
+      }
+      translationMessages.push(message);
+      const blocks = (message as { blocks: Array<{ id: string }> }).blocks;
+      return blocks.map(({ id }) => ({ id, text: '移动译文' }));
+    });
+    const runtime = new WebpageTranslationRuntime({
+      document,
+      url: new URL('https://article.example.test/story'),
+      sendMessage,
+      createSessionId: () => 'session-move-text',
+    });
+    await runtime.enable();
+    const p1 = document.querySelector('#p1')!;
+    const p2 = document.querySelector('#p2')!;
+    const text = p1.firstChild as Text;
+
+    p2.append(text);
+    await vi.waitFor(() =>
+      expect(p2.getAttribute('data-web-translate-original')).toBe(
+        '目标：Moving English',
+      ),
+    );
+    expect(p1.hasAttribute('data-web-translate-original')).toBe(false);
+    expect(translationMessages).toHaveLength(1);
+    expect(runtime.status()).toEqual({ enabled: true, count: 1 });
+
+    await runtime.disable();
+    expect(text.data).toBe('Moving English');
+    for (const parent of [p1, p2]) {
+      expect(parent.hasAttribute('data-web-translate-original')).toBe(false);
+      expect(parent.hasAttribute('data-web-translate-id')).toBe(false);
+    }
+  });
+
   it('关闭会发出取消、忽略迟到结果并恢复原文', async () => {
     document.body.innerHTML = '<button id="action">Submit action</button>';
     let resolveTranslation!: (value: TranslationResult[]) => void;
