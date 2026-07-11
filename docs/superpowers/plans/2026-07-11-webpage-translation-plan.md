@@ -18,6 +18,14 @@
 - OpenAI API Key 不进入页面 DOM、内容脚本消息、日志或诊断输出。
 - 首版仅提供英译中主界面，但接口保留语言参数。
 
+### 2026-07-11 执行修正
+
+- WXT 的 runtime content script 不声明 `matches`；否则构建器会把匹配模式加入静态 `host_permissions`。网页脚本只在用户打开扩展 action Popup 后，依赖 `activeTab` 由 Popup 动态注入。
+- 自定义 OpenAI 兼容接口的 Origin 仍使用 `optional_host_permissions`。设置页只能在保存或“测试连接”的真实用户手势中调用 `browser.permissions.request()`，拒绝时不得保存为可用配置。
+- API Key 只允许在设置页、Service Worker 和 `chrome.storage.local` 之间流转；内容脚本只发送文本块和语言参数，不得收到 Provider 凭据。
+- 计划中的示例代码是接口基线。实现必须补齐响应结构、缺失/重复 block id、空配置、并发关闭和错误恢复测试，不能把示例的最小校验当作最终验收。
+- 为提高执行效率，任务 1 至任务 3 作为“核心翻译域”里程碑统一复核，任务 4 至任务 6 作为“浏览器集成”里程碑统一复核；Critical/Important 问题仍必须修复并复核通过。
+
 ---
 
 ## 文件结构
@@ -386,7 +394,7 @@ import { TranslationController } from '../../src/webpage/translation-controller'
 import { ViewportQueue } from '../../src/webpage/viewport-queue';
 
 export default defineContentScript({
-  matches: ['http://*/*', 'https://*/*'], registration: 'runtime',
+  registration: 'runtime',
   main() {
     let controller: TranslationController | null = null;
     browser.runtime.onMessage.addListener(async (message) => {
@@ -548,6 +556,8 @@ git commit -m "feat: translate dynamic webpage content"
 - 产出：普通网页 MVP 的端到端验收。
 
 - [ ] **步骤 1：实现设置表单**
+
+保存设置或测试连接前，根据 `baseUrl` 计算 `scheme://host/*` Origin，并在提交按钮的用户手势中调用 `browser.permissions.request({ origins: [originPattern] })`。只有 HTTPS 地址、非空 API Key/模型且权限获得后才保存。
 
 ```tsx
 import React from 'react';
