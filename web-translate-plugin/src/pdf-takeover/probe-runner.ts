@@ -60,6 +60,12 @@ export async function runTakeoverProbe(
   }
 
   if (!mounted.injected) {
+    let restored = false;
+    try {
+      restored = await deps.restore(tab.id);
+    } catch {
+      // 保留脚本注入失败码，同时已完成尽力恢复。
+    }
     return {
       tabId: tab.id,
       originalUrl: tab.url,
@@ -67,7 +73,7 @@ export async function runTakeoverProbe(
       kind,
       injected: false,
       bytesReadable: false,
-      restored: false,
+      restored,
       passed: false,
       failure: 'script_injection_blocked',
       measuredAt,

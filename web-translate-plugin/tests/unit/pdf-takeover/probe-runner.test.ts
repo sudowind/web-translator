@@ -103,6 +103,39 @@ describe('runTakeoverProbe', () => {
     expect(deps.restore).toHaveBeenCalledWith(7);
   });
 
+  it('mount 返回 injected:false 时尽力恢复并记录恢复结果', async () => {
+    const deps = createDeps();
+    deps.mount.mockResolvedValue({ href: originalUrl, injected: false });
+
+    const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
+
+    expect(result).toMatchObject({
+      passed: false,
+      failure: 'script_injection_blocked',
+      injected: false,
+      restored: true,
+    });
+    expect(deps.restore).toHaveBeenCalledWith(7);
+    expect(deps.readBytes).not.toHaveBeenCalled();
+  });
+
+  it('injected:false 后 restore 抛错时保留主要失败码', async () => {
+    const deps = createDeps();
+    deps.mount.mockResolvedValue({ href: originalUrl, injected: false });
+    deps.restore.mockRejectedValue(new Error('恢复失败'));
+
+    const result = await runTakeoverProbe(deps, { id: 7, url: originalUrl });
+
+    expect(result).toMatchObject({
+      passed: false,
+      failure: 'script_injection_blocked',
+      injected: false,
+      restored: false,
+    });
+    expect(deps.restore).toHaveBeenCalledWith(7);
+    expect(deps.readBytes).not.toHaveBeenCalled();
+  });
+
   it('字节不可读时返回 bytes_unreadable', async () => {
     const deps = createDeps();
     deps.readBytes.mockResolvedValue(false);
