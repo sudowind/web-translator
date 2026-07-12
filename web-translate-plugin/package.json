@@ -12,6 +12,7 @@
     "check:fast": "tsc --noEmit && vitest run --changed",
     "test:e2e": "playwright test",
     "test:e2e:authorized": "playwright test pdf-takeover.spec.ts",
+    "test:live:arxiv": "vitest run --config vitest.live.config.ts",
     "check": "npm run typecheck && npm run test && npm run build",
     "postinstall": "wxt prepare"
   },

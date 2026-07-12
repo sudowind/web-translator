@@ -7,6 +7,6 @@ export default defineConfig({
     environment: 'node',
     pool: 'threads',
     clearMocks: true,
-    exclude: [...configDefaults.exclude, 'tests/e2e/**'],
+    exclude: [...configDefaults.exclude, 'tests/e2e/**', 'tests/live/**'],
   },
 });
