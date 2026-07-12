@@ -35,6 +35,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const parseStarted = React.useRef(false);
   const operationEpoch = React.useRef(new OperationEpoch());
   const syncRef = React.useRef<SyncController | null>(null);
+  const scrollIntentTimeouts = React.useRef(new Map<PdfPane, number>());
   const pdfBytes = React.useMemo(
     () => source ? Uint8Array.from(source.bytes) : null,
     [source],
@@ -51,9 +52,24 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       if (anchor && scroller) {
         scroller.scrollTop = anchor.offsetTop + anchor.offsetHeight * progress;
       }
-      globalThis.setTimeout(() => syncRef.current?.release(pane), 0);
     });
   }
+
+  const beginUserScroll = React.useCallback((pane: PdfPane) => {
+    syncRef.current?.beginUserScroll(pane);
+    const existing = scrollIntentTimeouts.current.get(pane);
+    if (existing !== undefined) globalThis.clearTimeout(existing);
+    const timeout = globalThis.setTimeout(() => {
+      syncRef.current?.endUserScroll(pane);
+      scrollIntentTimeouts.current.delete(pane);
+    }, 180);
+    scrollIntentTimeouts.current.set(pane, timeout);
+  }, []);
+
+  React.useEffect(() => () => {
+    for (const timeout of scrollIntentTimeouts.current.values()) globalThis.clearTimeout(timeout);
+    scrollIntentTimeouts.current.clear();
+  }, []);
 
   React.useEffect(() => {
     dispatch({ type: 'load-started' });
@@ -230,12 +246,28 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       </header>
       <p className="workspace-status" aria-live="polite" data-phase={lifecycle.phase}>{feedback}</p>
       <div className={`workspace-columns ${agentOpen ? 'agent-open' : 'agent-collapsed'}`}>
-        <section ref={leftRef} className="pdf-column" onScroll={() => syncRef.current?.userScroll('pdf')}>
+        <section
+          ref={leftRef}
+          className="pdf-column"
+          tabIndex={0}
+          onWheel={() => beginUserScroll('pdf')}
+          onTouchStart={() => beginUserScroll('pdf')}
+          onPointerDown={() => beginUserScroll('pdf')}
+          onKeyDown={() => beginUserScroll('pdf')}
+        >
           {source && pdfBytes
             ? <PdfViewer bytes={pdfBytes} scale={scale} activePage={activePage} onDocumentReady={onDocumentReady} onPageVisible={(page, progress) => visibleFrom('pdf', page, progress)} />
             : <p role="status">正在读取 PDF…</p>}
         </section>
-        <section ref={rightRef} className="translation-column" onScroll={() => syncRef.current?.userScroll('translation')}>
+        <section
+          ref={rightRef}
+          className="translation-column"
+          tabIndex={0}
+          onWheel={() => beginUserScroll('translation')}
+          onTouchStart={() => beginUserScroll('translation')}
+          onPointerDown={() => beginUserScroll('translation')}
+          onKeyDown={() => beginUserScroll('translation')}
+        >
           {model
             ? <TranslationPane model={model} translations={translations} pageStatus={pageStatus} onPageVisible={(page, progress) => visibleFrom('translation', page, progress)} />
             : source?.kind === 'authenticated' ? <div className="upload-consent" role="region" aria-label="MinerU 上传同意">

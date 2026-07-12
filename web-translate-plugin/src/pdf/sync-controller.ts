@@ -7,36 +7,26 @@ export type PaneNavigator = (
 ) => void;
 
 export class SyncController {
-  private readonly suspended = new Set<PdfPane>();
+  private driver: PdfPane | null = null;
 
   constructor(private readonly navigate: PaneNavigator) {}
 
   onVisible(source: PdfPane, page: number, progress = 0): void {
-    if (this.suspended.has(source)) return;
+    if (this.driver !== source) return;
     const target = source === 'pdf' ? 'translation' : 'pdf';
-    this.suspended.add(target);
     this.navigate(target, page, clamp(progress));
   }
 
-  suspend(pane: PdfPane): void {
-    this.suspended.add(pane);
+  beginUserScroll(pane: PdfPane): void {
+    this.driver = pane;
   }
 
-  release(pane: PdfPane): void {
-    this.suspended.delete(pane);
-  }
-
-  userScroll(pane: PdfPane): void {
-    this.release(pane);
-  }
-
-  resync(): void {
-    this.suspended.clear();
+  endUserScroll(pane: PdfPane): void {
+    if (this.driver === pane) this.driver = null;
   }
 
   navigateToPage(page: number): void {
-    this.suspended.add('pdf');
-    this.suspended.add('translation');
+    this.driver = null;
     this.navigate('pdf', page, 0);
     this.navigate('translation', page, 0);
   }
