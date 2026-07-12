@@ -9,6 +9,7 @@
 
 ## 当前规格记录
 
+- PDF 富文本渲染、Agent 流式回答与区块联动：`docs/superpowers/specs/2026-07-12-pdf-rich-rendering-agent-stream-block-interaction-design.md`
 - PDF 单主滚动与逐页配对布局：`docs/superpowers/specs/2026-07-12-pdf-single-scroll-paired-pages-design.md`
 - PDF 单主滚动与逐页配对布局实施计划：`docs/superpowers/plans/2026-07-12-pdf-single-scroll-paired-pages-plan.md`
 - arXiv 论文离线界面外在线全链路验收：`docs/superpowers/specs/2026-07-12-arxiv-live-pipeline-verification-design.md`
