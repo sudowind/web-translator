@@ -6,16 +6,27 @@ import { translatePage } from '../../../src/translation/translate-page';
 const page = {
   id: 'h:p1', index: 0,
   blocks: [
+    { id: 'h1', pageId: 'h:p1', order: 0, kind: 'heading' as const, text: 'Title' },
     { id: 'b1', pageId: 'h:p1', order: 0, kind: 'paragraph' as const, text: 'Hello' },
     { id: 'b2', pageId: 'h:p1', order: 1, kind: 'formula' as const, text: 'x', latex: 'x' },
+    { id: 't1', pageId: 'h:p1', order: 2, kind: 'table' as const, text: '', html: '<table><tr><td>A</td></tr></table>' },
   ],
 };
 
 describe('逐页翻译', () => {
   it('只发送可翻译块并保留严格 ID', async () => {
-    const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
-    await expect(translatePage({ translate }, page, { sourceLanguage: 'en', targetLanguage: 'zh-CN' })).resolves.toEqual([{ id: 'b1', text: '你好' }]);
-    expect(translate).toHaveBeenCalledWith({ sourceLanguage: 'en', targetLanguage: 'zh-CN', blocks: [{ id: 'b1', text: 'Hello' }] }, undefined);
+    const translate = vi.fn().mockResolvedValue([
+      { id: 'h1', text: '标题' }, { id: 'b1', text: '你好' }, { id: 't1', text: '|列|\n|---|\n|甲|' },
+    ]);
+    await expect(translatePage({ translate }, page, { sourceLanguage: 'en', targetLanguage: 'zh-CN' })).resolves.toHaveLength(3);
+    expect(translate).toHaveBeenCalledWith({
+      sourceLanguage: 'en', targetLanguage: 'zh-CN',
+      blocks: [
+        { id: 'h1', kind: 'heading', text: 'Title' },
+        { id: 'b1', kind: 'paragraph', text: 'Hello' },
+        { id: 't1', kind: 'table', text: '<table><tr><td>A</td></tr></table>' },
+      ],
+    }, undefined);
   });
 
   it('429/5xx 最多重试三次，401 不重试，sleep 可注入', async () => {

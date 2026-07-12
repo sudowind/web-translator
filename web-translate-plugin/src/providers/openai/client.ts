@@ -42,7 +42,9 @@ export class OpenAiTranslationClient {
               role: 'system',
               content:
                 `Translate each block from ${request.sourceLanguage} to ${request.targetLanguage}. ` +
-                'Return one JSON object with a translations array. Preserve every id exactly once.',
+                'Return one JSON object with a translations array. Preserve every id exactly once; never merge or split blocks. ' +
+                'Preserve Markdown structure, inline/display math delimiters, code fences and table rows/columns. ' +
+                'Do not translate math expressions. For table blocks, return a Markdown table.',
             },
             { role: 'user', content: JSON.stringify({ blocks: request.blocks }) },
           ],

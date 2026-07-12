@@ -48,8 +48,8 @@ describe('OpenAI 兼容翻译客户端', () => {
       client.translate(
         {
           blocks: [
-            { id: 'b1', text: 'Hello' },
-            { id: 'b2', text: 'World' },
+            { id: 'b1', kind: 'paragraph', text: 'Hello' },
+            { id: 'b2', kind: 'table', text: '| A | B |' },
           ],
           sourceLanguage: 'en',
           targetLanguage: 'zh-CN',
@@ -68,13 +68,18 @@ describe('OpenAI 兼容翻译客户端', () => {
     expect(init?.headers).toEqual(
       expect.objectContaining({ Authorization: 'Bearer secret-key' }),
     );
-    expect(JSON.parse(String(init?.body))).toEqual(
+    const body = JSON.parse(String(init?.body));
+    expect(body).toEqual(
       expect.objectContaining({
         model: 'translator',
         response_format: { type: 'json_object' },
         stream: true,
       }),
     );
+    expect(body.messages[0].content).toContain('Preserve Markdown structure');
+    expect(body.messages[0].content).toContain('Do not translate math expressions');
+    expect(body.messages[0].content).toContain('For table blocks, return a Markdown table');
+    expect(JSON.parse(body.messages[1].content).blocks[1]).toEqual({ id: 'b2', kind: 'table', text: '| A | B |' });
   });
 
   it.each([
@@ -101,7 +106,7 @@ describe('OpenAI 兼容翻译客户端', () => {
 
     await expect(
       client.translate({
-        blocks: [{ id: 'b1', text: 'Hello' }],
+        blocks: [{ id: 'b1', kind: 'paragraph', text: 'Hello' }],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
       }),
@@ -115,7 +120,7 @@ describe('OpenAI 兼容翻译客户端', () => {
     );
     await expect(
       emptyClient.translate({
-        blocks: [{ id: 'b1', text: 'Hello' }],
+        blocks: [{ id: 'b1', kind: 'paragraph', text: 'Hello' }],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
       }),
@@ -127,7 +132,7 @@ describe('OpenAI 兼容翻译客户端', () => {
     );
     await expect(
       failedClient.translate({
-        blocks: [{ id: 'b1', text: 'Hello' }],
+        blocks: [{ id: 'b1', kind: 'paragraph', text: 'Hello' }],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
       }),
@@ -141,8 +146,8 @@ describe('OpenAI 兼容翻译客户端', () => {
     await expect(
       client.translate({
         blocks: [
-          { id: 'duplicate', text: 'First' },
-          { id: 'duplicate', text: 'Second' },
+          { id: 'duplicate', kind: 'paragraph', text: 'First' },
+          { id: 'duplicate', kind: 'paragraph', text: 'Second' },
         ],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
@@ -158,7 +163,7 @@ describe('OpenAI 兼容翻译客户端', () => {
     );
     await expect(
       client.translate({
-        blocks: [{ id: 'b1', text: 'Hello' }],
+        blocks: [{ id: 'b1', kind: 'paragraph', text: 'Hello' }],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
       }),
@@ -182,7 +187,7 @@ describe('OpenAI 兼容翻译客户端', () => {
 
     await expect(
       client.translate({
-        blocks: [{ id: 'b1', text: 'Hello' }],
+        blocks: [{ id: 'b1', kind: 'paragraph', text: 'Hello' }],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
       }),

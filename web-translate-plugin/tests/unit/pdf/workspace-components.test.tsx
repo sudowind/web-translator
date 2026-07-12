@@ -9,7 +9,12 @@ import { TranslationPage } from '../../../src/pdf/TranslationPane';
 const model: DocumentModel = {
   id: 'h', sourceUrl: 'https://x.test/p.pdf', hash: 'h', title: 'Paper', pageCount: 2,
   pages: [
-    { id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: '<script>alert(1)</script>' }] },
+    { id: 'p1', index: 0, blocks: [
+      { id: 'h1', pageId: 'p1', order: 0, kind: 'heading', text: 'Heading', polygon: [100, 100, 900, 180] },
+      { id: 'b1', pageId: 'p1', order: 1, kind: 'paragraph', text: '<script>alert(1)</script>', polygon: [100, 200, 900, 500] },
+      { id: 'l1', pageId: 'p1', order: 2, kind: 'list', text: '- One\n- Two' },
+      { id: 't1', pageId: 'p1', order: 3, kind: 'table', text: 'A', html: '<table><tr><td>A</td></tr></table>' },
+    ] },
     { id: 'p2', index: 1, blocks: [{ id: 'b2', pageId: 'p2', order: 0, kind: 'formula', text: 'x^2', latex: 'x^2' }] },
   ],
 };
@@ -26,16 +31,30 @@ describe('PDF 逐页配对组件契约', () => {
         page={model.pages[0]}
         number={1}
         height={640}
-        translations={new Map([['b1', { id: 'b1', text: '<img src=x onerror=alert(1)>' }]])}
+        translations={new Map([
+          ['h1', { id: 'h1', text: '标题' }],
+          ['b1', { id: 'b1', text: '<img src=x onerror=alert(1)>' }],
+          ['l1', { id: 'l1', text: '- 第一\n- 第二' }],
+          ['t1', { id: 't1', text: '|列|\n|---|\n|甲|' }],
+        ])}
         status="done"
+        pinnedBlockId="b1"
+        onBlockPreview={() => undefined}
+        onBlockPin={() => undefined}
         onRetry={() => undefined}
         onCopyFailure={() => undefined}
       />,
     );
     expect(html).toContain('data-translation-page="1"');
     expect(html).toContain('data-status="done"');
-    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).not.toContain('onerror');
     expect(html).not.toContain('<img src=x');
+    expect(html).toContain('data-block-id="h1"');
+    expect(html).toContain('data-block-kind="heading"');
+    expect(html).toContain('<h3>');
+    expect(html).toContain('<ul>');
+    expect(html).toContain('<table>');
+    expect(html).toContain('data-pinned="true"');
     expect(html).toContain('class="translation-page"');
     expect(html).toContain('style="height:640px"');
     expect(html).toContain('class="translation-page-body"');

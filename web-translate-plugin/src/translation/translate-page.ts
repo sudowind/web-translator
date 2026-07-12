@@ -35,6 +35,7 @@ const translatableKinds = new Set([
   'caption',
   'footnote',
   'other',
+  'table',
 ]);
 
 export async function translatePage(
@@ -49,7 +50,7 @@ export async function translatePage(
 ): Promise<TranslationResult[]> {
   const blocks = page.blocks
     .filter((block) => translatableKinds.has(block.kind))
-    .map(({ id, text }) => ({ id, text }));
+    .map(({ id, kind, text, html }) => ({ id, kind, text: kind === 'table' ? html ?? text : text }));
   if (blocks.length === 0) return [];
 
   const startedAt = Date.now();

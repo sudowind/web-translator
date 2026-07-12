@@ -9,6 +9,7 @@ export interface MarkdownContentProps {
   pageCount?: number;
   onNavigatePage?(page: number): void;
   className?: string;
+  inline?: boolean;
 }
 
 export function normalizePageReferences(content: string, pageCount?: number): string {
@@ -36,15 +37,16 @@ export function MarkdownContent({
   pageCount,
   onNavigatePage,
   className,
+  inline = false,
 }: MarkdownContentProps) {
-  return (
-    <div className={['markdown-content', className].filter(Boolean).join(' ')}>
-      <ReactMarkdown
+  const markdown = (
+    <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
         skipHtml
         urlTransform={safeMarkdownUrl}
         components={{
+          ...(inline ? { p: ({ children }) => <>{children}</> } : {}),
           a: ({ href, children }) => {
             const match = /^pdf-page:(\d+)$/.exec(href ?? '');
             if (match) {
@@ -61,7 +63,8 @@ export function MarkdownContent({
         }}
       >
         {normalizePageReferences(content, pageCount)}
-      </ReactMarkdown>
-    </div>
+    </ReactMarkdown>
   );
+  const classes = ['markdown-content', className].filter(Boolean).join(' ');
+  return inline ? <span className={classes}>{markdown}</span> : <div className={classes}>{markdown}</div>;
 }

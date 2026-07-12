@@ -1,8 +1,9 @@
 import katex from 'katex';
 import React from 'react';
 
-import type { DocumentPage } from '../document/model';
+import type { DocumentBlock, DocumentPage } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
+import { MarkdownContent } from '../rendering/MarkdownContent';
 import type { TranslationFailure } from '../translation/failure';
 
 export type TranslationPageStatus =
@@ -21,6 +22,9 @@ export interface TranslationPageProps {
   status: TranslationPageStatus;
   failure?: TranslationFailure;
   attempt?: number;
+  pinnedBlockId?: string | null;
+  onBlockPreview?(blockId: string | null): void;
+  onBlockPin?(blockId: string): void;
   onRetry(): void;
   onCopyFailure(failure: TranslationFailure): void;
 }
@@ -33,6 +37,9 @@ export function TranslationPage({
   status,
   failure,
   attempt,
+  pinnedBlockId,
+  onBlockPreview = () => undefined,
+  onBlockPin = () => undefined,
   onRetry,
   onCopyFailure,
 }: TranslationPageProps) {
@@ -73,26 +80,76 @@ export function TranslationPage({
             </details>
           </div>
         )}
-        {page.blocks.map((block) => {
-          if (block.kind === 'formula') {
-            const markup = katex.renderToString(block.latex ?? block.text, { throwOnError: false });
-            return <div key={block.id} className="translation-formula" dangerouslySetInnerHTML={{ __html: markup }} />;
-          }
-          if (block.kind === 'table') {
-            return <pre key={block.id}>{block.html ?? block.text}</pre>;
-          }
-          if (block.kind === 'figure') {
-            return <p key={block.id}>{block.text || block.resourceUrl || '图片'}</p>;
-          }
-          return (
-            <p key={block.id}>
-              {translations.get(block.id)?.text ?? (status === 'failed' ? '翻译失败' : '翻译中…')}
-            </p>
-          );
-        })}
+        {page.blocks.map((block) => (
+          <TranslationBlock
+            key={block.id}
+            block={block}
+            text={translations.get(block.id)?.text}
+            fallback={status === 'failed' ? '翻译失败' : '翻译中…'}
+            pinned={pinnedBlockId === block.id}
+            onPreview={onBlockPreview}
+            onPin={onBlockPin}
+          />
+        ))}
       </div>
     </section>
   );
+}
+
+function TranslationBlock({
+  block,
+  text,
+  fallback,
+  pinned,
+  onPreview,
+  onPin,
+}: {
+  block: DocumentBlock;
+  text?: string;
+  fallback: string;
+  pinned: boolean;
+  onPreview(blockId: string | null): void;
+  onPin(blockId: string): void;
+}) {
+  const interactive = block.polygon !== undefined;
+  const content = text ?? (block.kind === 'figure' ? block.text || block.resourceUrl || '图片' : fallback);
+  return (
+    <article
+      className="translation-block"
+      data-block-id={block.id}
+      data-block-kind={block.kind}
+      data-pinned={pinned ? 'true' : undefined}
+      role={interactive ? 'button' : undefined}
+      aria-pressed={interactive ? pinned : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onPointerEnter={() => interactive && onPreview(block.id)}
+      onPointerLeave={() => interactive && onPreview(null)}
+      onFocus={() => interactive && onPreview(block.id)}
+      onBlur={() => interactive && onPreview(null)}
+      onClick={() => interactive && onPin(block.id)}
+      onKeyDown={(event) => {
+        if (!interactive || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        onPin(block.id);
+      }}
+    >
+      {renderBlockContent(block, content)}
+    </article>
+  );
+}
+
+function renderBlockContent(block: DocumentBlock, content: string): React.ReactNode {
+  if (block.kind === 'formula') {
+    const markup = katex.renderToString(block.latex ?? block.text, { throwOnError: false, displayMode: true });
+    return <div className="translation-formula" dangerouslySetInnerHTML={{ __html: markup }} />;
+  }
+  if (block.kind === 'heading') {
+    return <h3><MarkdownContent content={content} inline /></h3>;
+  }
+  if (block.kind === 'table') {
+    return <MarkdownContent content={content === '翻译中…' || content === '翻译失败' ? content : content || block.text} />;
+  }
+  return <MarkdownContent content={content} />;
 }
 
 function statusLabel(status: TranslationPageStatus): string {
