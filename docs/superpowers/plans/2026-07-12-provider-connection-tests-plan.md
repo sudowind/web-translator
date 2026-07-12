@@ -23,6 +23,7 @@
 
 - 修改 `web-translate-plugin/src/settings/provider-access.ts`：新增 MinerU 根地址规范化函数，并在完整设置校验中使用。
 - 修改 `web-translate-plugin/src/settings/test-provider.ts`：将现有连接测试和消息命名明确为 LLM，返回带 Provider 归属的安全错误。
+- 修改 `web-translate-plugin/entrypoints/background.ts`：只分发精确的 `settings:test-llm` 消息。
 - 修改 `web-translate-plugin/entrypoints/options/App.tsx`：拆分两个 Provider 区域的按钮、活动状态和反馈。
 - 修改 `web-translate-plugin/tests/unit/settings/provider-access.test.ts`：覆盖 MinerU 根地址边界。
 - 修改 `web-translate-plugin/tests/unit/settings/test-provider.test.ts`：覆盖 LLM 独立测试和错误归属。
@@ -34,13 +35,15 @@
 
 - 修改：`web-translate-plugin/src/settings/provider-access.ts`
 - 修改：`web-translate-plugin/src/settings/test-provider.ts`
+- 修改：`web-translate-plugin/entrypoints/background.ts`
 - 测试：`web-translate-plugin/tests/unit/settings/provider-access.test.ts`
 - 测试：`web-translate-plugin/tests/unit/settings/test-provider.test.ts`
 
 **接口：**
 
 - 产出：`normalizeMineruBaseUrl(value: string): string`
-- 产出：`testLlmConnection(settings, createClient?): Promise<{ connected: true }>`
+- 产出：`testLlmConnection(settings, createClient?): Promise<{ connected: true }>`，其中 settings 只包含 `openAi`、`sourceLanguage` 和 `targetLanguage`。
+- 产出：精确消息 `{ type: 'settings:test-llm'; settings: LlmConnectionSettings }`，不得携带或校验 MinerU 配置。
 - 消费：既有 `authorizeProviderSettings()`、`validateProviderSettings()` 和 `OpenAiTranslationClient.translate()`。
 
 - [ ] **步骤 1：先写 MinerU 根地址失败测试**
@@ -90,7 +93,7 @@ MinerU Token 非空时，保存的 `mineru.baseUrl` 必须取该函数返回值�
 
 - [ ] **步骤 4：先写 LLM 错误归属失败测试**
 
-在 `test-provider.test.ts` 把测试目标改为 `testLlmConnection`，并增加：
+在 `test-provider.test.ts` 把消息类型改为 `settings:test-llm`、删除消息 payload 中的 MinerU，并把测试目标改为 `testLlmConnection`。增加：
 
 ```ts
 it('把 HTTP 失败明确归属到 LLM', async () => {
@@ -112,7 +115,7 @@ npm test -- tests/unit/settings/test-provider.test.ts
 
 - [ ] **步骤 6：实现 LLM 专用测试和安全错误映射**
 
-将现有测试函数更名为 `testLlmConnection`，保持最小翻译请求；捕获错误并只映射已知 HTTP 状态：
+将现有测试函数更名为 `testLlmConnection`，输入改为独立的 `LlmConnectionSettings`，只校验 LLM 与语言字段并保持最小翻译请求；捕获错误并只映射已知 HTTP 状态：
 
 ```ts
 function llmConnectionError(error: unknown): Error {
@@ -124,7 +127,7 @@ function llmConnectionError(error: unknown): Error {
 }
 ```
 
-消息仍限制为扩展设置页调用，且不得回传响应正文或凭据。
+消息仍限制为扩展设置页调用，且不得回传响应正文或凭据。同步修改 `background.ts` 的候选消息分发，使旧 `settings:test-provider` 不再触发网络测试。
 
 - [ ] **步骤 7：运行定向测试确认 GREEN**
 
@@ -139,7 +142,7 @@ npm test -- tests/unit/settings/provider-access.test.ts tests/unit/settings/test
 - [ ] **步骤 8：提交任务 1**
 
 ```powershell
-git add web-translate-plugin/src/settings/provider-access.ts web-translate-plugin/src/settings/test-provider.ts web-translate-plugin/tests/unit/settings/provider-access.test.ts web-translate-plugin/tests/unit/settings/test-provider.test.ts
+git add web-translate-plugin/src/settings/provider-access.ts web-translate-plugin/src/settings/test-provider.ts web-translate-plugin/entrypoints/background.ts web-translate-plugin/tests/unit/settings/provider-access.test.ts web-translate-plugin/tests/unit/settings/test-provider.test.ts
 git commit -m "fix: separate provider validation"
 ```
 
