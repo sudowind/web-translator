@@ -160,12 +160,25 @@ function llmTestError(
   purpose: LlmPurpose,
   dialect: OpenAiSettings['dialect'],
 ): Error {
+  const contractCodes = new Set([
+    'TRANSLATION_JSON_INVALID',
+    'TRANSLATION_SCHEMA_INVALID',
+    'TRANSLATION_ID_UNKNOWN',
+    'TRANSLATION_ID_DUPLICATE',
+    'TRANSLATION_ID_MISSING',
+  ]);
   const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
   const message = error instanceof Error ? error.message : '';
-  const status = /(?:LLM|AGENT)_HTTP_(\d{3})/.exec(code)?.[1] ?? /\((\d{3})\)/.exec(message)?.[1];
+  const status = /(?:LLM|AGENT|TRANSLATION)_HTTP_(\d{3})/.exec(code)?.[1] ?? /\((\d{3})\)/.exec(message)?.[1];
   const label = purpose === 'connection-test' ? '快速连通测试' : purpose === 'translation' ? '翻译配置测试' : '智能体配置测试';
   const safeCode = code || (status ? `HTTP_${status}` : 'PROVIDER_ERROR');
-  if (code === 'LLM_TIMEOUT' || code === 'AGENT_TIMEOUT') {
+  if (purpose === 'translation' && contractCodes.has(code)) {
+    return new Error(
+      `接口连接成功，但模型输出不符合翻译格式要求（Provider: ${dialect}；错误码: ${code}）。` +
+      '请确认模型支持 JSON Object 输出，或更换适合结构化翻译的模型',
+    );
+  }
+  if (code === 'LLM_TIMEOUT' || code === 'AGENT_TIMEOUT' || code === 'TRANSLATION_TIMEOUT') {
     return new Error(`${label}超时（Provider: ${dialect}；错误码: ${safeCode}）`);
   }
   return status

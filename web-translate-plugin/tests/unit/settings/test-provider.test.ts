@@ -115,6 +115,29 @@ describe('LLM 独立配置测试', () => {
     await expect(testLlmConfiguration(incompleteAgent, 'translation', clients)).resolves.toEqual({ connected: true });
   });
 
+  it('HTTP 成功后的翻译契约错误不误导用户检查连接凭据', async () => {
+    const error = Object.assign(
+      new Error('TRANSLATION_JSON_INVALID'),
+      { code: 'TRANSLATION_JSON_INVALID' },
+    );
+    const clients = {
+      createChat: () => ({ complete: vi.fn() }),
+      createTranslation: () => ({ translate: vi.fn().mockRejectedValue(error) }),
+      createAgent: () => ({ ask: vi.fn() }),
+    };
+
+    let message = '';
+    try {
+      await testLlmConfiguration(settings, 'translation', clients);
+    } catch (caught) {
+      message = caught instanceof Error ? caught.message : String(caught);
+    }
+    expect(message).toContain('接口连接成功，但模型输出不符合翻译格式要求');
+    expect(message).toContain('TRANSLATION_JSON_INVALID');
+    expect(message).not.toContain('API Key');
+    expect(message).not.toContain('接口地址');
+  });
+
   it('后台仅允许精确 options 页面调用', async () => {
     const run = vi.fn().mockResolvedValue({ connected: true });
     const message = { type: 'settings:test-llm', purpose: 'agent', settings };
