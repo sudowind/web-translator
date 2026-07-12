@@ -9,6 +9,7 @@
 
 ## 当前规格记录
 
+- LLM 流式翻译与空闲超时：`docs/superpowers/specs/2026-07-12-llm-streaming-idle-timeout-design.md`
 - PDF 翻译失败诊断与滚动渲染稳定性：`docs/superpowers/specs/2026-07-12-pdf-translation-diagnostics-render-stability-design.md`
 - PDF 翻译失败诊断与滚动渲染稳定性实施计划：`docs/superpowers/plans/2026-07-12-pdf-translation-diagnostics-render-stability-plan.md`
 - PDF 逐页等高滚动与顺序翻译：`docs/superpowers/specs/2026-07-12-pdf-page-aligned-scroll-sequential-translation-design.md`
