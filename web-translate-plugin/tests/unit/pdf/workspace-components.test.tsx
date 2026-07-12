@@ -26,7 +26,9 @@ describe('PDF 双栏组件契约', () => {
         model={model}
         translations={new Map([['b1', { id: 'b1', text: '<img src=x onerror=alert(1)>' }]])}
         pageStatus={new Map([[1, 'done'], [2, 'pending']])}
+        pageHeights={new Map([[1, 640], [2, 820]])}
         onPageVisible={() => undefined}
+        onPageBoundary={() => undefined}
       />,
     );
     expect(html).toContain('data-translation-page="1"');
@@ -34,5 +36,8 @@ describe('PDF 双栏组件契约', () => {
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('katex');
+    expect(html).toContain('class="translation-page"');
+    expect(html).toContain('style="height:640px"');
+    expect(html).toContain('class="translation-page-body"');
   });
 });

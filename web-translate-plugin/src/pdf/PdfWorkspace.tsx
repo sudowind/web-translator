@@ -23,6 +23,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [scale, setScale] = React.useState(1.1);
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
+  const [pageHeights, setPageHeights] = React.useState<ReadonlyMap<number, number>>(new Map());
   const [agentOpen, setAgentOpen] = React.useState(true);
   const [agentMessages, setAgentMessages] = React.useState<AgentMessage[]>([]);
   const [agentBusy, setAgentBusy] = React.useState(false);
@@ -35,7 +36,8 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const parseStarted = React.useRef(false);
   const operationEpoch = React.useRef(new OperationEpoch());
   const syncRef = React.useRef<SyncController | null>(null);
-  const scrollIntentTimeouts = React.useRef(new Map<PdfPane, number>());
+  const scrollIntentTimeouts = React.useRef(new Map<PdfPane, ReturnType<typeof globalThis.setTimeout>>());
+  const pendingTranslationScrollTop = React.useRef<number | null>(null);
   const pdfBytes = React.useMemo(
     () => source ? Uint8Array.from(source.bytes) : null,
     [source],
@@ -70,6 +72,19 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     for (const timeout of scrollIntentTimeouts.current.values()) globalThis.clearTimeout(timeout);
     scrollIntentTimeouts.current.clear();
   }, []);
+
+  const onPageHeightsChange = React.useCallback((heights: ReadonlyMap<number, number>) => {
+    const scroller = rightRef.current?.firstElementChild as HTMLElement | null;
+    pendingTranslationScrollTop.current = scroller?.scrollTop ?? null;
+    setPageHeights(new Map(heights));
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (pendingTranslationScrollTop.current === null) return;
+    const scroller = rightRef.current?.firstElementChild as HTMLElement | null;
+    if (scroller) scroller.scrollTop = pendingTranslationScrollTop.current;
+    pendingTranslationScrollTop.current = null;
+  }, [pageHeights]);
 
   React.useEffect(() => {
     dispatch({ type: 'load-started' });
@@ -171,6 +186,14 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     syncRef.current?.onVisible(pane, page, progress);
   }, []);
 
+  const navigateToPage = React.useCallback((page: number) => {
+    const pageCount = model?.pageCount ?? documentPageCount;
+    if (pageCount < 1) return;
+    const target = Math.min(Math.max(page, 1), pageCount);
+    setActivePage(target);
+    syncRef.current?.navigateToPage(target);
+  }, [documentPageCount, model?.pageCount]);
+
   function retryCurrent() {
     schedulerRef.current?.retry(activePage);
     setPageStatus((statuses) => new Map(statuses).set(activePage, 'retrying'));
@@ -256,7 +279,14 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
           onKeyDown={() => beginUserScroll('pdf')}
         >
           {source && pdfBytes
-            ? <PdfViewer bytes={pdfBytes} scale={scale} activePage={activePage} onDocumentReady={onDocumentReady} onPageVisible={(page, progress) => visibleFrom('pdf', page, progress)} />
+            ? <PdfViewer
+              bytes={pdfBytes}
+              scale={scale}
+              activePage={activePage}
+              onDocumentReady={onDocumentReady}
+              onPageHeightsChange={onPageHeightsChange}
+              onPageVisible={(page, progress) => visibleFrom('pdf', page, progress)}
+            />
             : <p role="status">正在读取 PDF…</p>}
         </section>
         <section
@@ -269,7 +299,14 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
           onKeyDown={() => beginUserScroll('translation')}
         >
           {model
-            ? <TranslationPane model={model} translations={translations} pageStatus={pageStatus} onPageVisible={(page, progress) => visibleFrom('translation', page, progress)} />
+            ? <TranslationPane
+              model={model}
+              translations={translations}
+              pageStatus={pageStatus}
+              pageHeights={pageHeights}
+              onPageVisible={(page, progress) => visibleFrom('translation', page, progress)}
+              onPageBoundary={(page, direction) => navigateToPage(page + direction)}
+            />
             : source?.kind === 'authenticated' ? <div className="upload-consent" role="region" aria-label="MinerU 上传同意">
               <h2>确认发送到第三方解析服务</h2>
               <dl><dt>目标服务</dt><dd>MinerU</dd><dt>文件名</dt><dd>{source.title}</dd><dt>大小</dt><dd>{formatBytes(source.size)}</dd></dl>
@@ -286,7 +323,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
           error={agentError}
           onAsk={askAgent}
           onStop={stopAgent}
-          onNavigate={(page) => { setActivePage(page); syncRef.current?.navigateToPage(page); }}
+          onNavigate={navigateToPage}
           onToggle={() => setAgentOpen((open) => !open)}
         />
       </div>

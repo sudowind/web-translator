@@ -28,8 +28,9 @@
 .pdf-page-canvas-wrap { position: relative; max-width: 100%; background: #fff; box-shadow: 0 2px 12px rgb(15 23 42 / 20%); }
 .pdf-page-canvas-wrap canvas { display: block; max-width: 100%; height: auto !important; }
 .pdf-text-layer { position: absolute; inset: 0; margin: 0; color: transparent; overflow: hidden; user-select: text; }
-.translation-pages > section { min-height: 70vh; margin-bottom: 16px; padding: 20px; border: 1px solid var(--pdf-border); border-radius: 8px; background: #fff; }
-.translation-pages > section > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
+.translation-page { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); margin-bottom: 16px; padding: 20px; overflow: hidden; border: 1px solid var(--pdf-border); border-radius: 8px; background: #fff; }
+.translation-page > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
+.translation-page-body { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
 .translation-pages h2 { font-size: 18px; }
 .translation-pages p { white-space: pre-wrap; }
 .translation-pages pre { max-width: 100%; overflow: auto; white-space: pre-wrap; }

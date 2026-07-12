@@ -15,6 +15,7 @@ interface PdfViewerProps {
   activePage: number;
   onPageVisible(page: number, progress: number): void;
   onDocumentReady(pageCount: number): void;
+  onPageHeightsChange(heights: ReadonlyMap<number, number>): void;
 }
 
 export function visiblePageWindow(
@@ -34,6 +35,7 @@ export function PdfViewer({
   activePage,
   onPageVisible,
   onDocumentReady,
+  onPageHeightsChange,
 }: PdfViewerProps) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const initialPagePositioned = React.useRef(false);
@@ -81,6 +83,24 @@ export function PdfViewer({
     rootRef.current.querySelectorAll<HTMLElement>('[data-pdf-page]').forEach((page) => observer.observe(page));
     return () => observer.disconnect();
   }, [pageCount, onPageVisible]);
+
+  React.useEffect(() => {
+    if (!rootRef.current || pageCount === 0) return;
+    const heights = new Map<number, number>();
+    const observer = new ResizeObserver((entries) => {
+      let changed = false;
+      for (const entry of entries) {
+        const page = Number((entry.target as HTMLElement).dataset.pdfPage);
+        const height = entry.borderBoxSize[0]?.blockSize ?? entry.target.getBoundingClientRect().height;
+        if (!Number.isInteger(page) || height <= 0 || heights.get(page) === height) continue;
+        heights.set(page, height);
+        changed = true;
+      }
+      if (changed) onPageHeightsChange(new Map(heights));
+    });
+    rootRef.current.querySelectorAll<HTMLElement>('[data-pdf-page]').forEach((page) => observer.observe(page));
+    return () => observer.disconnect();
+  }, [pageCount, onPageHeightsChange]);
 
   const window = visiblePageWindow(activePage, pageCount);
   return (
