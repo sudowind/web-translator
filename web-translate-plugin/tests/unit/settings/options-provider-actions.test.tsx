@@ -12,10 +12,15 @@ describe('设置页 Provider 操作', () => {
     expect(html).toContain('检查 MinerU 配置');
   });
 
-  it('呈现 Provider 方言、独立模型、思考模式与超时设置', () => {
+  it('把默认模型放在基础区域并在任务区域明确继承关系', () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('阿里云百炼 / DashScope');
-    expect(html).toContain('翻译模型');
+    expect(html).toContain('默认模型');
+    expect(html).toContain('默认模型用于快速连通和翻译');
+    expect(html).toContain('模型：使用上方默认模型');
+    expect(html).toContain('使用默认模型');
+    expect(html.match(/id="default-model"/g)).toHaveLength(1);
+    expect(html).not.toContain('id="translation-model"');
     expect(html).toContain('论文智能体配置');
     expect(html).toContain('思考模式');
     expect(html).toContain('翻译超时（秒）');

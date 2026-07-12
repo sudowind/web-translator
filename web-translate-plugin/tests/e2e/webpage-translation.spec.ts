@@ -97,7 +97,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     extensionPage = await context.newPage();
     await extensionPage.goto(`chrome-extension://${extensionId}/options.html`);
     await extensionPage.getByLabel('LLM 接口地址', { exact: true }).fill('https://api.example.test/v1');
-    await extensionPage.getByLabel('翻译模型', { exact: true }).fill('test-model');
+    await extensionPage.getByLabel('默认模型', { exact: true }).fill('test-model');
     await extensionPage.getByLabel('LLM API Key', { exact: true }).fill('test-key');
     await extensionPage.getByRole('button', { name: '测试快速连通' }).click();
     await expect(extensionPage.getByText('测试成功', { exact: true })).toBeVisible();

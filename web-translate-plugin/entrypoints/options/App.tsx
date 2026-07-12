@@ -243,17 +243,20 @@ export default function App() {
             <input id="api-key" type="password" autoComplete="off" required value={settings.openAi.apiKey} onChange={(event) => updateBase('apiKey', event.target.value)} aria-invalid={Boolean(fieldError.apiKey)} />
             {fieldError.apiKey && <p className="error">{fieldError.apiKey}</p>}
           </div>
+          <div className="field">
+            <label htmlFor="default-model">默认模型</label>
+            <input id="default-model" required value={settings.openAi.defaultModel} onChange={(event) => updateDefaultModel(event.target.value)} aria-invalid={Boolean(fieldError.model)} />
+            <p className="help">默认模型用于快速连通和翻译；论文智能体可在下方改用独立模型。</p>
+            {fieldError.model && <p className="error">{fieldError.model}</p>}
+          </div>
           <TestAction purpose="connection-test" activity={activity} busy={anyActionBusy} feedback={llmFeedback['connection-test']} onTest={testLlm} />
         </fieldset>
 
         <fieldset>
           <legend>翻译配置</legend>
           <p className="help">翻译固定关闭思考并要求 JSON 结构化输出，以降低耗时并保证逐块对齐。</p>
-          <div className="field">
-            <label htmlFor="translation-model">翻译模型</label>
-            <input id="translation-model" required value={settings.openAi.defaultModel} onChange={(event) => updateDefaultModel(event.target.value)} aria-invalid={Boolean(fieldError.model)} />
-            {fieldError.model && <p className="error">{fieldError.model}</p>}
-          </div>
+          <p className="profile-summary">模型：使用上方默认模型</p>
+          <p className="profile-summary">思考模式：关闭</p>
           <div className="field">
             <label htmlFor="translation-timeout">翻译超时（秒）</label>
             <input id="translation-timeout" type="number" min="5" max="120" value={settings.openAi.translation.timeoutMs / 1000} onChange={(event) => updateTranslation({ timeoutMs: Number(event.target.value) * 1000 })} />
@@ -265,7 +268,7 @@ export default function App() {
           <legend>论文智能体配置</legend>
           <label className="checkbox-row">
             <input type="checkbox" checked={settings.openAi.agent.inheritDefaultModel} onChange={(event) => updateAgent({ inheritDefaultModel: event.target.checked })} />
-            使用翻译模型
+            使用默认模型
           </label>
           {!settings.openAi.agent.inheritDefaultModel && (
             <div className="field">
