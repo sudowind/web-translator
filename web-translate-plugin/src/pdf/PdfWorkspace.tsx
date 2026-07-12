@@ -195,7 +195,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }, [documentPageCount, model?.pageCount]);
 
   function retryCurrent() {
-    schedulerRef.current?.retry(activePage);
+    if (schedulerRef.current?.retry(activePage) !== true) return;
     setPageStatus((statuses) => new Map(statuses).set(activePage, 'retrying'));
     pumpRef.current();
   }

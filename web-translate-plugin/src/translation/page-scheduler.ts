@@ -34,7 +34,7 @@ export class PageScheduler {
     this.failed.add(page);
   }
 
-  retry(page: number): void {
-    if (this.failed.has(page)) this.failed.delete(page);
+  retry(page: number): boolean {
+    return this.failed.delete(page);
   }
 }

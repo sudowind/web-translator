@@ -18,8 +18,8 @@ describe('逐页翻译调度器', () => {
     expect(scheduler.take()).toBe(1);
     scheduler.markFailed(1);
     expect(scheduler.take()).toBe(2);
-    scheduler.retry(1);
-    scheduler.retry(3);
+    expect(scheduler.retry(1)).toBe(true);
+    expect(scheduler.retry(3)).toBe(false);
     scheduler.markDone(2);
     expect(scheduler.take()).toBe(1);
     scheduler.markDone(1);
