@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { MarkdownContent } from '../rendering/MarkdownContent';
 import type { AgentMessage } from './context-builder';
 
 export type ReferencePart =
@@ -52,11 +53,12 @@ export function AgentPanel({
       {error && <p role="alert">{error}</p>}
       <div className="agent-messages">
         {messages.map((message, index) => (
-          <div key={index} data-role={message.role}>
-            {referenceParts(message.content, pageCount).map((part, partIndex) =>
-              part.kind === 'reference'
-                ? <button type="button" key={partIndex} onClick={() => onNavigate(part.page)}>第 {part.page} 页</button>
-                : <span key={partIndex}>{part.value}</span>)}
+          <div key={index} data-role={message.role} data-status={message.status}>
+            <MarkdownContent
+              content={message.content || (message.status === 'streaming' ? '正在生成…' : '')}
+              pageCount={pageCount}
+              onNavigatePage={onNavigate}
+            />
           </div>
         ))}
       </div>
