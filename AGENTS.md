@@ -7,6 +7,13 @@
 - 引用的 API 名称、代码标识符、协议名及官方资料标题可以保留英文。
 - 修改既有 plan/spec 时，应同步把相关英文内容改为中文，避免中英文规格并存。
 
+## 当前规格记录
+
+- LLM 默认模型与翻译诊断重构：`docs/superpowers/specs/2026-07-12-llm-default-model-translation-diagnostics-design.md`
+- LLM 双任务模型与思考配置：`docs/superpowers/specs/2026-07-12-llm-task-profiles-reasoning-design.md`
+- Provider 独立连接测试：`docs/superpowers/specs/2026-07-12-provider-connection-tests-design.md`
+- 网页翻译与 PDF 工作台总体设计：`docs/superpowers/specs/2026-07-11-web-translation-chrome-extension-design.md`
+
 ## 执行效率
 
 - 默认按“相关任务批量实现、里程碑统一复核”推进。除 PDF 接管、权限、安全、数据迁移等高风险任务外，不为每个机械小任务单独启动完整复核。
