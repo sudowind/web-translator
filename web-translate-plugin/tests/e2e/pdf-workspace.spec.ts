@@ -25,8 +25,8 @@ const mineruResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-paper.zip';
 
 function createTwoPagePdf(label = 'Public'): Buffer {
   const streams = [
-    `BT /F1 18 Tf 72 720 Td (Page One - ${label}) Tj ET`,
-    'BT /F1 18 Tf 72 720 Td (Page Two - Main Contribution) Tj ET',
+    `BT /F1 18 Tf 72 720 Td (Page One - ${label}) Tj 0 -32 Td (Selectable introduction text) Tj ET`,
+    'BT /F1 18 Tf 72 720 Td (Page Two - Main Contribution) Tj 0 -32 Td (Evidence and results) Tj ET',
   ];
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
@@ -86,10 +86,13 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   const authenticatedPdf = createTwoPagePdf('Authenticated');
   const archive = Buffer.from(zipSync({
     'nested/paper_content_list.json': strToU8(JSON.stringify([
-      { page_idx: 0, type: 'title', text: 'Paper title' },
-      { page_idx: 0, type: 'text', text: 'Introduction' },
-      { page_idx: 1, type: 'title', text: 'Results' },
-      { page_idx: 1, type: 'text', text: 'Main contribution' },
+      { page_idx: 0, type: 'title', text: 'Paper title', bbox: [100, 80, 900, 150] },
+      { page_idx: 0, type: 'text', text: 'Introduction with x squared', bbox: [100, 200, 900, 400] },
+      { page_idx: 0, type: 'list', text: '- First item\n- Second item', bbox: [100, 420, 900, 560] },
+      { page_idx: 0, type: 'equation', text: 'E=mc^2', bbox: [200, 580, 800, 680] },
+      { page_idx: 0, type: 'table', text: 'Source table', table_body: '<table><tr><td>A</td><td>B</td></tr></table>', bbox: [100, 700, 900, 900] },
+      { page_idx: 1, type: 'title', text: 'Results', bbox: [100, 80, 900, 150] },
+      { page_idx: 1, type: 'text', text: 'Main contribution', bbox: [100, 200, 900, 400] },
     ])),
   }));
   const observed = {
@@ -100,6 +103,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     batchDataId: '',
   };
   let translationFailureMode: 'none' | 'mixed' = 'none';
+  let releaseAgentFinal: (() => void) | undefined;
 
   test.beforeAll(async ({ playwright }) => {
     server = createServer(async (request, response) => {
@@ -189,7 +193,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
           const messages = body.messages as Array<{ role: string; content: string }>;
           const prompt = messages.find((message) => message.role === 'user')?.content ?? '';
           const input = JSON.parse(prompt.slice(prompt.indexOf('{'))) as {
-            blocks: Array<{ id: string; text: string }>;
+            blocks: Array<{ id: string; kind?: string; text: string }>;
           };
           const page = input.blocks[0]?.id.match(/:p(\d+):/)?.[1];
           if (page) observed.translationPages.push(Number(page));
@@ -202,15 +206,21 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
           sse(response, translationFailureMode === 'mixed' && page === '1'
             ? 'not json'
             : JSON.stringify({
-              translations: input.blocks.map((block) => ({
-                id: block.id,
-                text: page === '1'
-                  ? Array.from({ length: 80 }, () => `译文：${block.text}`).join('\n')
-                  : `译文：${block.text}`,
+              translations: input.blocks.map((block) => ({ id: block.id, text:
+                block.kind === 'heading' ? '**论文标题**' :
+                block.kind === 'list' ? '- 第一项\n- 第二项' :
+                block.kind === 'table' ? '| 项目 | 结果 |\n| --- | --- |\n| A | 已翻译 |' :
+                page === '1' ? Array.from({ length: 80 }, () => '这是**重点**，含行内公式 $x^2$。').join('\n') :
+                `译文：${block.text}`,
               })),
             }));
         } else {
-          json(response, { choices: [{ message: { content: '主要贡献是验证端到端工作流 [p:2]' } }] });
+          response.writeHead(200, { 'content-type': 'text/event-stream' });
+          response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '## 主要贡献\n\n- 已验证流式回答\n- 保留公式' } }] })}\n\n`);
+          await new Promise<void>((resolveAgent) => { releaseAgentFinal = resolveAgent; });
+          releaseAgentFinal = undefined;
+          response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '\n\n公式：$E=mc^2$\n\n| 项目 | 结果 |\n| --- | --- |\n| 流程 | 通过 |\n\n[p:2]' } }] })}\n\n`);
+          response.end('data: {"choices":[],"usage":{"total_tokens":32}}\n\ndata: [DONE]\n\n');
         }
         return;
       }
@@ -238,6 +248,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     context = await playwright.chromium.launchPersistentContext('', {
       channel: 'chromium',
       headless: false,
+      viewport: { width: 1440, height: 1000 },
       args: [
         `--disable-extensions-except=${extensionCopy}`,
         `--load-extension=${extensionCopy}`,
@@ -287,6 +298,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   });
 
   test.afterAll(async () => {
+    releaseAgentFinal?.();
     await context?.close();
     await new Promise<void>((resolveClosed, reject) => server.close((error) => error ? reject(error) : resolveClosed()));
     if (extensionCopy) await rm(extensionCopy, { recursive: true, force: true });
@@ -335,6 +347,19 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect.poll(() => observed.translationPages.length).toBeGreaterThanOrEqual(2);
     expect(observed.translationPages.slice(0, 2)).toEqual([1, 2]);
 
+    const pageOne = pdfPage.locator('[data-translation-page="1"]');
+    await expect(pageOne.locator('[data-block-kind="heading"] h3 strong')).toHaveText('论文标题');
+    await expect(pageOne.locator('[data-block-kind="list"] ul')).toBeVisible();
+    await expect(pageOne.locator('[data-block-kind="table"] table')).toBeVisible();
+    await expect(pageOne.locator('[data-block-kind="formula"] .katex')).toBeVisible();
+    await pageOne.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    await expect(pageOne).toHaveScreenshot('rich-translation-page.png', { animations: 'disabled' });
+    const richTranslationBody = pageOne.locator('.translation-page-body');
+    await richTranslationBody.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await pageOne.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    await expect(pageOne).toHaveScreenshot('rich-translation-formats.png', { animations: 'disabled' });
+    await richTranslationBody.evaluate((element) => { element.scrollTop = 0; });
+
     await expect.poll(async () => {
       const pdfHeight = await pdfPage.locator('[data-page-pair="1"] .page-pair-pdf').evaluate((element) => element.getBoundingClientRect().height);
       const translationHeight = await pdfPage.locator('[data-translation-page="1"]').evaluate((element) => element.getBoundingClientRect().height);
@@ -347,6 +372,37 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await pdfPage.mouse.wheel(0, -2_000);
     await expect(pdfPage.locator('[data-pdf-page="1"]')).toBeInViewport();
     await expect(pdfPage.locator('[data-translation-page="1"]')).toBeInViewport();
+
+    const paragraphBlock = pageOne.locator('[data-block-kind="paragraph"]');
+    await paragraphBlock.hover();
+    const highlight = pdfPage.locator('[data-page-pair="1"] .pdf-block-highlight');
+    await expect(highlight).toBeVisible();
+    const highlightError = await pdfPage.evaluate(() => {
+      const wrap = document.querySelector('[data-page-pair="1"] .pdf-page-canvas-wrap')!.getBoundingClientRect();
+      const box = document.querySelector('[data-page-pair="1"] .pdf-block-highlight')!.getBoundingClientRect();
+      const expected = { left: wrap.left + wrap.width * .1, top: wrap.top + wrap.height * .2, width: wrap.width * .8, height: wrap.height * .2 };
+      return Math.max(Math.abs(box.left - expected.left), Math.abs(box.top - expected.top), Math.abs(box.width - expected.width), Math.abs(box.height - expected.height));
+    });
+    expect(highlightError).toBeLessThanOrEqual(1);
+    await paragraphBlock.click();
+    await expect(paragraphBlock).toHaveAttribute('data-pinned', 'true');
+    await pdfPage.locator('[data-page-pair="1"] .page-pair-pdf').hover();
+    await expect(highlight).toBeVisible();
+
+    await expect.poll(() => pdfPage.locator('[data-page-pair="1"] .pdf-text-layer span').count()).toBeGreaterThanOrEqual(2);
+    const selected = await pdfPage.evaluate(() => {
+      const spans = document.querySelectorAll<HTMLElement>('[data-page-pair="1"] .pdf-text-layer span');
+      const first = spans[0].firstChild!;
+      const second = spans[1].firstChild!;
+      const range = document.createRange();
+      range.setStart(first, 0);
+      range.setEnd(second, second.textContent?.length ?? 0);
+      const selection = getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return selection.toString();
+    });
+    expect(selected.trim()).not.toBe('');
     await firstTranslationBody.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await firstTranslationBody.hover();
     await pdfPage.mouse.wheel(0, 500);
@@ -355,7 +411,16 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
 
     await pdfPage.getByLabel('向论文提问').fill('这篇论文的主要贡献是什么？');
     await pdfPage.getByRole('button', { name: '发送' }).click();
-    await expect(pdfPage.getByText('主要贡献是验证端到端工作流')).toBeVisible();
+    const streamedAnswer = pdfPage.locator('.agent-messages [data-role="assistant"]').last();
+    await expect(streamedAnswer.getByRole('heading', { name: '主要贡献' })).toBeVisible();
+    await expect(streamedAnswer).toHaveAttribute('data-status', 'streaming');
+    await expect.poll(() => typeof releaseAgentFinal).toBe('function');
+    await expect(pdfPage.locator('.agent-panel')).toHaveScreenshot('agent-streaming.png', { animations: 'disabled' });
+    releaseAgentFinal?.();
+    await expect(streamedAnswer.locator('table')).toBeVisible();
+    await expect(streamedAnswer.locator('.katex')).toBeVisible();
+    await expect(streamedAnswer).toHaveAttribute('data-status', 'done');
+    await expect(pdfPage.locator('.agent-panel')).toHaveScreenshot('agent-rich-answer.png', { animations: 'disabled' });
     await pdfPage.getByRole('button', { name: '第 2 页' }).click();
     await expect(pdfPage.locator('[data-pdf-page="2"]')).toBeInViewport();
     await expect(pdfPage.locator('[data-translation-page="2"]')).toBeInViewport();

@@ -42,8 +42,8 @@
 .translation-page { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); margin: 0; padding: 20px; overflow: hidden; background: #fff; }
 .translation-page-placeholder { place-items: center; color: var(--pdf-muted); }
 .translation-page > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
-.translation-page-body { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
-.translation-block { position: relative; margin: 0 -8px; padding: 8px; border: 1px solid transparent; border-radius: 7px; }
+.translation-page-body { min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
+.translation-block { position: relative; margin: 0; padding: 8px; border: 1px solid transparent; border-radius: 7px; }
 .translation-block + .translation-block { margin-top: 4px; }
 .translation-block[role="button"] { cursor: pointer; }
 .translation-block[role="button"]:hover { border-color: #d6a62d; background: #fffbeb; }
