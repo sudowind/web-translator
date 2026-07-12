@@ -8,13 +8,13 @@ function settings(dialect: OpenAiSettings['dialect']): OpenAiSettings {
     apiKey: 'secret',
     baseUrl: 'https://example.test/v1',
     dialect,
+    defaultModel: 'translate-model',
     translation: {
-      model: 'translate-model',
       reasoning: { mode: 'off' },
       timeoutMs: 30_000,
     },
     agent: {
-      inheritTranslationModel: false,
+      inheritDefaultModel: false,
       profile: {
         model: 'agent-model',
         reasoning: { mode: 'on', effort: 'high', budgetTokens: 4096 },
@@ -88,7 +88,7 @@ describe('OpenAI 兼容请求构造器', () => {
 
   it('智能体可继承翻译模型但保留自己的思考与超时配置', () => {
     const value = settings('openai');
-    value.agent.inheritTranslationModel = true;
+    value.agent.inheritDefaultModel = true;
     const result = buildChatRequest({ purpose: 'agent', settings: value, messages });
 
     expect(result.body.model).toBe('translate-model');

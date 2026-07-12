@@ -294,7 +294,7 @@ export class PdfWorkspaceService {
       source: settings.sourceLanguage,
       target: settings.targetLanguage,
       provider: 'openai',
-      model: settings.openAi.translation.model,
+      model: settings.openAi.defaultModel,
       schema: 1,
     };
     const cached = await this.dependencies.getTranslation(key);

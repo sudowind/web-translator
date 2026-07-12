@@ -18,13 +18,13 @@ describe('网页翻译设置', () => {
         apiKey: '',
         baseUrl: '',
         dialect: 'generic-openai',
+        defaultModel: '',
         translation: {
-          model: '',
           reasoning: { mode: 'off' },
           timeoutMs: 30_000,
         },
         agent: {
-          inheritTranslationModel: true,
+          inheritDefaultModel: true,
           profile: {
             model: '',
             reasoning: { mode: 'auto', effort: 'medium' },
@@ -45,13 +45,13 @@ describe('网页翻译设置', () => {
       apiKey: 'secret-key',
       baseUrl: 'https://llm.example/v1',
       dialect: 'generic-openai' as const,
+      defaultModel: 'translator',
       translation: {
-        model: 'translator',
         reasoning: { mode: 'off' as const },
         timeoutMs: 30_000,
       },
       agent: {
-        inheritTranslationModel: true,
+        inheritDefaultModel: true,
         profile: {
           model: 'translator',
           reasoning: { mode: 'auto' as const, effort: 'medium' as const },
@@ -93,13 +93,13 @@ describe('网页翻译设置', () => {
         apiKey: 'key',
         baseUrl: 'https://api.example.test/v1',
         dialect: 'generic-openai',
+        defaultModel: 'm',
         translation: {
-          model: 'm',
           reasoning: { mode: 'off' },
           timeoutMs: 30_000,
         },
         agent: {
-          inheritTranslationModel: true,
+          inheritDefaultModel: true,
           profile: {
             model: 'm',
             reasoning: { mode: 'auto', effort: 'medium' },
@@ -126,8 +126,8 @@ describe('网页翻译设置', () => {
     await expect(getSettings()).resolves.toMatchObject({
       openAi: {
         dialect: 'dashscope',
-        translation: { model: 'qwen-plus' },
-        agent: { inheritTranslationModel: true },
+        defaultModel: 'qwen-plus',
+        agent: { inheritDefaultModel: true },
       },
     });
   });
@@ -147,18 +147,53 @@ describe('网页翻译设置', () => {
     await expect(getSettings()).resolves.toMatchObject({
       openAi: {
         dialect: 'openai',
+        defaultModel: 'gpt-test',
         translation: {
-          model: 'gpt-test',
           reasoning: { mode: 'off' },
           timeoutMs: 30_000,
         },
         agent: {
-          inheritTranslationModel: true,
+          inheritDefaultModel: true,
           profile: {
             model: 'gpt-test',
             reasoning: { mode: 'auto', effort: 'medium' },
             timeoutMs: 120_000,
           },
+        },
+      },
+    });
+  });
+
+  it('把当前双任务结构迁移为默认模型结构', async () => {
+    await fakeBrowser.storage.local.set({
+      'webpage-translation-settings': {
+        openAi: {
+          apiKey: 'key',
+          baseUrl: 'https://api.example.test/v1',
+          dialect: 'generic-openai',
+          translation: {
+            model: 'current-model',
+            reasoning: { mode: 'off' },
+            timeoutMs: 30_000,
+          },
+          agent: {
+            inheritTranslationModel: false,
+            profile: {
+              model: 'agent-model',
+              reasoning: { mode: 'auto' },
+              timeoutMs: 120_000,
+            },
+          },
+        },
+      },
+    });
+
+    await expect(getSettings()).resolves.toMatchObject({
+      openAi: {
+        defaultModel: 'current-model',
+        agent: {
+          inheritDefaultModel: false,
+          profile: { model: 'agent-model' },
         },
       },
     });

@@ -22,13 +22,19 @@ export interface ModelProfile {
   timeoutMs: number;
 }
 
+export interface TranslationProfile {
+  reasoning: ReasoningSettings & { mode: 'off' };
+  timeoutMs: number;
+}
+
 export interface OpenAiSettings {
   apiKey: string;
   baseUrl: string;
   dialect: ProviderDialect;
-  translation: ModelProfile;
+  defaultModel: string;
+  translation: TranslationProfile;
   agent: {
-    inheritTranslationModel: boolean;
+    inheritDefaultModel: boolean;
     profile: ModelProfile;
   };
 }
@@ -44,13 +50,13 @@ export const defaultOpenAiSettings: OpenAiSettings = {
   apiKey: '',
   baseUrl: '',
   dialect: 'generic-openai',
+  defaultModel: '',
   translation: {
-    model: '',
     reasoning: { mode: 'off' },
     timeoutMs: 30_000,
   },
   agent: {
-    inheritTranslationModel: true,
+    inheritDefaultModel: true,
     profile: {
       model: '',
       reasoning: { mode: 'auto', effort: 'medium' },
@@ -89,7 +95,7 @@ export function inferProviderDialect(baseUrl: string): ProviderDialect {
 }
 
 export function resolveAgentProfile(settings: OpenAiSettings): ModelProfile {
-  return settings.agent.inheritTranslationModel
-    ? { ...settings.agent.profile, model: settings.translation.model }
+  return settings.agent.inheritDefaultModel
+    ? { ...settings.agent.profile, model: settings.defaultModel }
     : settings.agent.profile;
 }

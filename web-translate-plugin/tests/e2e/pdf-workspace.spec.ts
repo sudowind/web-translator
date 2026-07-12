@@ -239,13 +239,13 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
           baseUrl: `${fixtureOrigin}/openai/v1`,
           apiKey: 'e2e-openai-key',
           dialect: 'generic-openai',
+          defaultModel: 'e2e-model',
           translation: {
-            model: 'e2e-model',
             reasoning: { mode: 'off' },
             timeoutMs: 30000,
           },
           agent: {
-            inheritTranslationModel: true,
+            inheritDefaultModel: true,
             profile: {
               model: 'e2e-model',
               reasoning: { mode: 'auto' },

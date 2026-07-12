@@ -44,7 +44,12 @@ export function buildChatRequest(input: BuildChatRequestInput): BuiltChatRequest
 }
 
 function selectProfile(purpose: LlmPurpose, settings: OpenAiSettings): ModelProfile {
-  return purpose === 'agent' ? resolveAgentProfile(settings) : settings.translation;
+  if (purpose === 'agent') return resolveAgentProfile(settings);
+  return {
+    model: settings.defaultModel,
+    reasoning: settings.translation.reasoning,
+    timeoutMs: settings.translation.timeoutMs,
+  };
 }
 
 function applyReasoning(

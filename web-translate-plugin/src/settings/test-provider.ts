@@ -125,19 +125,14 @@ function normalizeLlmConnectionSettings(
   settings: LlmConnectionSettings,
   purpose: LlmPurpose,
 ): LlmConnectionSettings {
-  const translationModel = settings.openAi.translation.model;
-  const agentModel = settings.openAi.agent.inheritTranslationModel
-    ? translationModel
-    : settings.openAi.agent.profile.model;
   const safeTranslation = {
-    model: purpose === 'agent' ? agentModel : translationModel,
     reasoning: { mode: 'off' as const },
     timeoutMs: 30_000,
   };
   const safeAgent = {
-    inheritTranslationModel: true,
+    inheritDefaultModel: true,
     profile: {
-      model: translationModel,
+      model: settings.openAi.defaultModel,
       reasoning: { mode: 'auto' as const },
       timeoutMs: 120_000,
     },
@@ -183,21 +178,30 @@ function isPurpose(value: unknown): value is LlmPurpose {
 }
 
 function isOpenAiShape(value: unknown): boolean {
-  if (!hasExactKeys(value, ['apiKey', 'baseUrl', 'dialect', 'translation', 'agent'])) return false;
-  if (typeof value.apiKey !== 'string' || typeof value.baseUrl !== 'string' || typeof value.dialect !== 'string') return false;
-  if (value.apiKey.length > MAX_API_KEY_LENGTH || value.baseUrl.length > MAX_BASE_URL_LENGTH) return false;
-  if (!isProfileShape(value.translation)) return false;
-  if (!hasExactKeys(value.agent, ['inheritTranslationModel', 'profile'])) return false;
-  return typeof value.agent.inheritTranslationModel === 'boolean' && isProfileShape(value.agent.profile);
+  if (!hasExactKeys(value, ['apiKey', 'baseUrl', 'dialect', 'defaultModel', 'translation', 'agent'])) return false;
+  if (typeof value.apiKey !== 'string' || typeof value.baseUrl !== 'string' || typeof value.dialect !== 'string' || typeof value.defaultModel !== 'string') return false;
+  if (value.apiKey.length > MAX_API_KEY_LENGTH || value.baseUrl.length > MAX_BASE_URL_LENGTH || value.defaultModel.length > MAX_MODEL_LENGTH) return false;
+  if (!isTranslationProfileShape(value.translation)) return false;
+  if (!hasExactKeys(value.agent, ['inheritDefaultModel', 'profile'])) return false;
+  return typeof value.agent.inheritDefaultModel === 'boolean' && isProfileShape(value.agent.profile);
+}
+
+function isTranslationProfileShape(value: unknown): boolean {
+  if (!hasExactKeys(value, ['reasoning', 'timeoutMs'])) return false;
+  return typeof value.timeoutMs === 'number' && isReasoningShape(value.reasoning);
 }
 
 function isProfileShape(value: unknown): boolean {
   if (!hasExactKeys(value, ['model', 'reasoning', 'timeoutMs'])) return false;
   if (typeof value.model !== 'string' || value.model.length > MAX_MODEL_LENGTH || typeof value.timeoutMs !== 'number') return false;
-  if (typeof value.reasoning !== 'object' || value.reasoning === null || Array.isArray(value.reasoning)) return false;
-  const keys = Object.keys(value.reasoning);
+  return typeof value.model === 'string' && value.model.length <= MAX_MODEL_LENGTH && typeof value.timeoutMs === 'number' && isReasoningShape(value.reasoning);
+}
+
+function isReasoningShape(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
   if (keys.some((key) => !['mode', 'effort', 'budgetTokens'].includes(key))) return false;
-  return typeof (value.reasoning as { mode?: unknown }).mode === 'string';
+  return typeof (value as { mode?: unknown }).mode === 'string';
 }
 
 function hasExactKeys<K extends string>(value: unknown, keys: readonly K[]): value is Record<K, unknown> {

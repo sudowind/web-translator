@@ -7,13 +7,13 @@ const settings: OpenAiSettings = {
   apiKey: 'secret',
   baseUrl: 'https://example.test/v1/',
   dialect: 'dashscope',
+  defaultModel: 'model',
   translation: {
-    model: 'model',
     reasoning: { mode: 'off' },
     timeoutMs: 30_000,
   },
   agent: {
-    inheritTranslationModel: true,
+    inheritDefaultModel: true,
     profile: {
       model: 'model',
       reasoning: { mode: 'auto' },

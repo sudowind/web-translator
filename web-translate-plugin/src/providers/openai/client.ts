@@ -23,8 +23,8 @@ export class OpenAiTranslationClient {
     request: TranslationRequest,
     signal?: AbortSignal,
   ): Promise<TranslationResult[]> {
-    const { apiKey, baseUrl, translation } = this.settings;
-    if (!apiKey.trim() || !baseUrl.trim() || !translation.model.trim()) {
+    const { apiKey, baseUrl, defaultModel } = this.settings;
+    if (!apiKey.trim() || !baseUrl.trim() || !defaultModel.trim()) {
       throw new Error('翻译 Provider 配置不完整');
     }
 

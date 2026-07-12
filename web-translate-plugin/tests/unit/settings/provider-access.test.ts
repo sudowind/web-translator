@@ -14,13 +14,13 @@ const validSettings = {
     baseUrl: 'https://api.example.test:8443/v1/',
     apiKey: ' secret ',
     dialect: 'generic-openai' as const,
+    defaultModel: ' model-name ',
     translation: {
-      model: ' model-name ',
       reasoning: { mode: 'off' as const },
       timeoutMs: 30_000,
     },
     agent: {
-      inheritTranslationModel: true,
+      inheritDefaultModel: true,
       profile: {
         model: ' agent-model ',
         reasoning: { mode: 'auto' as const, effort: 'medium' as const },
@@ -86,13 +86,13 @@ describe('Provider 设置授权', () => {
         baseUrl: 'https://api.example.test:8443/v1',
         apiKey: 'secret',
         dialect: 'generic-openai',
+        defaultModel: 'model-name',
         translation: {
-          model: 'model-name',
           reasoning: { mode: 'off' },
           timeoutMs: 30_000,
         },
         agent: {
-          inheritTranslationModel: true,
+          inheritDefaultModel: true,
           profile: {
             model: 'model-name',
             reasoning: { mode: 'auto', effort: 'medium' },
@@ -112,18 +112,24 @@ describe('Provider 设置授权', () => {
         openAi: { ...validSettings.openAi, apiKey: '' },
       }),
     ).toThrow('API Key');
+    expect(() =>
+      validateProviderSettings({
+        ...validSettings,
+        openAi: { ...validSettings.openAi, defaultModel: ' ' },
+      }),
+    ).toThrow('默认模型不能为空');
   });
 
   it('解析继承模型并拒绝通用接口开启思考', () => {
     expect(resolveAgentProfile(validSettings.openAi).model).toBe(
-      validSettings.openAi.translation.model,
+      validSettings.openAi.defaultModel,
     );
     expect(() => validateProviderSettings({
       ...validSettings,
       openAi: {
         ...validSettings.openAi,
         agent: {
-          inheritTranslationModel: false,
+          inheritDefaultModel: false,
           profile: {
             model: 'agent-model',
             reasoning: { mode: 'on' },

@@ -12,13 +12,13 @@ const settings = {
     baseUrl: 'https://api.example.test/v1',
     apiKey: 'secret',
     dialect: 'dashscope' as const,
+    defaultModel: 'translate-model',
     translation: {
-      model: 'translate-model',
       reasoning: { mode: 'off' as const },
       timeoutMs: 30_000,
     },
     agent: {
-      inheritTranslationModel: false,
+      inheritDefaultModel: false,
       profile: {
         model: 'agent-model',
         reasoning: { mode: 'on' as const, budgetTokens: 2048 },
@@ -65,7 +65,7 @@ describe('LLM 独立配置测试', () => {
           ...settings,
           openAi: {
             ...settings.openAi,
-            translation: { ...settings.openAi.translation, model: 'x'.repeat(257) },
+            defaultModel: 'x'.repeat(257),
           },
         },
       }),
@@ -98,7 +98,7 @@ describe('LLM 独立配置测试', () => {
       openAi: {
         ...settings.openAi,
         agent: {
-          inheritTranslationModel: false,
+          inheritDefaultModel: false,
           profile: { ...settings.openAi.agent.profile, model: '' },
         },
       },

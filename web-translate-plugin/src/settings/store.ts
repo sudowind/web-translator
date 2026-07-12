@@ -7,6 +7,7 @@ import {
   type OpenAiSettings,
   type ProviderDialect,
   type ReasoningSettings,
+  type TranslationProfile,
 } from './schema';
 
 const settingsItem = storage.defineItem<unknown>(
@@ -39,30 +40,50 @@ export function migrateOpenAiSettings(value: unknown): OpenAiSettings {
   const record = isRecord(value) ? value : {};
   const apiKey = typeof record.apiKey === 'string' ? record.apiKey : '';
   const baseUrl = typeof record.baseUrl === 'string' ? record.baseUrl : '';
-  const legacyModel = typeof record.model === 'string' ? record.model : '';
   const translationRecord = isRecord(record.translation) ? record.translation : {};
-  const translation = migrateProfile(
-    translationRecord,
-    defaultOpenAiSettings.translation,
-    legacyModel,
-  );
+  const defaultModel = typeof record.defaultModel === 'string'
+    ? record.defaultModel
+    : typeof translationRecord.model === 'string'
+      ? translationRecord.model
+      : typeof record.model === 'string'
+        ? record.model
+        : '';
+  const translation = migrateTranslationProfile(translationRecord);
   const agentRecord = isRecord(record.agent) ? record.agent : {};
   const agentProfileRecord = isRecord(agentRecord.profile) ? agentRecord.profile : {};
   return {
     apiKey,
     baseUrl,
     dialect: isDialect(record.dialect) ? record.dialect : inferProviderDialect(baseUrl),
+    defaultModel,
     translation,
     agent: {
-      inheritTranslationModel: typeof agentRecord.inheritTranslationModel === 'boolean'
-        ? agentRecord.inheritTranslationModel
-        : defaultOpenAiSettings.agent.inheritTranslationModel,
+      inheritDefaultModel: typeof agentRecord.inheritDefaultModel === 'boolean'
+        ? agentRecord.inheritDefaultModel
+        : typeof agentRecord.inheritTranslationModel === 'boolean'
+          ? agentRecord.inheritTranslationModel
+          : defaultOpenAiSettings.agent.inheritDefaultModel,
       profile: migrateProfile(
         agentProfileRecord,
         defaultOpenAiSettings.agent.profile,
-        translation.model,
+        defaultModel,
       ),
     },
+  };
+}
+
+function migrateTranslationProfile(
+  value: Record<string, unknown>,
+): TranslationProfile {
+  const reasoning = migrateReasoning(
+    value.reasoning,
+    defaultOpenAiSettings.translation.reasoning,
+  );
+  return {
+    reasoning: { ...reasoning, mode: 'off' },
+    timeoutMs: typeof value.timeoutMs === 'number' && Number.isSafeInteger(value.timeoutMs)
+      ? value.timeoutMs
+      : defaultOpenAiSettings.translation.timeoutMs,
   };
 }
 

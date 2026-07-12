@@ -105,6 +105,15 @@ export default function App() {
     markLlmChanged();
   }
 
+  function updateDefaultModel(value: string) {
+    setSettings((current) => ({
+      ...current,
+      openAi: { ...current.openAi, defaultModel: value },
+    }));
+    setFieldError((current) => ({ ...current, model: undefined }));
+    markLlmChanged();
+  }
+
   function updateAgent(patch: Partial<ExtensionSettings['openAi']['agent']>) {
     setSettings((current) => ({
       ...current,
@@ -242,7 +251,7 @@ export default function App() {
           <p className="help">翻译固定关闭思考并要求 JSON 结构化输出，以降低耗时并保证逐块对齐。</p>
           <div className="field">
             <label htmlFor="translation-model">翻译模型</label>
-            <input id="translation-model" required value={settings.openAi.translation.model} onChange={(event) => updateTranslation({ model: event.target.value })} aria-invalid={Boolean(fieldError.model)} />
+            <input id="translation-model" required value={settings.openAi.defaultModel} onChange={(event) => updateDefaultModel(event.target.value)} aria-invalid={Boolean(fieldError.model)} />
             {fieldError.model && <p className="error">{fieldError.model}</p>}
           </div>
           <div className="field">
@@ -255,10 +264,10 @@ export default function App() {
         <fieldset>
           <legend>论文智能体配置</legend>
           <label className="checkbox-row">
-            <input type="checkbox" checked={settings.openAi.agent.inheritTranslationModel} onChange={(event) => updateAgent({ inheritTranslationModel: event.target.checked })} />
+            <input type="checkbox" checked={settings.openAi.agent.inheritDefaultModel} onChange={(event) => updateAgent({ inheritDefaultModel: event.target.checked })} />
             使用翻译模型
           </label>
-          {!settings.openAi.agent.inheritTranslationModel && (
+          {!settings.openAi.agent.inheritDefaultModel && (
             <div className="field">
               <label htmlFor="agent-model">智能体模型</label>
               <input id="agent-model" required value={settings.openAi.agent.profile.model} onChange={(event) => updateAgentProfile({ model: event.target.value })} aria-invalid={Boolean(fieldError.agentModel)} />

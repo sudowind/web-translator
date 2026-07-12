@@ -9,8 +9,9 @@ const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', 
 const model: DocumentModel = { id: source.hash, sourceUrl: source.url, hash: source.hash, title: source.title, pageCount: 1, pages: [{ id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' }] }] };
 const openAiSettings = {
   apiKey: 'secret', baseUrl: 'https://api.test/v1', dialect: 'generic-openai' as const,
-  translation: { model: 'm', reasoning: { mode: 'off' as const }, timeoutMs: 30_000 },
-  agent: { inheritTranslationModel: true, profile: { model: 'm', reasoning: { mode: 'auto' as const }, timeoutMs: 120_000 } },
+  defaultModel: 'm',
+  translation: { reasoning: { mode: 'off' as const }, timeoutMs: 30_000 },
+  agent: { inheritDefaultModel: true, profile: { model: 'm', reasoning: { mode: 'auto' as const }, timeoutMs: 120_000 } },
 };
 
 describe('后台 PDF 工作台服务', () => {

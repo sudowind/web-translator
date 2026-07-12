@@ -5,6 +5,7 @@ import {
   type ModelProfile,
   type OpenAiSettings,
   type ProviderDialect,
+  type TranslationProfile,
 } from './schema';
 
 type PermissionRequester = (permissions: {
@@ -78,19 +79,16 @@ export function validateProviderSettings(
   providerOriginPattern(settings.openAi.baseUrl);
   const baseUrl = settings.openAi.baseUrl.trim().replace(/\/+$/, '');
   const dialect = normalizeDialect(settings.openAi.dialect);
-  const translation = normalizeProfile(
-    settings.openAi.translation,
-    'translation',
-    dialect,
-  );
-  const inheritTranslationModel = Boolean(
-    settings.openAi.agent.inheritTranslationModel,
+  const defaultModel = settings.openAi.defaultModel.trim();
+  if (!defaultModel) throw new Error('默认模型不能为空');
+  const translation = normalizeTranslationProfile(settings.openAi.translation);
+  const inheritDefaultModel = Boolean(
+    settings.openAi.agent.inheritDefaultModel,
   );
   const agentProfile = normalizeProfile(
-    inheritTranslationModel
-      ? { ...settings.openAi.agent.profile, model: translation.model }
+    inheritDefaultModel
+      ? { ...settings.openAi.agent.profile, model: defaultModel }
       : settings.openAi.agent.profile,
-    'agent',
     dialect,
   );
   const token = settings.mineru.token.trim();
@@ -111,9 +109,10 @@ export function validateProviderSettings(
       apiKey,
       baseUrl,
       dialect,
+      defaultModel,
       translation,
       agent: {
-        inheritTranslationModel,
+        inheritDefaultModel,
         profile: agentProfile,
       },
     },
@@ -133,20 +132,14 @@ function normalizeDialect(value: ProviderDialect): ProviderDialect {
 
 function normalizeProfile(
   profile: ModelProfile,
-  purpose: 'translation' | 'agent',
   dialect: ProviderDialect,
 ): ModelProfile {
   const model = profile.model.trim();
-  if (!model) throw new Error(`${purpose === 'translation' ? '翻译' : '问答'}模型不能为空`);
-  const min = purpose === 'translation' ? 5_000 : 15_000;
-  const max = purpose === 'translation' ? 120_000 : 300_000;
-  if (!Number.isSafeInteger(profile.timeoutMs) || profile.timeoutMs < min || profile.timeoutMs > max) {
-    throw new Error(`${purpose === 'translation' ? '翻译' : '问答'}超时范围无效`);
+  if (!model) throw new Error('问答模型不能为空');
+  if (!Number.isSafeInteger(profile.timeoutMs) || profile.timeoutMs < 15_000 || profile.timeoutMs > 300_000) {
+    throw new Error('问答超时范围无效');
   }
   const reasoning = { ...profile.reasoning };
-  if (purpose === 'translation' && reasoning.mode !== 'off') {
-    throw new Error('翻译结构化输出必须关闭思考模式');
-  }
   if (!['off', 'auto', 'on'].includes(reasoning.mode)) {
     throw new Error('思考模式无效');
   }
@@ -165,6 +158,18 @@ function normalizeProfile(
     throw new Error('OpenAI 思考强度无效');
   }
   return { model, reasoning, timeoutMs: profile.timeoutMs };
+}
+
+function normalizeTranslationProfile(
+  profile: TranslationProfile,
+): TranslationProfile {
+  if (!Number.isSafeInteger(profile.timeoutMs) || profile.timeoutMs < 5_000 || profile.timeoutMs > 120_000) {
+    throw new Error('翻译超时范围无效');
+  }
+  if (profile.reasoning.mode !== 'off') {
+    throw new Error('翻译结构化输出必须关闭思考模式');
+  }
+  return { reasoning: { ...profile.reasoning, mode: 'off' }, timeoutMs: profile.timeoutMs };
 }
 
 export async function authorizeProviderSettings(

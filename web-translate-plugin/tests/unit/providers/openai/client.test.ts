@@ -7,13 +7,13 @@ describe('OpenAI 兼容翻译客户端', () => {
     apiKey: 'secret-key',
     baseUrl: 'https://llm.example/v1/',
     dialect: 'dashscope' as const,
+    defaultModel: 'translator',
     translation: {
-      model: 'translator',
       reasoning: { mode: 'off' as const },
       timeoutMs: 30_000,
     },
     agent: {
-      inheritTranslationModel: true,
+      inheritDefaultModel: true,
       profile: {
         model: 'translator',
         reasoning: { mode: 'auto' as const },

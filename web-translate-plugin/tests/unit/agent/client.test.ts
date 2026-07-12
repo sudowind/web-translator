@@ -8,13 +8,13 @@ const settings = {
   apiKey: 'secret',
   baseUrl: 'https://api.test/v1',
   dialect: 'openai' as const,
+  defaultModel: 'translation-model',
   translation: {
-    model: 'translation-model',
     reasoning: { mode: 'off' as const },
     timeoutMs: 30_000,
   },
   agent: {
-    inheritTranslationModel: false,
+    inheritDefaultModel: false,
     profile: {
       model: 'agent-model',
       reasoning: { mode: 'on' as const, effort: 'medium' as const },
