@@ -1,5 +1,4 @@
 export class PageScheduler {
-  private activePage = 1;
   private readonly done = new Set<number>();
   private readonly failed = new Set<number>();
   private readonly inFlight = new Set<number>();
@@ -13,20 +12,9 @@ export class PageScheduler {
     }
   }
 
-  setActivePage(page: number): void {
-    if (Number.isInteger(page) && page >= 1 && page <= this.pageCount) {
-      this.activePage = page;
-    }
-  }
-
   take(): number | null {
     if (this.inFlight.size >= this.concurrency) return null;
-    const ordered = Array.from({ length: this.pageCount }, (_, index) => index + 1)
-      .sort((left, right) => {
-        const distance = Math.abs(left - this.activePage) - Math.abs(right - this.activePage);
-        return distance || left - right;
-      });
-    const page = ordered.find((candidate) =>
+    const page = Array.from({ length: this.pageCount }, (_, index) => index + 1).find((candidate) =>
       !this.done.has(candidate) &&
       !this.failed.has(candidate) &&
       !this.inFlight.has(candidate));
@@ -47,7 +35,6 @@ export class PageScheduler {
   }
 
   retry(page: number): void {
-    this.failed.delete(page);
-    this.inFlight.delete(page);
+    if (this.failed.has(page)) this.failed.delete(page);
   }
 }

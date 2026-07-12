@@ -114,7 +114,6 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     if (!model) return;
     const scheduler = new PageScheduler(model.pageCount, 2);
     const epoch = operationEpoch.current.current();
-    scheduler.setActivePage(activePage);
     schedulerRef.current = scheduler;
     let disposed = false;
 
@@ -150,11 +149,6 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       pumpRef.current = () => undefined;
     };
   }, [model]);
-
-  React.useEffect(() => {
-    schedulerRef.current?.setActivePage(activePage);
-    pumpRef.current();
-  }, [activePage]);
 
   const visibleFrom = React.useCallback((pane: PdfPane, page: number, progress: number) => {
     setActivePage(page);
