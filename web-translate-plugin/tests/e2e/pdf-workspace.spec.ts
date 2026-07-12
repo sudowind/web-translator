@@ -430,7 +430,9 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await pdfPage.getByRole('button', { name: '展开论文智能体' }).click();
     await expect(pdfPage.getByLabel('向论文提问')).toBeVisible();
 
+    const restoredPageLoaded = pdfPage.waitForEvent('load');
     await pdfPage.getByRole('button', { name: '关闭工作台' }).click();
+    await restoredPageLoaded;
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0, { timeout: 30_000 });
     await expect(pdfPage).toHaveURL(sourceUrl);
     await pdfPage.reload();
