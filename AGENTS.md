@@ -10,6 +10,7 @@
 ## 当前规格记录
 
 - LLM 默认模型与翻译诊断重构：`docs/superpowers/specs/2026-07-12-llm-default-model-translation-diagnostics-design.md`
+- LLM 默认模型与翻译诊断实施计划：`docs/superpowers/plans/2026-07-12-llm-default-model-translation-diagnostics-plan.md`
 - LLM 双任务模型与思考配置：`docs/superpowers/specs/2026-07-12-llm-task-profiles-reasoning-design.md`
 - Provider 独立连接测试：`docs/superpowers/specs/2026-07-12-provider-connection-tests-design.md`
 - 网页翻译与 PDF 工作台总体设计：`docs/superpowers/specs/2026-07-11-web-translation-chrome-extension-design.md`
