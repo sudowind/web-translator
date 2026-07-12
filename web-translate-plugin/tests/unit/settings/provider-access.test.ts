@@ -94,7 +94,7 @@ describe('Provider 设置授权', () => {
         agent: {
           inheritDefaultModel: true,
           profile: {
-            model: 'model-name',
+            model: 'agent-model',
             reasoning: { mode: 'auto', effort: 'medium' },
             timeoutMs: 120_000,
           },
@@ -138,6 +138,25 @@ describe('Provider 设置授权', () => {
         },
       },
     })).toThrow('通用 OpenAI 兼容接口无法确认思考协议');
+  });
+
+  it('继承默认模型时保存仍保留独立智能体模型', () => {
+    const validated = validateProviderSettings(validSettings);
+    expect(validated.openAi.agent.profile.model).toBe('agent-model');
+    expect(resolveAgentProfile(validated.openAi).model).toBe('model-name');
+
+    const emptyStoredModel = validateProviderSettings({
+      ...validSettings,
+      openAi: {
+        ...validSettings.openAi,
+        agent: {
+          ...validSettings.openAi.agent,
+          profile: { ...validSettings.openAi.agent.profile, model: ' ' },
+        },
+      },
+    });
+    expect(emptyStoredModel.openAi.agent.profile.model).toBe('');
+    expect(resolveAgentProfile(emptyStoredModel.openAi).model).toBe('model-name');
   });
 
   it('权限拒绝时不返回可保存配置', async () => {

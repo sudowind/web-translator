@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import App, { availableReasoningModes, dialectForEditedUrl, providerErrorField } from '../../../entrypoints/options/App';
+import App, { availableReasoningModes, dialectForEditedUrl, feedbackState, providerErrorField } from '../../../entrypoints/options/App';
 
 describe('设置页 Provider 操作', () => {
   it('分别呈现三类 LLM 测试和 MinerU 检查', () => {
@@ -44,5 +44,9 @@ describe('设置页 Provider 操作', () => {
     expect(providerErrorField('快速连通测试失败（HTTP 404）', 'llm')).toBe('baseUrl');
     expect(providerErrorField('问答模型不能为空', 'save')).toBe('agentModel');
     expect(providerErrorField('MinerU Token 不能为空', 'mineru')).toBe('mineruToken');
+  });
+
+  it('把翻译格式不兼容提示标记为错误状态', () => {
+    expect(feedbackState('接口连接成功，但模型输出不符合翻译格式要求')).toBe('error');
   });
 });

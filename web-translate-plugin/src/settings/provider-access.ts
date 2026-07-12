@@ -85,12 +85,17 @@ export function validateProviderSettings(
   const inheritDefaultModel = Boolean(
     settings.openAi.agent.inheritDefaultModel,
   );
-  const agentProfile = normalizeProfile(
-    inheritDefaultModel
-      ? { ...settings.openAi.agent.profile, model: defaultModel }
-      : settings.openAi.agent.profile,
+  const storedAgentModel = settings.openAi.agent.profile.model.trim();
+  const effectiveAgentProfile = normalizeProfile(
+    {
+      ...settings.openAi.agent.profile,
+      model: inheritDefaultModel ? defaultModel : storedAgentModel,
+    },
     dialect,
   );
+  const agentProfile = inheritDefaultModel
+    ? { ...effectiveAgentProfile, model: storedAgentModel }
+    : effectiveAgentProfile;
   const token = settings.mineru.token.trim();
   let mineru = defaultSettings.mineru;
   if (token) {

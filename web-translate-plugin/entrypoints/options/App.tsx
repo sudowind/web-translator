@@ -389,4 +389,8 @@ function useDelayedProgress(active: boolean): boolean {
 }
 
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function feedbackState(value: string): 'error' | 'info' { return /失败|不能为空|必须|未获得|无效|超时/.test(value) ? 'error' : 'info'; }
+export function feedbackState(value: string): 'error' | 'info' {
+  return /失败|不能为空|必须|未获得|无效|超时|不符合翻译格式要求/.test(value)
+    ? 'error'
+    : 'info';
+}

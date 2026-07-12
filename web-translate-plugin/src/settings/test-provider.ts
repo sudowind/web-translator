@@ -161,6 +161,7 @@ function llmTestError(
   dialect: OpenAiSettings['dialect'],
 ): Error {
   const contractCodes = new Set([
+    'TRANSLATION_RESPONSE_INVALID',
     'TRANSLATION_JSON_INVALID',
     'TRANSLATION_SCHEMA_INVALID',
     'TRANSLATION_ID_UNKNOWN',

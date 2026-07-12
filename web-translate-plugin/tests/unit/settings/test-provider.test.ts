@@ -115,10 +115,13 @@ describe('LLM 独立配置测试', () => {
     await expect(testLlmConfiguration(incompleteAgent, 'translation', clients)).resolves.toEqual({ connected: true });
   });
 
-  it('HTTP 成功后的翻译契约错误不误导用户检查连接凭据', async () => {
+  it.each([
+    'TRANSLATION_JSON_INVALID',
+    'TRANSLATION_RESPONSE_INVALID',
+  ])('HTTP 成功后的 %s 不误导用户检查连接凭据', async (code) => {
     const error = Object.assign(
-      new Error('TRANSLATION_JSON_INVALID'),
-      { code: 'TRANSLATION_JSON_INVALID' },
+      new Error(code),
+      { code },
     );
     const clients = {
       createChat: () => ({ complete: vi.fn() }),
@@ -133,7 +136,7 @@ describe('LLM 独立配置测试', () => {
       message = caught instanceof Error ? caught.message : String(caught);
     }
     expect(message).toContain('接口连接成功，但模型输出不符合翻译格式要求');
-    expect(message).toContain('TRANSLATION_JSON_INVALID');
+    expect(message).toContain(code);
     expect(message).not.toContain('API Key');
     expect(message).not.toContain('接口地址');
   });
