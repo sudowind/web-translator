@@ -158,6 +158,7 @@ export function PdfPageCanvas({
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [textLayer, setTextLayer] = React.useState<{ page: PDFPageProxy; viewport: PageViewport } | null>(null);
   const [renderError, setRenderError] = React.useState<string>();
+  const [fitScale, setFitScale] = React.useState(1);
   const handleTextLayerError = React.useCallback(() => setRenderError('PDF 文本层渲染失败'), []);
 
   React.useEffect(() => {
@@ -198,6 +199,9 @@ export function PdfPageCanvas({
     const report = () => {
       if (!canvas.style.width) return;
       const height = canvas.getBoundingClientRect().height;
+      const width = canvas.getBoundingClientRect().width;
+      const viewportWidth = Number.parseFloat(canvas.style.width);
+      if (viewportWidth > 0) setFitScale(width / viewportWidth);
       if (height > 0) onHeightChange(pageNumber, height);
     };
     const observer = new ResizeObserver(report);
@@ -213,6 +217,7 @@ export function PdfPageCanvas({
       {textLayer && <PdfTextLayer
         page={textLayer.page}
         viewport={textLayer.viewport}
+        fitScale={fitScale}
         onError={handleTextLayerError}
       />}
       {renderError && <p className="pdf-page-render-error" role="status">{renderError}</p>}

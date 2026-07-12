@@ -23,11 +23,13 @@ const createPdfJsTextLayer: TextLayerFactory = (options) => new TextLayer(option
 export function PdfTextLayer({
   page,
   viewport,
+  fitScale = 1,
   createLayer = createPdfJsTextLayer,
   onError,
 }: {
   page: PDFPageProxy;
   viewport: PageViewport;
+  fitScale?: number;
   createLayer?: TextLayerFactory;
   onError?(error: unknown): void;
 }) {
@@ -53,5 +55,15 @@ export function PdfTextLayer({
     };
   }, [createLayer, onError, page, viewport]);
 
-  return <div ref={containerRef} className="pdf-text-layer textLayer" aria-label="可选择 PDF 文本" />;
+  return <div
+    ref={containerRef}
+    className="pdf-text-layer textLayer"
+    aria-label="可选择 PDF 文本"
+    style={{
+      width: viewport.width,
+      height: viewport.height,
+      transform: `scale(${fitScale})`,
+      transformOrigin: '0 0',
+    }}
+  />;
 }

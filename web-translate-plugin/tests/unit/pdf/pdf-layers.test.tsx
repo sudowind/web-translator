@@ -42,11 +42,11 @@ describe('PDF 页面覆盖层', () => {
     const root = createRoot(container);
 
     await act(async () => {
-      root.render(<PdfTextLayer page={page as never} viewport={viewport as never} createLayer={factory} />);
+      root.render(<PdfTextLayer page={page as never} viewport={viewport as never} fitScale={0.5} createLayer={factory} />);
     });
     expect(calls).toHaveLength(1);
     expect(calls[0].options).toMatchObject({ viewport });
-    expect(container.querySelector('.pdf-text-layer.textLayer')).not.toBeNull();
+    expect(container.querySelector<HTMLElement>('.pdf-text-layer.textLayer')?.style.transform).toBe('scale(0.5)');
 
     await act(async () => {
       root.render(<PdfTextLayer page={page as never} viewport={{ ...viewport, width: 700 } as never} createLayer={factory} />);
