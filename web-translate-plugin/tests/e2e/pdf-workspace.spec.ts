@@ -72,6 +72,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   let extensionCopy = '';
   let server: ReturnType<typeof createServer>;
   const pdf = createTwoPagePdf();
+  const failurePdf = createTwoPagePdf('Failure Diagnostics');
   const authenticatedPdf = createTwoPagePdf('Authenticated');
   const archive = Buffer.from(zipSync({
     'nested/paper_content_list.json': strToU8(JSON.stringify([
@@ -88,6 +89,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     uploads: 0,
     batchDataId: '',
   };
+  let translationFailureMode: 'none' | 'mixed' = 'none';
 
   test.beforeAll(async ({ playwright }) => {
     server = createServer(async (request, response) => {
@@ -96,6 +98,12 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       if (requestUrl.pathname === '/download' && requestUrl.searchParams.get('id') === 'public') {
         response.writeHead(200, { 'content-type': 'application/pdf' });
         response.end(pdf);
+        return;
+      }
+
+      if (requestUrl.pathname === '/download' && requestUrl.searchParams.get('id') === 'failure') {
+        response.writeHead(200, { 'content-type': 'application/pdf' });
+        response.end(failurePdf);
         return;
       }
 
@@ -175,11 +183,18 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
           };
           const page = input.blocks[0]?.id.match(/:p(\d+):/)?.[1];
           if (page) observed.translationPages.push(Number(page));
+          if (translationFailureMode === 'mixed' && page === '2') {
+            response.writeHead(429, { 'content-type': 'application/json' });
+            response.end(JSON.stringify({ error: { message: 'rate limited' } }));
+            return;
+          }
           if (page === '1') await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
           json(response, {
             choices: [{
               message: {
-                content: JSON.stringify({
+                content: translationFailureMode === 'mixed' && page === '1'
+                  ? 'not json'
+                  : JSON.stringify({
                   translations: input.blocks.map((block) => ({
                     id: block.id,
                     text: page === '1'
@@ -224,6 +239,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         `--load-extension=${extensionCopy}`,
       ],
     });
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     await context.route(mineruResultUrl, (route) => route.fulfill({
       status: 200,
       contentType: 'application/zip',
@@ -296,6 +312,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   }
 
   test('公开 PDF 保持通用 URL，并完成解析、翻译、智能体、联动与恢复', async () => {
+    translationFailureMode = 'none';
     observed.urlTasks.length = 0;
     observed.translationPages.length = 0;
     const sourceUrl = `${origin}/download?id=public#page=2`;
@@ -306,10 +323,12 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage).toHaveURL(sourceUrl);
     await expect(pdfPage.locator('[data-pdf-page="1"]')).toBeVisible();
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'translating', { timeout: 30_000 });
+    const renderPageBeforeTranslation = await pdfPage.locator('.pdf-workspace').getAttribute('data-pdf-render-page');
     const translationPages = pdfPage.locator('.translation-pages');
     await translationPages.evaluate((element) => { element.scrollTop = 64; });
     const scrollTopBeforeTranslation = await translationPages.evaluate((element) => element.scrollTop);
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await expect(pdfPage.locator('.pdf-workspace')).toHaveAttribute('data-pdf-render-page', renderPageBeforeTranslation ?? '2');
     expect(await translationPages.evaluate((element) => element.scrollTop)).toBe(scrollTopBeforeTranslation);
     await expect(pdfPage.locator('[data-translation-page="2"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
     await expect.poll(() => observed.urlTasks.length).toBe(1);
@@ -356,7 +375,37 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await pdfPage.close();
   });
 
+  test('翻译失败显示默认收起的脱敏诊断并保留自动重试次数', async () => {
+    translationFailureMode = 'mixed';
+    observed.translationPages.length = 0;
+    const sourceUrl = `${origin}/download?id=failure#page=1`;
+    const pdfPage = await context.newPage();
+    await pdfPage.goto(sourceUrl);
+    await enableWorkspace(pdfPage);
+
+    const pageOne = pdfPage.locator('[data-translation-page="1"]');
+    const pageTwo = pdfPage.locator('[data-translation-page="2"]');
+    await expect(pageOne).toHaveAttribute('data-status', 'failed', { timeout: 30_000 });
+    await expect(pageTwo).toHaveAttribute('data-status', 'failed', { timeout: 30_000 });
+    await expect(pageOne.getByText('失败：模型返回的 JSON 无法解析')).toBeVisible();
+    await expect(pageTwo.getByText('失败：接口限流')).toBeVisible();
+    expect(observed.translationPages.filter((page) => page === 2)).toHaveLength(3);
+
+    const details = pageOne.locator('details');
+    await expect(details).not.toHaveAttribute('open', '');
+    await details.locator('summary').click();
+    await expect(details.getByText('TRANSLATION_JSON_INVALID')).toBeVisible();
+    await details.getByRole('button', { name: '复制诊断信息' }).click();
+    const copied = await pdfPage.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain('TRANSLATION_JSON_INVALID');
+    expect(copied).not.toContain('e2e-openai-key');
+    expect(copied).not.toContain('Paper title');
+    await pdfPage.close();
+    translationFailureMode = 'none';
+  });
+
   test('认证 PDF 在用户同意前不上传，同意后才走批量上传', async () => {
+    translationFailureMode = 'none';
     observed.batchInitializations = 0;
     observed.uploads = 0;
     const sourceUrl = `${origin}/download?id=auth#page=2`;
