@@ -53,7 +53,7 @@ export interface PdfAgentProgress {
 export function isPdfAgentProgress(value: unknown): value is PdfAgentProgress {
   return isRecord(value) && exact(value, ['type', 'hash', 'requestId', 'delta']) &&
     value.type === 'pdf:agent-progress' && nonEmpty(value.hash) &&
-    nonEmpty(value.requestId) && nonEmpty(value.delta);
+    nonEmpty(value.requestId) && typeof value.delta === 'string' && value.delta.length > 0;
 }
 
 export function isPdfTranslationProgress(value: unknown): value is PdfTranslationProgress {

@@ -20,6 +20,7 @@ describe('PDF 工作台消息', () => {
   it('严格校验 Agent 流式进度消息', () => {
     const progress = { type: 'pdf:agent-progress', hash: 'sha256:x', requestId: 'agent-1', delta: '部分回答' };
     expect(isPdfAgentProgress(progress)).toBe(true);
+    expect(isPdfAgentProgress({ ...progress, delta: ' \n' })).toBe(true);
     expect(isPdfAgentProgress({ ...progress, requestId: '' })).toBe(false);
     expect(isPdfAgentProgress({ ...progress, delta: '' })).toBe(false);
     expect(isPdfAgentProgress({ ...progress, token: 'secret' })).toBe(false);
