@@ -287,6 +287,9 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     if (!response.ok) throw new Error(`PDF 工作台启用失败：${response.error}`);
     expect(response.value.enabled).toBe(true);
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toBeVisible({ timeout: 30_000 });
+    await expect(pdfPage.locator('.pdf-workspace')).toHaveCSS('display', 'grid');
+    await expect(pdfPage.locator('.workspace-columns')).toHaveCSS('display', 'grid');
+    await expect(pdfPage.locator('.workspace-toolbar button').first()).toHaveCSS('min-height', '44px');
   }
 
   test('公开 PDF 保持通用 URL，并完成解析、翻译、智能体、联动与恢复', async () => {

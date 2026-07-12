@@ -5,6 +5,7 @@ interface TakeoverBrowserApi {
     reload(tabId: number): Promise<void>;
   };
   scripting: {
+    insertCSS(details: { target: { tabId: number }; files: string[] }): Promise<void>;
     executeScript(details: { target: { tabId: number }; files?: string[]; func?: () => string }): Promise<unknown>;
   };
 }
@@ -22,6 +23,10 @@ export class ChromePdfTakeoverAdapter implements PdfTakeoverPort {
   async mount(tabId: number): Promise<{ originalUrl: string }> {
     const before = await this.api.tabs.get(tabId);
     if (!before.url) throw new Error('PDF_URL_MISSING');
+    await this.api.scripting.insertCSS({
+      target: { tabId },
+      files: ['/content-scripts/pdf-workspace.css'],
+    });
     await this.api.scripting.executeScript({
       target: { tabId },
       files: ['/content-scripts/pdf-workspace.js'],

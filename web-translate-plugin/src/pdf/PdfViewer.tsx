@@ -36,6 +36,7 @@ export function PdfViewer({
   onDocumentReady,
 }: PdfViewerProps) {
   const rootRef = React.useRef<HTMLDivElement>(null);
+  const initialPagePositioned = React.useRef(false);
   const [document, setDocument] = React.useState<PDFDocumentProxy | null>(null);
   const [pageCount, setPageCount] = React.useState(0);
 
@@ -55,6 +56,15 @@ export function PdfViewer({
       void task.destroy();
     };
   }, [bytes, onDocumentReady]);
+
+  React.useLayoutEffect(() => {
+    if (initialPagePositioned.current || pageCount === 0 || !rootRef.current) return;
+    const page = Math.min(Math.max(activePage, 1), pageCount);
+    const target = rootRef.current.querySelector<HTMLElement>(`[data-pdf-page="${page}"]`);
+    if (!target) return;
+    rootRef.current.scrollTop = target.offsetTop;
+    initialPagePositioned.current = true;
+  }, [activePage, pageCount]);
 
   React.useEffect(() => {
     if (!rootRef.current || pageCount === 0) return;

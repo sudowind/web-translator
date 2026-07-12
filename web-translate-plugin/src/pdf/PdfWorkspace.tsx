@@ -8,6 +8,7 @@ import { PageScheduler } from '../translation/page-scheduler';
 import type { PdfMessage, PdfMessageResponse, PdfSourceTransfer } from './messages';
 import { OperationEpoch } from './operation-epoch';
 import { PdfViewer } from './PdfViewer';
+import { initialPageFromUrl } from './source-page';
 import { SyncController, type PdfPane } from './sync-controller';
 import { TranslationPane, type TranslationPageStatus } from './TranslationPane';
 import { initialLifecycleState, lifecycleReducer } from './workspace-reducer';
@@ -18,7 +19,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [model, setModel] = React.useState<DocumentModel | null>(null);
   const [translations, setTranslations] = React.useState(new Map<string, TranslationResult>());
   const [pageStatus, setPageStatus] = React.useState(new Map<number, TranslationPageStatus>());
-  const [activePage, setActivePage] = React.useState(1);
+  const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl));
   const [scale, setScale] = React.useState(1.1);
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
