@@ -2,11 +2,12 @@ import React from 'react';
 
 import { AgentPanel } from '../agent/AgentPanel';
 import type { AgentMessage } from '../agent/context-builder';
+import { appendAgentDelta, failAgentAnswer, finalizeAgentAnswer, stopAgentAnswer } from '../agent/stream-state';
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import { classifyTranslationFailure, formatTranslationFailure, type TranslationFailure } from '../translation/failure';
 import { PageScheduler } from '../translation/page-scheduler';
-import { isPdfTranslationProgress, type PdfMessage, type PdfMessageResponse, type PdfSourceTransfer } from './messages';
+import { isPdfAgentProgress, isPdfTranslationProgress, type PdfMessage, type PdfMessageResponse, type PdfSourceTransfer } from './messages';
 import { OperationEpoch } from './operation-epoch';
 import { PairedPageViewer } from './PairedPageViewer';
 import { initialPageFromUrl } from './source-page';
@@ -35,20 +36,47 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const pumpRef = React.useRef<() => void>(() => undefined);
   const parseStarted = React.useRef(false);
   const operationEpoch = React.useRef(new OperationEpoch());
+  const activeAgentRequestId = React.useRef<string | null>(null);
+  const pendingAgentDelta = React.useRef('');
+  const agentFlushTimer = React.useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const pdfBytes = React.useMemo(
     () => source ? Uint8Array.from(source.bytes) : null,
     [source],
   );
 
+  const flushAgentDeltas = React.useCallback(() => {
+    if (agentFlushTimer.current !== undefined) {
+      globalThis.clearTimeout(agentFlushTimer.current);
+      agentFlushTimer.current = undefined;
+    }
+    const requestId = activeAgentRequestId.current;
+    const delta = pendingAgentDelta.current;
+    pendingAgentDelta.current = '';
+    if (!requestId || !delta) return;
+    setAgentMessages((messages) => appendAgentDelta(messages, requestId, delta));
+  }, []);
+
   React.useEffect(() => {
     if (!model) return;
     const listener = (message: unknown) => {
-      if (!isPdfTranslationProgress(message) || message.hash !== model.hash) return;
-      setPageAttempts((attempts) => new Map(attempts).set(message.page, message.attempt));
+      if (isPdfTranslationProgress(message) && message.hash === model.hash) {
+        setPageAttempts((attempts) => new Map(attempts).set(message.page, message.attempt));
+        return;
+      }
+      if (!isPdfAgentProgress(message) || message.hash !== model.hash ||
+        message.requestId !== activeAgentRequestId.current) return;
+      pendingAgentDelta.current += message.delta;
+      if (agentFlushTimer.current === undefined) {
+        agentFlushTimer.current = globalThis.setTimeout(flushAgentDeltas, 50);
+      }
     };
     browser.runtime.onMessage.addListener(listener);
     return () => browser.runtime.onMessage.removeListener(listener);
-  }, [model]);
+  }, [flushAgentDeltas, model]);
+
+  React.useEffect(() => () => {
+    if (agentFlushTimer.current !== undefined) globalThis.clearTimeout(agentFlushTimer.current);
+  }, []);
 
   React.useEffect(() => {
     dispatch({ type: 'load-started' });
@@ -226,32 +254,57 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
 
   async function askAgent(question: string) {
     if (!model) return;
+    const previousRequestId = activeAgentRequestId.current;
+    if (previousRequestId) {
+      flushAgentDeltas();
+      setAgentMessages((messages) => stopAgentAnswer(messages, previousRequestId));
+    }
+    const requestId = globalThis.crypto.randomUUID();
+    activeAgentRequestId.current = requestId;
+    pendingAgentDelta.current = '';
     const user: AgentMessage = { role: 'user', content: question };
-    const recentMessages = [...agentMessages, user].slice(-12);
-    setAgentMessages(recentMessages);
+    const assistant: AgentMessage = { role: 'assistant', content: '', requestId, status: 'streaming' };
+    const recentMessages = agentMessages
+      .filter((message) => message.content.trim())
+      .map(({ role, content }) => ({ role, content }))
+      .slice(-10);
+    setAgentMessages((messages) => [...messages, user, assistant].slice(-12));
     setAgentBusy(true);
     setAgentError(undefined);
     try {
       const value = await sendPdfMessage({
         type: 'pdf:agent-ask',
         hash: model.hash,
+        requestId,
         activePage,
         selection: globalThis.getSelection?.()?.toString() ?? '',
-        recentMessages: agentMessages.slice(-10),
+        recentMessages,
         question,
         maxCharacters: 60_000,
       });
+      if (activeAgentRequestId.current !== requestId) return;
       if (!isAgentAnswer(value)) throw new Error('AGENT_RESPONSE_INVALID');
+      flushAgentDeltas();
       setAgentNotice(value.notice);
-      setAgentMessages((messages) => [...messages, { role: 'assistant', content: value.answer }]);
+      setAgentMessages((messages) => finalizeAgentAnswer(messages, requestId, value.answer));
     } catch (error) {
+      if (activeAgentRequestId.current !== requestId) return;
+      flushAgentDeltas();
+      setAgentMessages((messages) => failAgentAnswer(messages, requestId));
       setAgentError(error instanceof Error ? error.message : 'AGENT_FAILED');
     } finally {
-      setAgentBusy(false);
+      if (activeAgentRequestId.current === requestId) {
+        activeAgentRequestId.current = null;
+        setAgentBusy(false);
+      }
     }
   }
 
   function stopAgent() {
+    const requestId = activeAgentRequestId.current;
+    flushAgentDeltas();
+    if (requestId) setAgentMessages((messages) => stopAgentAnswer(messages, requestId));
+    activeAgentRequestId.current = null;
     void sendPdfMessage({ type: 'pdf:agent-cancel' }).catch(() => undefined);
     setAgentBusy(false);
     setAgentError('已停止当前请求');

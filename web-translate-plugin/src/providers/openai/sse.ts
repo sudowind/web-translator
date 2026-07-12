@@ -5,6 +5,7 @@ export class SseResponseError extends Error {
 export async function readChatCompletionSse(
   response: Response,
   onActivity: () => void,
+  onDelta?: (delta: string) => void,
 ): Promise<string> {
   if (!response.body) throw new SseResponseError('SSE_BODY_MISSING');
 
@@ -33,7 +34,10 @@ export async function readChatCompletionSse(
 
       const delta = readDelta(event);
       onActivity();
-      if (delta !== undefined) content += delta;
+      if (delta !== undefined) {
+        content += delta;
+        if (delta) onDelta?.(delta);
+      }
     }
   }
 

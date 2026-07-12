@@ -25,7 +25,11 @@ export class OpenAiChatClient {
     private readonly fetcher: typeof fetch = globalThis.fetch,
   ) {}
 
-  async complete(input: CompleteChatInput, signal?: AbortSignal): Promise<string> {
+  async complete(
+    input: CompleteChatInput,
+    signal?: AbortSignal,
+    onDelta?: (delta: string) => void,
+  ): Promise<string> {
     signal?.throwIfAborted();
     const { body, timeoutMs } = buildChatRequest({ ...input, settings: this.settings });
     const controller = new AbortController();
@@ -60,7 +64,7 @@ export class OpenAiChatClient {
 
       if (body.stream === true) {
         armTimeout();
-        return await readChatCompletionSse(response, armTimeout);
+        return await readChatCompletionSse(response, armTimeout, onDelta);
       }
 
       let payload: unknown;

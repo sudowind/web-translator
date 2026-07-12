@@ -17,7 +17,7 @@ export type PdfMessage =
   | { type: 'pdf:parse-start'; source: PdfSourceTransfer; pageCount: number; consent: boolean }
   | { type: 'pdf:document-get'; hash: string }
   | { type: 'pdf:translate-page'; hash: string; page: number }
-  | { type: 'pdf:agent-ask'; hash: string; activePage: number; selection: string; recentMessages: AgentMessage[]; question: string; maxCharacters: number }
+  | { type: 'pdf:agent-ask'; hash: string; requestId: string; activePage: number; selection: string; recentMessages: AgentMessage[]; question: string; maxCharacters: number }
   | { type: 'pdf:agent-cancel' }
   | { type: 'pdf:cancel' }
   | { type: 'pdf:cache-clear'; hash: string };
@@ -43,6 +43,19 @@ export interface PdfTranslationProgress {
   maxAttempts: 3;
 }
 
+export interface PdfAgentProgress {
+  type: 'pdf:agent-progress';
+  hash: string;
+  requestId: string;
+  delta: string;
+}
+
+export function isPdfAgentProgress(value: unknown): value is PdfAgentProgress {
+  return isRecord(value) && exact(value, ['type', 'hash', 'requestId', 'delta']) &&
+    value.type === 'pdf:agent-progress' && nonEmpty(value.hash) &&
+    nonEmpty(value.requestId) && nonEmpty(value.delta);
+}
+
 export function isPdfTranslationProgress(value: unknown): value is PdfTranslationProgress {
   return isRecord(value) && exact(value, ['type', 'hash', 'page', 'attempt', 'maxAttempts']) &&
     value.type === 'pdf:translation-progress' && nonEmpty(value.hash) && positiveInteger(value.page) &&
@@ -64,8 +77,8 @@ export function isPdfMessage(value: unknown): value is PdfMessage {
     case 'pdf:translate-page':
       return exact(value, ['type', 'hash', 'page']) && nonEmpty(value.hash) && positiveInteger(value.page);
     case 'pdf:agent-ask':
-      return exact(value, ['type', 'hash', 'activePage', 'selection', 'recentMessages', 'question', 'maxCharacters']) &&
-        nonEmpty(value.hash) && positiveInteger(value.activePage) &&
+      return exact(value, ['type', 'hash', 'requestId', 'activePage', 'selection', 'recentMessages', 'question', 'maxCharacters']) &&
+        nonEmpty(value.hash) && nonEmpty(value.requestId) && positiveInteger(value.activePage) &&
         typeof value.selection === 'string' && nonEmpty(value.question) &&
         positiveInteger(value.maxCharacters) && (value.maxCharacters as number) <= 200_000 &&
         Array.isArray(value.recentMessages) && value.recentMessages.every((message) =>

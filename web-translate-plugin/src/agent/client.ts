@@ -16,7 +16,12 @@ export class OpenAiPaperAgentClient {
     private readonly fetcher: typeof fetch = globalThis.fetch,
   ) {}
 
-  async ask(context: AgentContext, question: string, signal?: AbortSignal): Promise<string> {
+  async ask(
+    context: AgentContext,
+    question: string,
+    signal?: AbortSignal,
+    onDelta?: (delta: string) => void,
+  ): Promise<string> {
     try {
       return await new OpenAiChatClient(this.settings, this.fetcher).complete(
         {
@@ -31,6 +36,7 @@ export class OpenAiPaperAgentClient {
           ],
         },
         signal,
+        onDelta,
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error;

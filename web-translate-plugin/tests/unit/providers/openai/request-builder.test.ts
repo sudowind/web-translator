@@ -59,13 +59,13 @@ describe('OpenAI 兼容请求构造器', () => {
     });
   });
 
-  it('仅翻译请求启用流式响应', () => {
+  it('翻译和智能体请求启用流式响应，但只有翻译要求 JSON Object', () => {
     expect(
       buildChatRequest({ purpose: 'connection-test', settings: settings('dashscope'), messages }).body,
     ).not.toHaveProperty('stream');
-    expect(
-      buildChatRequest({ purpose: 'agent', settings: settings('dashscope'), messages }).body,
-    ).not.toHaveProperty('stream');
+    const agent = buildChatRequest({ purpose: 'agent', settings: settings('dashscope'), messages }).body;
+    expect(agent).toMatchObject({ stream: true });
+    expect(agent).not.toHaveProperty('response_format');
   });
 
   it('按方言映射智能体思考参数', () => {

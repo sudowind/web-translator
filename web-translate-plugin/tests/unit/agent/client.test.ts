@@ -25,19 +25,21 @@ const settings = {
 
 describe('后台论文问答客户端', () => {
   it('要求仅根据论文回答并使用 [p:N] 引用', async () => {
+    const chunks: string[] = [];
     const fetcher = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ choices: [{ message: { content: 'Answer [p:1]' } }] }),
-        { status: 200 },
-      ),
+      new Response('data: {"choices":[{"delta":{"content":"Answer "}}]}\n\ndata: {"choices":[{"delta":{"content":"[p:1]"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
     );
     const client = new OpenAiPaperAgentClient(settings, fetcher);
 
-    await expect(client.ask(context, 'What?', undefined)).resolves.toBe('Answer [p:1]');
+    await expect(client.ask(context, 'What?', undefined, (delta) => chunks.push(delta))).resolves.toBe('Answer [p:1]');
+    expect(chunks).toEqual(['Answer ', '[p:1]']);
     const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
     expect(body.messages[0].content).toContain('[p:N]');
     expect(body.messages.at(-1).content).toContain('[p:1]');
-    expect(body).toMatchObject({ model: 'agent-model', reasoning_effort: 'medium' });
+    expect(body).toMatchObject({ model: 'agent-model', reasoning_effort: 'medium', stream: true });
   });
 
   it('HTTP 与响应错误只暴露安全结构化码', async () => {

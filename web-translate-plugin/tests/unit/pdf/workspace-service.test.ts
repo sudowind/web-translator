@@ -107,14 +107,23 @@ describe('后台 PDF 工作台服务', () => {
   });
 
   it('后台构建整篇上下文并执行问答', async () => {
-    const ask = vi.fn().mockResolvedValue('Answer [p:1]');
+    const reportAgentProgress = vi.fn();
+    const ask = vi.fn(async (_context, _question, _signal, onDelta: (delta: string) => void) => {
+      onDelta('Answer ');
+      onDelta('[p:1]');
+      return 'Answer [p:1]';
+    });
     const service = new PdfWorkspaceService({
       loadSource: vi.fn(), getDocument: vi.fn().mockResolvedValue(model), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
       getSettings: vi.fn().mockResolvedValue({ openAi: openAiSettings, mineru: {}, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
-      createMineru: vi.fn(), loadMineru: vi.fn(), createOpenAi: vi.fn(), createAgent: vi.fn().mockReturnValue({ ask }),
+      createMineru: vi.fn(), loadMineru: vi.fn(), createOpenAi: vi.fn(), createAgent: vi.fn().mockReturnValue({ ask }), reportAgentProgress,
     });
-    await expect(service.handle({ type: 'pdf:agent-ask', hash: source.hash, activePage: 1, selection: 'selected', recentMessages: [], question: 'What?', maxCharacters: 10 }, 7)).resolves.toMatchObject({ answer: 'Answer [p:1]', mode: 'compressed' });
-    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ mode: 'compressed' }), 'What?', expect.any(AbortSignal));
+    await expect(service.handle({ type: 'pdf:agent-ask', hash: source.hash, requestId: 'agent-1', activePage: 1, selection: 'selected', recentMessages: [], question: 'What?', maxCharacters: 10 }, 7)).resolves.toMatchObject({ answer: 'Answer [p:1]', mode: 'compressed' });
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ mode: 'compressed' }), 'What?', expect.any(AbortSignal), expect.any(Function));
+    expect(reportAgentProgress.mock.calls).toEqual([
+      [7, { type: 'pdf:agent-progress', hash: source.hash, requestId: 'agent-1', delta: 'Answer ' }],
+      [7, { type: 'pdf:agent-progress', hash: source.hash, requestId: 'agent-1', delta: '[p:1]' }],
+    ]);
   });
 });
 
@@ -149,13 +158,13 @@ describe('PDF workspace 生命周期修复波', () => {
     });
     const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
     const service = makeService(undefined, { getDocument: vi.fn().mockResolvedValue(model), createAgent: vi.fn().mockReturnValue({ ask }), createOpenAi: vi.fn().mockReturnValue({ translate }) });
-    void service.handle({ type: 'pdf:agent-ask', hash: source.hash, activePage: 1, selection: '', recentMessages: [], question: 'What?', maxCharacters: 1000 }, 7);
+    void service.handle({ type: 'pdf:agent-ask', hash: source.hash, requestId: 'agent-1', activePage: 1, selection: '', recentMessages: [], question: 'What?', maxCharacters: 1000 }, 7);
     await vi.waitFor(() => expect(ask).toHaveBeenCalled());
     await service.handle({ type: 'pdf:agent-cancel' }, 7);
     expect(agentSignal.aborted).toBe(true);
     await expect(service.handle({ type: 'pdf:translate-page', hash: source.hash, page: 1 }, 7)).resolves.toHaveLength(1);
 
-    void service.handle({ type: 'pdf:agent-ask', hash: source.hash, activePage: 1, selection: '', recentMessages: [], question: 'Again?', maxCharacters: 1000 }, 7);
+    void service.handle({ type: 'pdf:agent-ask', hash: source.hash, requestId: 'agent-2', activePage: 1, selection: '', recentMessages: [], question: 'Again?', maxCharacters: 1000 }, 7);
     await vi.waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
     await service.handle({ type: 'pdf:cancel' }, 7);
     expect(agentSignal.aborted).toBe(true);

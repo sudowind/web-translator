@@ -18,7 +18,7 @@ import {
 } from '../storage/repositories';
 import { translatePage } from '../translation/translate-page';
 import { loadPdfSource } from './pdf-source';
-import type { PdfMessage, PdfMessageValue, PdfSourceTransfer, PdfTranslationProgress } from './messages';
+import type { PdfAgentProgress, PdfMessage, PdfMessageValue, PdfSourceTransfer, PdfTranslationProgress } from './messages';
 
 export class PdfWorkspaceServiceError extends Error {
   readonly name = 'PdfWorkspaceServiceError';
@@ -60,6 +60,7 @@ interface Dependencies {
   createOpenAi(settings: OpenAiSettings): Pick<OpenAiTranslationClient, 'translate'>;
   createAgent?: (settings: OpenAiSettings) => Pick<OpenAiPaperAgentClient, 'ask'>;
   reportTranslationProgress?(tabId: number, progress: PdfTranslationProgress): void | Promise<void>;
+  reportAgentProgress?(tabId: number, progress: PdfAgentProgress): void | Promise<void>;
 }
 
 const defaults: Dependencies = {
@@ -77,6 +78,9 @@ const defaults: Dependencies = {
   createOpenAi: (settings) => new OpenAiTranslationClient(settings),
   createAgent: (settings) => new OpenAiPaperAgentClient(settings),
   reportTranslationProgress: (tabId, progress) => {
+    void browser.tabs.sendMessage(tabId, progress).catch(() => undefined);
+  },
+  reportAgentProgress: (tabId, progress) => {
     void browser.tabs.sendMessage(tabId, progress).catch(() => undefined);
   },
 };
@@ -110,7 +114,7 @@ export class PdfWorkspaceService {
       const controller = new AbortController();
       this.agentSessions.get(tabId)?.abort();
       this.agentSessions.set(tabId, controller);
-      return this.ask(message, controller.signal).finally(() => {
+      return this.ask(message, controller.signal, tabId).finally(() => {
         if (this.agentSessions.get(tabId) === controller) this.agentSessions.delete(tabId);
       });
     }
@@ -361,6 +365,7 @@ export class PdfWorkspaceService {
   private async ask(
     message: Extract<PdfMessage, { type: 'pdf:agent-ask' }>,
     signal: AbortSignal,
+    tabId: number,
   ): Promise<{ answer: string; mode: 'full' | 'compressed'; notice?: string }> {
     const model = await this.dependencies.getDocument(message.hash);
     if (!model) throw new PdfWorkspaceServiceError('PDF_DOCUMENT_MISSING');
@@ -374,7 +379,15 @@ export class PdfWorkspaceService {
     const settings = await this.dependencies.getSettings();
     const client = this.dependencies.createAgent?.(settings.openAi);
     if (!client) throw new PdfWorkspaceServiceError('AGENT_UNAVAILABLE');
-    const answer = await client.ask(context, message.question, signal);
+    const answer = await client.ask(context, message.question, signal, (delta) => {
+      if (signal.aborted) return;
+      void this.dependencies.reportAgentProgress?.(tabId, {
+        type: 'pdf:agent-progress',
+        hash: message.hash,
+        requestId: message.requestId,
+        delta,
+      });
+    });
     signal.throwIfAborted();
     return {
       answer,

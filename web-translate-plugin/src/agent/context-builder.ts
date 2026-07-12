@@ -3,6 +3,8 @@ import type { DocumentModel } from '../document/model';
 export interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
+  requestId?: string;
+  status?: 'streaming' | 'done' | 'stopped' | 'failed';
 }
 
 export interface AgentContext {

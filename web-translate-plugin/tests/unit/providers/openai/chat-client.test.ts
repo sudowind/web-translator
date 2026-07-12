@@ -155,6 +155,20 @@ describe('OpenAI 兼容传输层', () => {
     await completion;
   });
 
+  it('智能体流逐段报告增量并返回完整回答', async () => {
+    const stream = controlledSseResponse();
+    const client = new OpenAiChatClient(settings, vi.fn<typeof fetch>().mockResolvedValue(stream.response));
+    const onDelta = vi.fn();
+    const completion = client.complete({ purpose: 'agent', messages: [] }, undefined, onDelta);
+
+    stream.push('data: {"choices":[{"delta":{"content":"甲"}}]}\n\n');
+    stream.push('data: {"choices":[{"delta":{"content":"乙"}}]}\n\ndata: [DONE]\n\n');
+    stream.close();
+
+    await expect(completion).resolves.toBe('甲乙');
+    expect(onDelta.mock.calls).toEqual([['甲'], ['乙']]);
+  });
+
   it('翻译流连续空闲达到配置时长时返回超时', async () => {
     vi.useFakeTimers();
     const stream = controlledSseResponse();

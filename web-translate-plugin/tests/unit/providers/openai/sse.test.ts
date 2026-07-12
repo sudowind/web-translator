@@ -25,11 +25,13 @@ describe('OpenAI Chat Completions SSE 解析器', () => {
       '\ndata: {"choices":[{"delta":{"content":"[]}"}}]}\n\ndata: [DONE]\n\n',
     ]);
     const onActivity = vi.fn();
+    const onDelta = vi.fn();
 
-    await expect(readChatCompletionSse(response, onActivity)).resolves.toBe(
+    await expect(readChatCompletionSse(response, onActivity, onDelta)).resolves.toBe(
       '{"translations":[]}',
     );
     expect(onActivity).toHaveBeenCalledTimes(2);
+    expect(onDelta.mock.calls).toEqual([["{\"translations\":"], ['[]}']]);
   });
 
   it('允许没有文本的合法元数据事件，但最终必须存在文本', async () => {
