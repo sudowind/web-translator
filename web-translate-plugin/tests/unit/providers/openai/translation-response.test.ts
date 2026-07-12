@@ -5,8 +5,10 @@ import { parseTranslationResponse } from '../../../../src/providers/openai/trans
 describe('翻译响应解析', () => {
   it.each([
     '{"translations":[{"id":"b1","text":"你好"}]}',
+    '{"blocks":[{"id":"b1","text":"你好"}]}',
     '```json\n{"translations":[{"id":"b1","text":"你好"}]}\n```',
-  ])('解析直接 JSON 和单层 json 围栏', (content) => {
+    '```json\n{"blocks":[{"id":"b1","text":"你好"}]}\n```',
+  ])('解析 translations、blocks 和单层 json 围栏', (content) => {
     expect(parseTranslationResponse(content, ['b1'])).toEqual([
       { id: 'b1', text: '你好' },
     ]);

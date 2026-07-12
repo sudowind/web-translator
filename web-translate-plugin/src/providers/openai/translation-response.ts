@@ -47,7 +47,13 @@ function readTranslations(value: unknown): TranslationResult[] {
   if (typeof value !== 'object' || value === null) {
     throw new TranslationProviderError('TRANSLATION_SCHEMA_INVALID');
   }
-  const translations = (value as { translations?: unknown }).translations;
+  const record = value as { translations?: unknown; blocks?: unknown };
+  const hasTranslations = Object.prototype.hasOwnProperty.call(record, 'translations');
+  const hasBlocks = Object.prototype.hasOwnProperty.call(record, 'blocks');
+  if (hasTranslations === hasBlocks) {
+    throw new TranslationProviderError('TRANSLATION_SCHEMA_INVALID');
+  }
+  const translations = hasTranslations ? record.translations : record.blocks;
   if (!Array.isArray(translations) || !translations.every(isTranslationResult)) {
     throw new TranslationProviderError('TRANSLATION_SCHEMA_INVALID');
   }
