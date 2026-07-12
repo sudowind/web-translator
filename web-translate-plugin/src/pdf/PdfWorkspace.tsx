@@ -4,8 +4,9 @@ import { AgentPanel } from '../agent/AgentPanel';
 import type { AgentMessage } from '../agent/context-builder';
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
+import { classifyTranslationFailure, formatTranslationFailure, type TranslationFailure } from '../translation/failure';
 import { PageScheduler } from '../translation/page-scheduler';
-import type { PdfMessage, PdfMessageResponse, PdfSourceTransfer } from './messages';
+import { isPdfTranslationProgress, type PdfMessage, type PdfMessageResponse, type PdfSourceTransfer } from './messages';
 import { OperationEpoch } from './operation-epoch';
 import { PdfViewer } from './PdfViewer';
 import { initialPageFromUrl } from './source-page';
@@ -19,6 +20,8 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [model, setModel] = React.useState<DocumentModel | null>(null);
   const [translations, setTranslations] = React.useState(new Map<string, TranslationResult>());
   const [pageStatus, setPageStatus] = React.useState(new Map<number, TranslationPageStatus>());
+  const [pageFailures, setPageFailures] = React.useState(new Map<number, TranslationFailure>());
+  const [pageAttempts, setPageAttempts] = React.useState(new Map<number, number>());
   const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl));
   const [scale, setScale] = React.useState(1.1);
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
@@ -73,6 +76,16 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     scrollIntentTimeouts.current.clear();
   }, []);
 
+  React.useEffect(() => {
+    if (!model) return;
+    const listener = (message: unknown) => {
+      if (!isPdfTranslationProgress(message) || message.hash !== model.hash) return;
+      setPageAttempts((attempts) => new Map(attempts).set(message.page, message.attempt));
+    };
+    browser.runtime.onMessage.addListener(listener);
+    return () => browser.runtime.onMessage.removeListener(listener);
+  }, [model]);
+
   const onPageHeightsChange = React.useCallback((heights: ReadonlyMap<number, number>) => {
     const scroller = rightRef.current?.firstElementChild as HTMLElement | null;
     pendingTranslationScrollTop.current = scroller?.scrollTop ?? null;
@@ -121,7 +134,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       if (!isDocument(value)) throw new Error('PDF_DOCUMENT_INVALID');
       setModel(value);
       dispatch({ type: 'parse-done' });
-      setFeedback('解析完成，正在按当前页优先翻译');
+      setFeedback('解析完成，正在从第 1 页开始翻译');
     }, () => {
       if (!operationEpoch.current.isCurrent(epoch)) return;
       parseStarted.current = false;
@@ -153,6 +166,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       let page: number | null;
       while ((page = scheduler.take()) !== null) {
         const current = page;
+        setPageFailures((failures) => withoutPage(failures, current));
         setPageStatus((statuses) => new Map(statuses).set(current, 'translating'));
         void sendPdfMessage({ type: 'pdf:translate-page', hash: model.hash, page: current }).then((value) => {
           if (disposed || !operationEpoch.current.isCurrent(epoch) || !isTranslations(value)) return;
@@ -162,11 +176,18 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
             return next;
           });
           setPageStatus((statuses) => new Map(statuses).set(current, 'done'));
+          setPageAttempts((attempts) => withoutPage(attempts, current));
+          setPageFailures((failures) => withoutPage(failures, current));
           scheduler.markDone(current);
           pump();
-        }, () => {
+        }, (error: unknown) => {
           if (disposed || !operationEpoch.current.isCurrent(epoch)) return;
           setPageStatus((statuses) => new Map(statuses).set(current, 'failed'));
+          setPageAttempts((attempts) => withoutPage(attempts, current));
+          const failure = error instanceof PdfMessageError && error.failure
+            ? error.failure
+            : classifyTranslationFailure(error, { attempts: 1, durationMs: 0, model: 'unknown' });
+          setPageFailures((failures) => new Map(failures).set(current, failure));
           scheduler.markFailed(current);
           pump();
         });
@@ -180,6 +201,20 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       pumpRef.current = () => undefined;
     };
   }, [model]);
+
+  React.useEffect(() => {
+    if (!model) return;
+    let done = 0;
+    let translating = 0;
+    let failed = 0;
+    for (let page = 1; page <= model.pageCount; page += 1) {
+      const status = pageStatus.get(page);
+      if (status === 'done') done += 1;
+      else if (status === 'translating' || status === 'retrying') translating += 1;
+      else if (status === 'failed') failed += 1;
+    }
+    setFeedback(`已完成 ${done}/${model.pageCount} 页 · 翻译中 ${translating} 页 · 失败 ${failed} 页`);
+  }, [model, pageStatus]);
 
   const visibleFrom = React.useCallback((pane: PdfPane, page: number, progress: number) => {
     setActivePage(page);
@@ -195,14 +230,32 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }, [documentPageCount, model?.pageCount]);
 
   function retryCurrent() {
-    if (schedulerRef.current?.retry(activePage) !== true) return;
-    setPageStatus((statuses) => new Map(statuses).set(activePage, 'retrying'));
+    retryPage(activePage);
+  }
+
+  function retryPage(page: number) {
+    if (schedulerRef.current?.retry(page) !== true) return;
+    setPageFailures((failures) => withoutPage(failures, page));
+    setPageStatus((statuses) => new Map(statuses).set(page, 'retrying'));
     pumpRef.current();
   }
 
   function retryFailed() {
+    const retried: number[] = [];
     for (const [page, status] of pageStatus) {
-      if (status === 'failed') schedulerRef.current?.retry(page);
+      if (status === 'failed' && schedulerRef.current?.retry(page) === true) retried.push(page);
+    }
+    if (retried.length > 0) {
+      setPageFailures((failures) => {
+        const next = new Map(failures);
+        for (const page of retried) next.delete(page);
+        return next;
+      });
+      setPageStatus((statuses) => {
+        const next = new Map(statuses);
+        for (const page of retried) next.set(page, 'retrying');
+        return next;
+      });
     }
     pumpRef.current();
   }
@@ -214,6 +267,8 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     setModel(null);
     setTranslations(new Map());
     setPageStatus(new Map());
+    setPageFailures(new Map());
+    setPageAttempts(new Map());
     parseStarted.current = false;
     dispatch({ type: 'cache-cleared' });
     setFeedback('缓存已清除');
@@ -303,9 +358,13 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               model={model}
               translations={translations}
               pageStatus={pageStatus}
+              pageFailures={pageFailures}
+              pageAttempts={pageAttempts}
               pageHeights={pageHeights}
               onPageVisible={(page, progress) => visibleFrom('translation', page, progress)}
               onPageBoundary={(page, direction) => navigateToPage(page + direction)}
+              onRetryPage={retryPage}
+              onCopyFailure={(failure) => void navigator.clipboard.writeText(formatTranslationFailure(failure))}
             />
             : source?.kind === 'authenticated' ? <div className="upload-consent" role="region" aria-label="MinerU 上传同意">
               <h2>确认发送到第三方解析服务</h2>
@@ -333,8 +392,22 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
 
 async function sendPdfMessage(message: PdfMessage) {
   const response = await browser.runtime.sendMessage(message) as PdfMessageResponse | undefined;
-  if (!response?.ok) throw new Error(response?.error ?? 'PDF_BACKGROUND_FAILED');
+  if (!response?.ok) throw new PdfMessageError(response?.error ?? 'PDF_BACKGROUND_FAILED', response?.failure);
   return response.value;
+}
+
+class PdfMessageError extends Error {
+  constructor(message: string, readonly failure?: TranslationFailure) {
+    super(message);
+    this.name = 'PdfMessageError';
+  }
+}
+
+function withoutPage<T>(values: ReadonlyMap<number, T>, page: number): Map<number, T> {
+  if (!values.has(page)) return values instanceof Map ? values : new Map(values);
+  const next = new Map(values);
+  next.delete(page);
+  return next;
 }
 
 function isSource(value: unknown): value is PdfSourceTransfer {

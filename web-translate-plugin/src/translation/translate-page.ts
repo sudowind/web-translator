@@ -45,6 +45,7 @@ export async function translatePage(
   sleep: (ms: number) => Promise<void> = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms)),
   model = 'unknown',
+  onAttempt?: (attempt: number) => void,
 ): Promise<TranslationResult[]> {
   const blocks = page.blocks
     .filter((block) => translatableKinds.has(block.kind))
@@ -54,6 +55,7 @@ export async function translatePage(
   const startedAt = Date.now();
   for (let attempt = 0; attempt < 3; attempt += 1) {
     signal?.throwIfAborted();
+    onAttempt?.(attempt + 1);
     try {
       return await client.translate({ ...languages, blocks }, signal);
     } catch (error) {

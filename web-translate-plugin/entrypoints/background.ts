@@ -25,6 +25,7 @@ import {
   normalizeExtensionPageUrl,
 } from '../src/settings/test-provider';
 import { WebpageTranslationService } from '../src/webpage/translation-service';
+import { PageTranslationError } from '../src/translation/translate-page';
 
 export default defineBackground(() => {
   console.info('PDF takeover probe ready');
@@ -160,7 +161,7 @@ export default defineBackground(() => {
       }
       void pdfWorkspace.handle(message, tabId).then(
         (value) => sendResponse({ ok: true, value } satisfies PdfMessageResponse),
-        (error: unknown) => sendResponse({ ok: false, error: safePdfError(error) } satisfies PdfMessageResponse),
+        (error: unknown) => sendResponse(safePdfMessageError(error)),
       );
       return true;
     }
@@ -218,6 +219,13 @@ function safePdfError(error: unknown): string {
   return typeof code === 'string' && /^(PDF|MINERU|TRANSLATION|AGENT)_[A-Z0-9_]+$/.test(code)
     ? code
     : 'PDF_OPERATION_FAILED';
+}
+
+function safePdfMessageError(error: unknown): Extract<PdfMessageResponse, { ok: false }> {
+  if (error instanceof PageTranslationError) {
+    return { ok: false, error: error.failure.code, failure: error.failure };
+  }
+  return { ok: false, error: safePdfError(error) };
 }
 
 function isLikelyPdfUrl(rawUrl: string): boolean {

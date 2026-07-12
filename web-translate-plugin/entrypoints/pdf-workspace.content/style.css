@@ -31,6 +31,13 @@
 .translation-page { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); margin-bottom: 16px; padding: 20px; overflow: hidden; border: 1px solid var(--pdf-border); border-radius: 8px; background: #fff; }
 .translation-page > header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; }
 .translation-page-body { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.translation-failure { margin: 12px 0; padding: 12px; border: 1px solid #f5b7b1; border-radius: 8px; background: #fff4f2; }
+.translation-failure p { margin-top: 0; color: var(--pdf-error); font-weight: 650; }
+.translation-failure details { margin-top: 8px; }
+.translation-failure summary { cursor: pointer; font-weight: 650; }
+.translation-failure dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; }
+.translation-failure dt { font-weight: 650; }
+.translation-failure dd { margin: 0; overflow-wrap: anywhere; }
 .translation-pages h2 { font-size: 18px; }
 .translation-pages p { white-space: pre-wrap; }
 .translation-pages pre { max-width: 100%; overflow: auto; white-space: pre-wrap; }

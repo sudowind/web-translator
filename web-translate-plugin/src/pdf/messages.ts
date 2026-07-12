@@ -1,6 +1,7 @@
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import type { AgentMessage } from '../agent/context-builder';
+import type { TranslationFailure } from '../translation/failure';
 
 export interface PdfSourceTransfer {
   url: string;
@@ -32,7 +33,21 @@ export type PdfMessageValue =
 
 export type PdfMessageResponse =
   | { ok: true; value: PdfMessageValue }
-  | { ok: false; error: string };
+  | { ok: false; error: string; failure?: TranslationFailure };
+
+export interface PdfTranslationProgress {
+  type: 'pdf:translation-progress';
+  hash: string;
+  page: number;
+  attempt: number;
+  maxAttempts: 3;
+}
+
+export function isPdfTranslationProgress(value: unknown): value is PdfTranslationProgress {
+  return isRecord(value) && exact(value, ['type', 'hash', 'page', 'attempt', 'maxAttempts']) &&
+    value.type === 'pdf:translation-progress' && nonEmpty(value.hash) && positiveInteger(value.page) &&
+    positiveInteger(value.attempt) && (value.attempt as number) <= 3 && value.maxAttempts === 3;
+}
 
 export function isPdfMessage(value: unknown): value is PdfMessage {
   if (!isRecord(value) || typeof value.type !== 'string') return false;

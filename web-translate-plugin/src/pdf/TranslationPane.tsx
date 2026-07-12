@@ -3,6 +3,7 @@ import React from 'react';
 
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
+import type { TranslationFailure } from '../translation/failure';
 import { pageWheelAction } from './page-wheel';
 
 export type TranslationPageStatus =
@@ -17,16 +18,24 @@ export function TranslationPane({
   model,
   translations,
   pageStatus,
+  pageFailures,
+  pageAttempts,
   pageHeights,
   onPageVisible,
   onPageBoundary,
+  onRetryPage,
+  onCopyFailure,
 }: {
   model: DocumentModel;
   translations: Map<string, TranslationResult>;
   pageStatus: Map<number, TranslationPageStatus>;
+  pageFailures: ReadonlyMap<number, TranslationFailure>;
+  pageAttempts: ReadonlyMap<number, number>;
   pageHeights: ReadonlyMap<number, number>;
   onPageVisible(page: number, progress: number): void;
   onPageBoundary(page: number, direction: -1 | 1): void;
+  onRetryPage(page: number): void;
+  onCopyFailure(failure: TranslationFailure): void;
 }) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const touchY = React.useRef<number | null>(null);
@@ -61,6 +70,8 @@ export function TranslationPane({
       {model.pages.map((page) => {
         const number = page.index + 1;
         const status = pageStatus.get(number) ?? 'pending';
+        const failure = pageFailures.get(number);
+        const attempt = pageAttempts.get(number);
         return (
           <section
             key={page.id}
@@ -69,7 +80,10 @@ export function TranslationPane({
             data-translation-page={number}
             data-status={status}
           >
-            <header><h2>第 {number} 页</h2><span>{statusLabel(status)}</span></header>
+            <header>
+              <h2>第 {number} 页</h2>
+              <span>{attempt && (status === 'translating' || status === 'retrying') ? `第 ${attempt}/3 次尝试` : statusLabel(status)}</span>
+            </header>
             <div
               className="translation-page-body"
               tabIndex={0}
@@ -100,6 +114,26 @@ export function TranslationPane({
               }}
               onTouchEnd={() => { touchY.current = null; }}
             >
+              {failure && (
+                <div className="translation-failure">
+                  <p role="alert">失败：{failure.summary}</p>
+                  <button type="button" onClick={() => onRetryPage(number)}>重试本页</button>
+                  <details>
+                    <summary>查看详情</summary>
+                    <dl>
+                      <dt>错误码</dt><dd>{failure.code}</dd>
+                      <dt>分类</dt><dd>{failure.category}</dd>
+                      {failure.httpStatus !== undefined && <><dt>HTTP 状态</dt><dd>{failure.httpStatus}</dd></>}
+                      <dt>模型</dt><dd>{failure.model}</dd>
+                      <dt>耗时</dt><dd>{failure.durationMs} ms</dd>
+                      <dt>尝试次数</dt><dd>{failure.attempts}</dd>
+                      <dt>发生时间</dt><dd>{new Date(failure.occurredAt).toLocaleString()}</dd>
+                      <dt>可重试</dt><dd>{failure.retryable ? '是' : '否'}</dd>
+                    </dl>
+                    <button type="button" onClick={() => onCopyFailure(failure)}>复制诊断信息</button>
+                  </details>
+                </div>
+              )}
               {page.blocks.map((block) => {
                 if (block.kind === 'formula') {
                   const markup = katex.renderToString(block.latex ?? block.text, { throwOnError: false });

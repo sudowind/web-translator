@@ -18,7 +18,7 @@ import {
 } from '../storage/repositories';
 import { translatePage } from '../translation/translate-page';
 import { loadPdfSource } from './pdf-source';
-import type { PdfMessage, PdfMessageValue, PdfSourceTransfer } from './messages';
+import type { PdfMessage, PdfMessageValue, PdfSourceTransfer, PdfTranslationProgress } from './messages';
 
 export class PdfWorkspaceServiceError extends Error {
   readonly name = 'PdfWorkspaceServiceError';
@@ -59,6 +59,7 @@ interface Dependencies {
   loadMineru(url: string, metadata: { sourceUrl: string; hash: string; title: string; pageCount: number }): Promise<DocumentModel>;
   createOpenAi(settings: OpenAiSettings): Pick<OpenAiTranslationClient, 'translate'>;
   createAgent?: (settings: OpenAiSettings) => Pick<OpenAiPaperAgentClient, 'ask'>;
+  reportTranslationProgress?(tabId: number, progress: PdfTranslationProgress): void | Promise<void>;
 }
 
 const defaults: Dependencies = {
@@ -75,6 +76,9 @@ const defaults: Dependencies = {
   loadMineru: (url, metadata) => loadMineruResult(url, metadata),
   createOpenAi: (settings) => new OpenAiTranslationClient(settings),
   createAgent: (settings) => new OpenAiPaperAgentClient(settings),
+  reportTranslationProgress: (tabId, progress) => {
+    void browser.tabs.sendMessage(tabId, progress).catch(() => undefined);
+  },
 };
 
 export class PdfWorkspaceService {
@@ -120,7 +124,7 @@ export class PdfWorkspaceService {
     if (message.type === 'pdf:parse-start') {
       return this.parse(message.source, message.pageCount, message.consent, signal);
     }
-    return this.translate(message.hash, message.page, signal);
+    return this.translate(message.hash, message.page, signal, tabId);
   }
 
   cancel(tabId: number): void {
@@ -282,6 +286,7 @@ export class PdfWorkspaceService {
     hash: string,
     pageNumber: number,
     signal: AbortSignal,
+    tabId: number,
   ): Promise<TranslationResult[]> {
     const generation = this.generation(hash);
     const model = await this.dependencies.getDocument(hash);
@@ -306,6 +311,13 @@ export class PdfWorkspaceService {
       signal,
       undefined,
       settings.openAi.defaultModel,
+      (attempt) => this.dependencies.reportTranslationProgress?.(tabId, {
+        type: 'pdf:translation-progress',
+        hash,
+        page: pageNumber,
+        attempt,
+        maxAttempts: 3,
+      }),
     );
     signal.throwIfAborted();
     await this.enqueueMutation(hash, generation, () => this.dependencies.putTranslation(key, result));

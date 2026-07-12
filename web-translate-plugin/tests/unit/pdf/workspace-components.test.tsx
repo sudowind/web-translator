@@ -25,10 +25,17 @@ describe('PDF 双栏组件契约', () => {
       <TranslationPane
         model={model}
         translations={new Map([['b1', { id: 'b1', text: '<img src=x onerror=alert(1)>' }]])}
-        pageStatus={new Map([[1, 'done'], [2, 'pending']])}
+        pageStatus={new Map([[1, 'done'], [2, 'failed']])}
+        pageFailures={new Map([[2, {
+          code: 'TRANSLATION_TIMEOUT', category: 'timeout', summary: '请求超时', retryable: true,
+          attempts: 1, durationMs: 30_001, provider: 'openai-compatible', model: 'qwen-plus', occurredAt: 100,
+        }]])}
+        pageAttempts={new Map()}
         pageHeights={new Map([[1, 640], [2, 820]])}
         onPageVisible={() => undefined}
         onPageBoundary={() => undefined}
+        onRetryPage={() => undefined}
+        onCopyFailure={() => undefined}
       />,
     );
     expect(html).toContain('data-translation-page="1"');
@@ -39,5 +46,27 @@ describe('PDF 双栏组件契约', () => {
     expect(html).toContain('class="translation-page"');
     expect(html).toContain('style="height:640px"');
     expect(html).toContain('class="translation-page-body"');
+    expect(html).toContain('失败：请求超时');
+    expect(html).toContain('<details');
+    expect(html).not.toContain('<details open=""');
+    expect(html).toContain('复制诊断信息');
+  });
+
+  it('翻译重试期间显示当前尝试次数', () => {
+    const html = renderToStaticMarkup(
+      <TranslationPane
+        model={model}
+        translations={new Map()}
+        pageStatus={new Map([[1, 'translating']])}
+        pageFailures={new Map()}
+        pageAttempts={new Map([[1, 2]])}
+        pageHeights={new Map([[1, 640]])}
+        onPageVisible={() => undefined}
+        onPageBoundary={() => undefined}
+        onRetryPage={() => undefined}
+        onCopyFailure={() => undefined}
+      />,
+    );
+    expect(html).toContain('第 2/3 次尝试');
   });
 });
