@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { OpenAiTranslationClient } from '../../../src/providers/openai/client';
 import {
-  dispatchSettingsTestProvider,
-  isSettingsTestProviderMessage,
+  dispatchSettingsTestLlm,
+  isSettingsTestLlmMessage,
   normalizeExtensionPageUrl,
-  testProviderConnection,
+  testLlmConnection,
 } from '../../../src/settings/test-provider';
 
 const settings = {
@@ -14,36 +14,37 @@ const settings = {
     apiKey: 'secret',
     model: 'translate-model',
   },
-  mineru: {
-    baseUrl: 'https://mineru.net',
-    token: '',
-    modelVersion: 'vlm' as const,
-  },
   sourceLanguage: 'en',
   targetLanguage: 'zh-CN',
 };
 
-describe('Provider 连接测试', () => {
+describe('LLM 连接测试', () => {
   it('规范化 runtime.getURL 产生的重复路径斜杠', () => {
     expect(
       normalizeExtensionPageUrl('chrome-extension://extension-id//options.html'),
     ).toBe('chrome-extension://extension-id/options.html');
   });
-  it('只接受精确的设置测试消息', () => {
+  it('只接受不携带 MinerU 配置的精确 LLM 测试消息', () => {
     expect(
-      isSettingsTestProviderMessage({ type: 'settings:test-provider', settings }),
+      isSettingsTestLlmMessage({ type: 'settings:test-llm', settings }),
     ).toBe(true);
     expect(
-      isSettingsTestProviderMessage({
-        type: 'settings:test-provider',
+      isSettingsTestLlmMessage({
+        type: 'settings:test-llm',
         settings,
         extra: true,
       }),
     ).toBe(false);
     expect(
-      isSettingsTestProviderMessage({
-        type: 'settings:test-provider',
+      isSettingsTestLlmMessage({
+        type: 'settings:test-llm',
         settings: { ...settings, openAi: { ...settings.openAi, apiKey: '' } },
+      }),
+    ).toBe(false);
+    expect(
+      isSettingsTestLlmMessage({
+        type: 'settings:test-llm',
+        settings: { ...settings, mineru: { token: 'should-not-be-here' } },
       }),
     ).toBe(false);
   });
@@ -54,7 +55,7 @@ describe('Provider 连接测试', () => {
     ]);
 
     await expect(
-      testProviderConnection(
+      testLlmConnection(
         settings,
         () => ({ translate }) as unknown as OpenAiTranslationClient,
       ),
@@ -66,14 +67,29 @@ describe('Provider 连接测试', () => {
     });
   });
 
+  it('把 HTTP 失败明确归属到 LLM', async () => {
+    const translate = vi
+      .fn()
+      .mockRejectedValue(new Error('翻译请求失败 (404)'));
+
+    await expect(
+      testLlmConnection(
+        settings,
+        () => ({ translate }) as unknown as OpenAiTranslationClient,
+      ),
+    ).rejects.toThrow(
+      'LLM 请求失败（HTTP 404），请检查接口地址、模型和 API Key',
+    );
+  });
+
   it.each([
     ['baseUrl', { ...settings.openAi, baseUrl: `https://example.test/${'x'.repeat(2049)}` }],
     ['apiKey', { ...settings.openAi, apiKey: 'x'.repeat(4097) }],
     ['model', { ...settings.openAi, model: 'x'.repeat(257) }],
   ])('拒绝超长 %s', (_field, openAi) => {
     expect(
-      isSettingsTestProviderMessage({
-        type: 'settings:test-provider',
+      isSettingsTestLlmMessage({
+        type: 'settings:test-llm',
         settings: { ...settings, openAi },
       }),
     ).toBe(false);
@@ -81,11 +97,11 @@ describe('Provider 连接测试', () => {
 
   it('后台允许精确 options 标签页并拒绝网页 sender', async () => {
     const run = vi.fn().mockResolvedValue({ connected: true });
-    const message = { type: 'settings:test-provider', settings };
+    const message = { type: 'settings:test-llm', settings };
     const optionsUrl = 'chrome-extension://extension-id/options.html';
 
     await expect(
-      dispatchSettingsTestProvider(
+      dispatchSettingsTestLlm(
         message,
         { id: 'extension-id', url: optionsUrl, tab: { id: 7 } },
         optionsUrl,
@@ -95,7 +111,7 @@ describe('Provider 连接测试', () => {
     expect(run).toHaveBeenCalledOnce();
 
     await expect(
-      dispatchSettingsTestProvider(
+      dispatchSettingsTestLlm(
         message,
         {
           id: 'extension-id',
@@ -105,9 +121,9 @@ describe('Provider 连接测试', () => {
         optionsUrl,
         run,
       ),
-    ).resolves.toEqual({ ok: false, error: 'Provider 连接测试仅允许扩展设置页调用' });
+    ).resolves.toEqual({ ok: false, error: 'LLM 连接测试仅允许扩展设置页调用' });
     await expect(
-      dispatchSettingsTestProvider(
+      dispatchSettingsTestLlm(
         message,
         {
           id: 'other-extension',
@@ -117,7 +133,7 @@ describe('Provider 连接测试', () => {
         optionsUrl,
         run,
       ),
-    ).resolves.toEqual({ ok: false, error: 'Provider 连接测试仅允许扩展设置页调用' });
+    ).resolves.toEqual({ ok: false, error: 'LLM 连接测试仅允许扩展设置页调用' });
     expect(run).toHaveBeenCalledOnce();
   });
 });

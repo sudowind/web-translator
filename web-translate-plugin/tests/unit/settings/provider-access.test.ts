@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   authorizeProviderSettings,
+  checkMineruConfiguration,
+  normalizeMineruBaseUrl,
   providerOriginPattern,
   validateProviderSettings,
 } from '../../../src/settings/provider-access';
@@ -22,6 +24,35 @@ const validSettings = {
 };
 
 describe('Provider 设置授权', () => {
+  it('MinerU 配置检查只申请自身 Origin 且不创建解析任务', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(true);
+    await expect(
+      checkMineruConfiguration(validSettings.mineru, requestPermission),
+    ).resolves.toEqual({
+      baseUrl: 'https://mineru.example.test',
+      token: 'mineru-secret',
+      modelVersion: 'vlm',
+    });
+    expect(requestPermission).toHaveBeenCalledWith({
+      origins: ['https://mineru.example.test/*'],
+    });
+  });
+
+  it('只接受 MinerU HTTPS Origin 根地址', () => {
+    expect(normalizeMineruBaseUrl('https://mineru.net/')).toBe(
+      'https://mineru.net',
+    );
+    expect(() =>
+      normalizeMineruBaseUrl('https://mineru.net/apiManage/docs'),
+    ).toThrow('MinerU 接口地址必须填写 API 根地址');
+    expect(() =>
+      normalizeMineruBaseUrl('https://mineru.net/?from=docs'),
+    ).toThrow('MinerU 接口地址必须填写 API 根地址');
+    expect(() => normalizeMineruBaseUrl('https://mineru.net/#docs')).toThrow(
+      'MinerU 接口地址必须填写 API 根地址',
+    );
+  });
+
   it('只计算精确 HTTPS Origin pattern', () => {
     expect(providerOriginPattern(validSettings.openAi.baseUrl)).toBe(
       'https://api.example.test:8443/*',

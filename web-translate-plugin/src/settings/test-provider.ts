@@ -1,10 +1,16 @@
 import { OpenAiTranslationClient } from '../providers/openai/client';
-import type { ExtensionSettings } from './schema';
-import { validateProviderSettings } from './provider-access';
+import type { OpenAiSettings } from './schema';
+import { providerOriginPattern } from './provider-access';
 
-export interface SettingsTestProviderMessage {
-  type: 'settings:test-provider';
-  settings: ExtensionSettings;
+export interface LlmConnectionSettings {
+  openAi: OpenAiSettings;
+  sourceLanguage: string;
+  targetLanguage: string;
+}
+
+export interface SettingsTestLlmMessage {
+  type: 'settings:test-llm';
+  settings: LlmConnectionSettings;
 }
 
 interface SettingsMessageSender {
@@ -22,12 +28,12 @@ const MAX_API_KEY_LENGTH = 4_096;
 const MAX_MODEL_LENGTH = 256;
 const MAX_LANGUAGE_LENGTH = 64;
 
-export function isSettingsTestProviderCandidate(value: unknown): boolean {
+export function isSettingsTestLlmCandidate(value: unknown): boolean {
   return (
     typeof value === 'object' &&
     value !== null &&
     'type' in value &&
-    value.type === 'settings:test-provider'
+    value.type === 'settings:test-llm'
   );
 }
 
@@ -37,64 +43,52 @@ export function normalizeExtensionPageUrl(value: string): string {
   return url.href;
 }
 
-export function isSettingsTestProviderMessage(
+export function isSettingsTestLlmMessage(
   value: unknown,
-): value is SettingsTestProviderMessage {
+): value is SettingsTestLlmMessage {
   if (!hasExactKeys(value, ['type', 'settings'])) return false;
-  if (value.type !== 'settings:test-provider') return false;
+  if (value.type !== 'settings:test-llm') return false;
   const settings = value.settings;
   if (
-    !hasExactKeys(settings, [
-      'openAi',
-      'mineru',
-      'sourceLanguage',
-      'targetLanguage',
-    ]) ||
+    !hasExactKeys(settings, ['openAi', 'sourceLanguage', 'targetLanguage']) ||
     !hasExactKeys(settings.openAi, ['apiKey', 'baseUrl', 'model']) ||
-    !hasExactKeys(settings.mineru, ['baseUrl', 'token', 'modelVersion']) ||
     typeof settings.openAi.apiKey !== 'string' ||
     typeof settings.openAi.baseUrl !== 'string' ||
     typeof settings.openAi.model !== 'string' ||
-    typeof settings.mineru.baseUrl !== 'string' ||
-    typeof settings.mineru.token !== 'string' ||
-    typeof settings.mineru.modelVersion !== 'string' ||
     typeof settings.sourceLanguage !== 'string' ||
     typeof settings.targetLanguage !== 'string' ||
     settings.openAi.baseUrl.length > MAX_BASE_URL_LENGTH ||
     settings.openAi.apiKey.length > MAX_API_KEY_LENGTH ||
     settings.openAi.model.length > MAX_MODEL_LENGTH ||
-    settings.mineru.baseUrl.length > MAX_BASE_URL_LENGTH ||
-    settings.mineru.token.length > MAX_API_KEY_LENGTH ||
-    settings.mineru.modelVersion.length > MAX_MODEL_LENGTH ||
     settings.sourceLanguage.length > MAX_LANGUAGE_LENGTH ||
     settings.targetLanguage.length > MAX_LANGUAGE_LENGTH
   ) {
     return false;
   }
   try {
-    validateProviderSettings(settings as unknown as ExtensionSettings);
+    normalizeLlmConnectionSettings(settings as unknown as LlmConnectionSettings);
     return true;
   } catch {
     return false;
   }
 }
 
-export async function dispatchSettingsTestProvider(
+export async function dispatchSettingsTestLlm(
   message: unknown,
   sender: SettingsMessageSender,
   optionsUrl: string,
-  run: (settings: ExtensionSettings) => Promise<{ connected: true }> =
-    testProviderConnection,
+  run: (settings: LlmConnectionSettings) => Promise<{ connected: true }> =
+    testLlmConnection,
 ): Promise<TestProviderResponse> {
   const extensionId = new URL(optionsUrl).hostname;
   if (sender.id !== extensionId || sender.url !== optionsUrl) {
     return {
       ok: false,
-      error: 'Provider 连接测试仅允许扩展设置页调用',
+      error: 'LLM 连接测试仅允许扩展设置页调用',
     };
   }
-  if (!isSettingsTestProviderMessage(message)) {
-    return { ok: false, error: 'Provider 连接测试消息格式无效' };
+  if (!isSettingsTestLlmMessage(message)) {
+    return { ok: false, error: 'LLM 连接测试消息格式无效' };
   }
   try {
     return { ok: true, value: await run(message.settings) };
@@ -106,20 +100,58 @@ export async function dispatchSettingsTestProvider(
   }
 }
 
-export async function testProviderConnection(
-  settings: ExtensionSettings,
+export async function testLlmConnection(
+  settings: LlmConnectionSettings,
   createClient: (
-    value: ExtensionSettings['openAi'],
+    value: OpenAiSettings,
   ) => Pick<OpenAiTranslationClient, 'translate'> = (value) =>
     new OpenAiTranslationClient(value),
 ): Promise<{ connected: true }> {
-  const validated = validateProviderSettings(settings);
-  await createClient(validated.openAi).translate({
-    sourceLanguage: validated.sourceLanguage,
-    targetLanguage: validated.targetLanguage,
-    blocks: [{ id: 'provider-connection-test', text: 'Hello' }],
-  });
+  const validated = normalizeLlmConnectionSettings(settings);
+  try {
+    await createClient(validated.openAi).translate({
+      sourceLanguage: validated.sourceLanguage,
+      targetLanguage: validated.targetLanguage,
+      blocks: [{ id: 'provider-connection-test', text: 'Hello' }],
+    });
+  } catch (error) {
+    throw llmConnectionError(error);
+  }
   return { connected: true };
+}
+
+function normalizeLlmConnectionSettings(
+  settings: LlmConnectionSettings,
+): LlmConnectionSettings {
+  const apiKey = settings.openAi.apiKey.trim();
+  const model = settings.openAi.model.trim();
+  const sourceLanguage = settings.sourceLanguage.trim();
+  const targetLanguage = settings.targetLanguage.trim();
+  if (!apiKey) throw new Error('LLM API Key 不能为空');
+  if (!model) throw new Error('LLM 模型不能为空');
+  if (!sourceLanguage || !targetLanguage) {
+    throw new Error('源语言和目标语言不能为空');
+  }
+  providerOriginPattern(settings.openAi.baseUrl);
+  return {
+    openAi: {
+      apiKey,
+      model,
+      baseUrl: settings.openAi.baseUrl.trim().replace(/\/+$/, ''),
+    },
+    sourceLanguage,
+    targetLanguage,
+  };
+}
+
+function llmConnectionError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : '';
+  const status = /\((\d{3})\)/.exec(message)?.[1];
+  return status
+    ? new Error(
+        `LLM 请求失败（HTTP ${status}），请检查接口地址、模型和 API Key`,
+      )
+    : new Error('LLM 连接失败，请检查接口地址、模型和 API Key');
 }
 
 function hasExactKeys<K extends string>(

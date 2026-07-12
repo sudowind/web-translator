@@ -20,8 +20,8 @@ import { ChromePdfTakeoverAdapter } from '../src/pdf/takeover-port';
 import { PdfWorkspaceService } from '../src/pdf/workspace-service';
 import { getSettings } from '../src/settings/store';
 import {
-  dispatchSettingsTestProvider,
-  isSettingsTestProviderCandidate,
+  dispatchSettingsTestLlm,
+  isSettingsTestLlmCandidate,
   normalizeExtensionPageUrl,
 } from '../src/settings/test-provider';
 import { WebpageTranslationService } from '../src/webpage/translation-service';
@@ -165,8 +165,8 @@ export default defineBackground(() => {
       return true;
     }
 
-    if (isSettingsTestProviderCandidate(message)) {
-      void dispatchSettingsTestProvider(
+    if (isSettingsTestLlmCandidate(message)) {
+      void dispatchSettingsTestLlm(
         message,
         _,
         normalizeExtensionPageUrl(browser.runtime.getURL('/options.html')),

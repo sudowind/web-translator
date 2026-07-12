@@ -88,13 +88,13 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     const extensionId = new URL(worker.url()).host;
     extensionPage = await context.newPage();
     await extensionPage.goto(`chrome-extension://${extensionId}/options.html`);
-    await extensionPage.getByLabel('接口地址').fill('https://api.example.test/v1');
-    await extensionPage.getByLabel('模型').fill('test-model');
-    await extensionPage.getByLabel('API Key').fill('test-key');
-    await extensionPage.getByRole('button', { name: '测试连接' }).click();
+    await extensionPage.getByLabel('LLM 接口地址', { exact: true }).fill('https://api.example.test/v1');
+    await extensionPage.getByLabel('LLM 模型', { exact: true }).fill('test-model');
+    await extensionPage.getByLabel('LLM API Key', { exact: true }).fill('test-key');
+    await extensionPage.getByRole('button', { name: '测试 LLM' }).click();
     await expect(extensionPage.getByText(/连接成功/)).toBeVisible();
     await extensionPage.getByRole('button', { name: '保存设置' }).click();
-    await expect(extensionPage.getByText(/保存成功/)).toBeVisible();
+    await expect(extensionPage.getByText(/设置已保存/)).toBeVisible();
     requestBatches.length = 0;
   });
 

@@ -26,6 +26,9 @@ input[aria-invalid="true"] { border-color: var(--error); }
 .help { color: var(--muted); }
 .error { color: var(--error); font-weight: 600; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.provider-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.provider-status { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; color: #1e3a5f; background: #eff6ff; }
+.provider-status[data-state="error"] { color: var(--error); background: #fff1f0; }
 button { min-width: 44px; min-height: 44px; padding: 10px 18px; border: 1px solid #94a3b8; border-radius: 8px; background: #fff; color: #172033; font: inherit; font-weight: 700; cursor: pointer; transition: opacity 180ms ease, transform 180ms ease; }
 button:hover:not(:disabled) { transform: translateY(-1px); }
 button:disabled { cursor: not-allowed; opacity: .55; }

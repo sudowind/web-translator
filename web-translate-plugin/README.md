@@ -15,9 +15,11 @@ npm run build
 
 ## Provider 设置与 Origin 授权
 
-从扩展 Popup 点击“Provider 设置”，填写 OpenAI 兼容接口地址、模型和 API Key；需要 PDF 解析时，再填写 MinerU 接口地址、Token 和模型版本。Provider 接口地址必须是 HTTPS。
+从扩展 Popup 点击“Provider 设置”，填写 LLM 的 OpenAI 兼容接口地址、模型和 API Key；需要 PDF 解析时，再填写 MinerU 接口地址、Token 和模型版本。LLM 地址可以包含 `/v1` 等兼容 API 路径；MinerU 地址只填写 API 根地址 `https://mineru.net`，不要填写 `https://mineru.net/apiManage/docs` 文档页。MinerU Token 填写 API 管理页面生成的原始值，不要手动添加 `Bearer`。
 
-保存或测试连接时，Chrome 会请求对应 Provider 精确 Origin 的访问权限。凭据保存在扩展本地存储中，Provider 请求由扩展后台发出。不要把 API Key 或 Token 填入网页表单、PDF 页面或聊天问题中。
+“测试 LLM”会发送一个最小翻译请求，并把 404 等错误明确归属到 LLM。“检查 MinerU 配置”只校验根地址、Token、模型和精确 Origin 权限，不调用 MinerU API、不创建解析任务，也不消耗额度；Token 的真实可用性会在你启用 PDF 解析时验证。保存设置与这两个检查相互独立。
+
+保存或检查时，Chrome 会请求对应 Provider 精确 Origin 的访问权限。凭据保存在扩展本地存储中，Provider 请求由扩展后台发出。不要把 API Key 或 Token 填入网页表单、PDF 页面或聊天问题中。
 
 ## 普通网页翻译
 
@@ -44,7 +46,8 @@ npm run build
 ## 常见问题
 
 - Popup 显示当前页面不是支持的 PDF：确认页面确实返回 `application/pdf`，并在当前 PDF 标签页重新打开 Popup。
-- Provider 配置不完整或连接失败：检查 HTTPS 接口地址、模型、API Key、MinerU Token，以及 Chrome 是否授予对应 Origin 权限。
+- LLM 测试返回 404：确认填写的是 OpenAI 兼容 API 根地址（通常包含 `/v1`），而不是 MinerU 地址或文档页面。
+- MinerU 配置检查失败：接口地址应为 `https://mineru.net`，并检查原始 Token、模型版本和 Chrome Origin 权限；配置检查成功不代表已经提交过真实解析任务。
 - MinerU 解析失败：左栏不受影响，可使用“重试解析”；持续失败时检查 Token、服务状态和响应格式。
 - 某页翻译失败：可重试当前页或全部失败页。401/403 通常需要修正凭据；429/5xx 会有限重试。
 - 工作台无法加载：重新执行 `npm run build`、在扩展管理页刷新扩展，并确认加载的是 `.output/chrome-mv3`。

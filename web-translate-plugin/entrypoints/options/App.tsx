@@ -1,16 +1,39 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { authorizeProviderSettings } from '../../src/settings/provider-access';
+import {
+  authorizeProviderSettings,
+  checkMineruConfiguration,
+  providerOriginPattern,
+} from '../../src/settings/provider-access';
 import { defaultSettings, type ExtensionSettings } from '../../src/settings/schema';
 import { getSettings, saveSettings } from '../../src/settings/store';
 
-type Activity = 'loading' | 'idle' | 'saving' | 'testing';
+type Activity =
+  | 'loading'
+  | 'idle'
+  | 'saving'
+  | 'testing-llm'
+  | 'checking-mineru';
+
+type FieldName =
+  | 'baseUrl'
+  | 'apiKey'
+  | 'model'
+  | 'mineruBaseUrl'
+  | 'mineruToken'
+  | 'mineruModel';
 
 export default function App() {
   const [settings, setSettings] = useState<ExtensionSettings>(defaultSettings);
   const [activity, setActivity] = useState<Activity>('loading');
   const [feedback, setFeedback] = useState('正在读取现有设置');
-  const [fieldError, setFieldError] = useState<Partial<Record<'baseUrl' | 'apiKey' | 'model' | 'mineruBaseUrl' | 'mineruToken' | 'mineruModel', string>>>({});
+  const [llmFeedback, setLlmFeedback] = useState('LLM：尚未测试');
+  const [mineruFeedback, setMineruFeedback] = useState(
+    'MinerU：尚未检查，尚未创建解析任务',
+  );
+  const [fieldError, setFieldError] = useState<
+    Partial<Record<FieldName, string>>
+  >({});
   const showProgress = useDelayedProgress(activity !== 'idle');
 
   useEffect(() => {
@@ -33,6 +56,7 @@ export default function App() {
       openAi: { ...current.openAi, [field]: value },
     }));
     setFieldError((current) => ({ ...current, [field]: undefined }));
+    setLlmFeedback('LLM：配置已修改，尚未重新测试');
   }
 
   function updateMineru(
@@ -52,12 +76,7 @@ export default function App() {
         ? 'mineruToken'
         : 'mineruModel';
     setFieldError((current) => ({ ...current, [errorField]: undefined }));
-  }
-
-  async function authorize() {
-    return authorizeProviderSettings(settings, (permissions) =>
-      browser.permissions.request(permissions),
-    );
+    setMineruFeedback('MinerU：配置已修改，尚未检查或创建解析任务');
   }
 
   async function save(event: FormEvent) {
@@ -66,54 +85,107 @@ export default function App() {
     setFeedback('正在申请精确 Provider Origin 权限');
     setFieldError({});
     try {
-      const authorized = await authorize();
+      const authorized = await authorizeProviderSettings(
+        settings,
+        requestPermissions,
+      );
       await saveSettings(authorized);
       setSettings(authorized);
-      setFeedback('保存成功，可以返回网页开始翻译');
+      setFeedback('设置已保存，可以返回页面使用翻译功能');
     } catch (error) {
-      reportError(error);
+      reportError(error, 'save');
     } finally {
       setActivity('idle');
     }
   }
 
-  async function testConnection() {
-    setActivity('testing');
-    setFeedback('正在申请权限并测试连接');
-    setFieldError({});
+  async function testLlm() {
+    setActivity('testing-llm');
+    setLlmFeedback('LLM：正在申请接口 Origin 权限并发送最小请求');
+    clearLlmErrors();
     try {
-      const authorized = await authorize();
+      const granted = await requestPermissions({
+        origins: [providerOriginPattern(settings.openAi.baseUrl)],
+      });
+      if (!granted) throw new Error('未获得 LLM Origin 授权');
       const response = (await browser.runtime.sendMessage({
-        type: 'settings:test-provider',
-        settings: authorized,
-      })) as { ok: true; value: { connected: true } } | { ok: false; error: string };
-      if (!response?.ok) throw new Error(response?.error ?? '后台未返回测试结果');
-      setFeedback('连接成功；如需使用此配置，请点击保存');
+        type: 'settings:test-llm',
+        settings: {
+          openAi: settings.openAi,
+          sourceLanguage: settings.sourceLanguage,
+          targetLanguage: settings.targetLanguage,
+        },
+      })) as
+        | { ok: true; value: { connected: true } }
+        | { ok: false; error: string };
+      if (!response?.ok) {
+        throw new Error(response?.error ?? 'LLM 后台未返回测试结果');
+      }
+      setLlmFeedback('LLM：连接成功');
     } catch (error) {
-      reportError(error);
+      reportError(error, 'llm');
     } finally {
       setActivity('idle');
     }
   }
 
-  function reportError(error: unknown) {
-    const message = errorText(error);
-    const field = /MinerU 模型/.test(message)
-      ? 'mineruModel'
-      : /MinerU/.test(message) && /HTTPS|接口地址|凭据/.test(message)
-        ? 'mineruBaseUrl'
-        : /HTTPS|接口地址|凭据/.test(message)
-      ? 'baseUrl'
-      : /API Key/.test(message)
-        ? 'apiKey'
-        : /模型/.test(message)
-          ? 'model'
-          : null;
-    if (field) setFieldError({ [field]: `${message}，修正后重试` });
-    setFeedback(`操作失败：${message}`);
+  async function checkMineru() {
+    setActivity('checking-mineru');
+    setMineruFeedback('MinerU：正在检查配置并申请接口 Origin 权限');
+    clearMineruErrors();
+    try {
+      const checked = await checkMineruConfiguration(
+        settings.mineru,
+        requestPermissions,
+      );
+      setSettings((current) => ({ ...current, mineru: checked }));
+      setMineruFeedback(
+        'MinerU：配置与权限已就绪，尚未创建解析任务或验证 Token 可用性',
+      );
+    } catch (error) {
+      reportError(error, 'mineru');
+    } finally {
+      setActivity('idle');
+    }
   }
 
-  const disabled = activity !== 'idle';
+  function clearLlmErrors() {
+    setFieldError((current) => ({
+      ...current,
+      baseUrl: undefined,
+      apiKey: undefined,
+      model: undefined,
+    }));
+  }
+
+  function clearMineruErrors() {
+    setFieldError((current) => ({
+      ...current,
+      mineruBaseUrl: undefined,
+      mineruToken: undefined,
+      mineruModel: undefined,
+    }));
+  }
+
+  function reportError(error: unknown, scope: 'save' | 'llm' | 'mineru') {
+    const message = errorText(error);
+    const field = providerErrorField(message, scope);
+    if (field) {
+      setFieldError((current) => ({
+        ...current,
+        [field]: `${message}，修正后重试`,
+      }));
+    }
+    if (scope === 'llm') {
+      setLlmFeedback(`LLM：${message}`);
+    } else if (scope === 'mineru') {
+      setMineruFeedback(`MinerU：${message}；尚未创建解析任务`);
+    } else {
+      setFeedback(`保存失败：${message}`);
+    }
+  }
+
+  const formBusy = activity === 'loading' || activity === 'saving';
   return (
     <main>
       <header>
@@ -122,20 +194,41 @@ export default function App() {
         <p>凭据仅保存在扩展本地，并由后台向你授权的精确 HTTPS Origin 发起请求。</p>
       </header>
 
-      <form onSubmit={(event) => void save(event)} aria-busy={disabled}>
-        <div className="field">
-          <label htmlFor="base-url">接口地址</label>
-          <input id="base-url" type="url" inputMode="url" required value={settings.openAi.baseUrl} onChange={(event) => updateOpenAi('baseUrl', event.target.value)} aria-describedby="base-url-help base-url-error" aria-invalid={Boolean(fieldError.baseUrl)} />
-          <p id="base-url-help" className="help">例如 https://api.example.com/v1，仅支持 HTTPS。</p>
-          {fieldError.baseUrl && <p id="base-url-error" className="error">{fieldError.baseUrl}</p>}
-        </div>
+      <form onSubmit={(event) => void save(event)} aria-busy={activity !== 'idle'}>
         <fieldset>
-          <legend>MinerU PDF 解析（可选）</legend>
-          <p className="help">Token 留空时不会启用或申请 MinerU 权限。</p>
+          <legend>LLM 翻译与论文问答（必需）</legend>
+          <p className="help">用于普通网页翻译、PDF 逐页译文和论文智能体。</p>
+          <div className="field">
+            <label htmlFor="base-url">LLM 接口地址</label>
+            <input id="base-url" type="url" inputMode="url" required value={settings.openAi.baseUrl} onChange={(event) => updateOpenAi('baseUrl', event.target.value)} aria-describedby="base-url-help base-url-error" aria-invalid={Boolean(fieldError.baseUrl)} />
+            <p id="base-url-help" className="help">OpenAI 兼容接口根地址，例如 https://api.example.com/v1。</p>
+            {fieldError.baseUrl && <p id="base-url-error" className="error">{fieldError.baseUrl}</p>}
+          </div>
+          <div className="field">
+            <label htmlFor="model">LLM 模型</label>
+            <input id="model" required value={settings.openAi.model} onChange={(event) => updateOpenAi('model', event.target.value)} aria-describedby="model-error" aria-invalid={Boolean(fieldError.model)} />
+            {fieldError.model && <p id="model-error" className="error">{fieldError.model}</p>}
+          </div>
+          <div className="field">
+            <label htmlFor="api-key">LLM API Key</label>
+            <input id="api-key" type="password" autoComplete="off" required value={settings.openAi.apiKey} onChange={(event) => updateOpenAi('apiKey', event.target.value)} aria-describedby="api-key-error" aria-invalid={Boolean(fieldError.apiKey)} />
+            {fieldError.apiKey && <p id="api-key-error" className="error">{fieldError.apiKey}</p>}
+          </div>
+          <div className="provider-actions">
+            <button type="button" disabled={formBusy || activity === 'testing-llm'} onClick={() => void testLlm()}>
+              {activity === 'testing-llm' ? '测试中…' : '测试 LLM'}
+            </button>
+          </div>
+          <p className="provider-status" aria-live="polite" data-state={feedbackState(llmFeedback)}>{llmFeedback}</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>MinerU PDF 解析（PDF 功能必需）</legend>
+          <p className="help">配置检查不会上传文件或消耗解析额度；真实可用性在启用 PDF 解析时验证。</p>
           <div className="field">
             <label htmlFor="mineru-base-url">MinerU 接口地址</label>
             <input id="mineru-base-url" type="url" inputMode="url" value={settings.mineru.baseUrl} onChange={(event) => updateMineru('baseUrl', event.target.value)} aria-describedby="mineru-base-url-help mineru-base-url-error" aria-invalid={Boolean(fieldError.mineruBaseUrl)} />
-            <p id="mineru-base-url-help" className="help">默认 https://mineru.net，仅支持 HTTPS。</p>
+            <p id="mineru-base-url-help" className="help">只填写 API 根地址 https://mineru.net，不要填写 /apiManage/docs 文档页。</p>
             {fieldError.mineruBaseUrl && <p id="mineru-base-url-error" className="error">{fieldError.mineruBaseUrl}</p>}
           </div>
           <div className="field">
@@ -148,23 +241,22 @@ export default function App() {
           </div>
           <div className="field">
             <label htmlFor="mineru-token">MinerU Token</label>
-            <input id="mineru-token" type="password" autoComplete="off" value={settings.mineru.token} onChange={(event) => updateMineru('token', event.target.value)} aria-describedby="mineru-token-error" aria-invalid={Boolean(fieldError.mineruToken)} />
+            <input id="mineru-token" type="password" autoComplete="off" value={settings.mineru.token} onChange={(event) => updateMineru('token', event.target.value)} aria-describedby="mineru-token-help mineru-token-error" aria-invalid={Boolean(fieldError.mineruToken)} />
+            <p id="mineru-token-help" className="help">填写 API 管理页面生成的原始 Token，不要添加 Bearer 前缀。</p>
             {fieldError.mineruToken && <p id="mineru-token-error" className="error">{fieldError.mineruToken}</p>}
           </div>
+          <div className="provider-actions">
+            <button type="button" disabled={formBusy || activity === 'checking-mineru'} onClick={() => void checkMineru()}>
+              {activity === 'checking-mineru' ? '检查中…' : '检查 MinerU 配置'}
+            </button>
+          </div>
+          <p className="provider-status" aria-live="polite" data-state={feedbackState(mineruFeedback)}>{mineruFeedback}</p>
         </fieldset>
-        <div className="field">
-          <label htmlFor="model">模型</label>
-          <input id="model" required value={settings.openAi.model} onChange={(event) => updateOpenAi('model', event.target.value)} aria-describedby="model-error" aria-invalid={Boolean(fieldError.model)} />
-          {fieldError.model && <p id="model-error" className="error">{fieldError.model}</p>}
-        </div>
-        <div className="field">
-          <label htmlFor="api-key">API Key</label>
-          <input id="api-key" type="password" autoComplete="off" required value={settings.openAi.apiKey} onChange={(event) => updateOpenAi('apiKey', event.target.value)} aria-describedby="api-key-error" aria-invalid={Boolean(fieldError.apiKey)} />
-          {fieldError.apiKey && <p id="api-key-error" className="error">{fieldError.apiKey}</p>}
-        </div>
+
         <div className="actions">
-          <button className="primary" type="submit" disabled={disabled}>{activity === 'saving' ? '保存中…' : '保存设置'}</button>
-          <button type="button" disabled={disabled} onClick={() => void testConnection()}>{activity === 'testing' ? '测试中…' : '测试连接'}</button>
+          <button className="primary" type="submit" disabled={activity !== 'idle'}>
+            {activity === 'saving' ? '保存中…' : '保存设置'}
+          </button>
         </div>
       </form>
 
@@ -173,6 +265,30 @@ export default function App() {
       </div>
     </main>
   );
+}
+
+async function requestPermissions(permissions: { origins: string[] }) {
+  return browser.permissions.request(permissions);
+}
+
+export function providerErrorField(
+  message: string,
+  scope: 'save' | 'llm' | 'mineru',
+): FieldName | null {
+  if (scope === 'mineru' || /MinerU/.test(message)) {
+    if (/Token/.test(message)) return 'mineruToken';
+    if (/模型/.test(message)) return 'mineruModel';
+    if (/HTTPS|接口地址|凭据|根地址/.test(message)) return 'mineruBaseUrl';
+  }
+  if (scope === 'llm' || /LLM/.test(message)) {
+    if (/API Key/.test(message)) return 'apiKey';
+    if (/模型/.test(message)) return 'model';
+    if (/HTTPS|接口地址|凭据|HTTP/.test(message)) return 'baseUrl';
+  }
+  if (/API Key/.test(message)) return 'apiKey';
+  if (/模型/.test(message)) return 'model';
+  if (/HTTPS|接口地址|凭据/.test(message)) return 'baseUrl';
+  return null;
 }
 
 function useDelayedProgress(active: boolean): boolean {
@@ -190,4 +306,8 @@ function useDelayedProgress(active: boolean): boolean {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function feedbackState(value: string): 'error' | 'info' {
+  return /失败|不能为空|必须|未获得|无效/.test(value) ? 'error' : 'info';
 }

@@ -1,4 +1,8 @@
-import { defaultSettings, type ExtensionSettings } from './schema';
+import {
+  defaultSettings,
+  type ExtensionSettings,
+  type MineruSettings,
+} from './schema';
 
 type PermissionRequester = (permissions: {
   origins: string[];
@@ -18,6 +22,44 @@ export function providerOriginPattern(baseUrl: string): string {
     throw new Error('接口地址不得包含用户凭据');
   }
   return `${url.origin}/*`;
+}
+
+export function normalizeMineruBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error('MinerU 接口地址必须是有效 HTTPS URL');
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error('MinerU 接口地址必须使用 HTTPS');
+  }
+  if (url.username || url.password) {
+    throw new Error('MinerU 接口地址不得包含用户凭据');
+  }
+  if ((url.pathname !== '' && url.pathname !== '/') || url.search || url.hash) {
+    throw new Error(
+      'MinerU 接口地址必须填写 API 根地址，例如 https://mineru.net',
+    );
+  }
+  return url.origin;
+}
+
+export async function checkMineruConfiguration(
+  settings: MineruSettings,
+  requestPermission: PermissionRequester,
+): Promise<MineruSettings> {
+  const token = settings.token.trim();
+  if (!token) throw new Error('MinerU Token 不能为空');
+  if (settings.modelVersion !== 'vlm' && settings.modelVersion !== 'pipeline') {
+    throw new Error('MinerU 模型版本无效');
+  }
+  const baseUrl = normalizeMineruBaseUrl(settings.baseUrl);
+  const granted = await requestPermission({
+    origins: [providerOriginPattern(baseUrl)],
+  });
+  if (!granted) throw new Error('未获得 MinerU Origin 授权');
+  return { baseUrl, token, modelVersion: settings.modelVersion };
 }
 
 export function validateProviderSettings(
@@ -40,9 +82,9 @@ export function validateProviderSettings(
     if (settings.mineru.modelVersion !== 'vlm' && settings.mineru.modelVersion !== 'pipeline') {
       throw new Error('MinerU 模型版本无效');
     }
-    providerOriginPattern(settings.mineru.baseUrl);
+    const mineruBaseUrl = normalizeMineruBaseUrl(settings.mineru.baseUrl);
     mineru = {
-      baseUrl: settings.mineru.baseUrl.trim().replace(/\/+$/, ''),
+      baseUrl: mineruBaseUrl,
       token,
       modelVersion: settings.mineru.modelVersion,
     };
