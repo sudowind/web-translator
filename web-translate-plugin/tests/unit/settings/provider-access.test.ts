@@ -38,7 +38,7 @@ const validSettings = {
 };
 
 describe('Provider 设置授权', () => {
-  it('MinerU 配置检查只申请自身 Origin 且不创建解析任务', async () => {
+  it('MinerU 配置检查申请 API 与官方结果 CDN Origin 且不创建解析任务', async () => {
     const requestPermission = vi.fn().mockResolvedValue(true);
     await expect(
       checkMineruConfiguration(validSettings.mineru, requestPermission),
@@ -48,7 +48,10 @@ describe('Provider 设置授权', () => {
       modelVersion: 'vlm',
     });
     expect(requestPermission).toHaveBeenCalledWith({
-      origins: ['https://mineru.example.test/*'],
+      origins: [
+        'https://mineru.example.test/*',
+        'https://cdn-mineru.openxlab.org.cn/*',
+      ],
     });
   });
 
@@ -168,6 +171,7 @@ describe('Provider 设置授权', () => {
       origins: [
         'https://api.example.test:8443/*',
         'https://mineru.example.test/*',
+        'https://cdn-mineru.openxlab.org.cn/*',
       ],
     });
   });

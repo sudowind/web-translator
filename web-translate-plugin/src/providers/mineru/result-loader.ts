@@ -3,16 +3,18 @@ import { strFromU8, unzipSync } from 'fflate';
 import { normalizeMineru } from '../../document/normalize-mineru';
 import type { DocumentMetadata, DocumentModel } from '../../document/model';
 import { MineruError } from './contracts';
+import { validateMineruResultUrl } from './result-origin';
 
 export async function loadMineruResult(
   zipUrl: string,
   metadata: DocumentMetadata,
   fetcher: typeof fetch = globalThis.fetch,
 ): Promise<DocumentModel> {
+  const validatedZipUrl = validateMineruResultUrl(zipUrl);
   let response: Response;
   try {
     const request = fetcher;
-    response = await request(zipUrl);
+    response = await request(validatedZipUrl);
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new MineruError('MINERU_RESULT_NETWORK');

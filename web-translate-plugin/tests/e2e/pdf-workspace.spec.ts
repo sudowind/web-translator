@@ -21,6 +21,7 @@ declare const chrome: {
 };
 
 const extensionPath = resolve('.output/chrome-mv3');
+const mineruResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-paper.zip';
 
 function createTwoPagePdf(label = 'Public'): Buffer {
   const streams = [
@@ -119,14 +120,8 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       if (requestUrl.pathname.startsWith('/mineru/api/v4/extract/task/') && request.method === 'GET') {
         json(response, {
           code: 0,
-          data: { state: 'done', full_zip_url: `${origin}/results/paper.zip` },
+          data: { state: 'done', full_zip_url: mineruResultUrl },
         });
-        return;
-      }
-
-      if (requestUrl.pathname === '/results/paper.zip') {
-        response.writeHead(200, { 'content-type': 'application/zip' });
-        response.end(archive);
         return;
       }
 
@@ -162,7 +157,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
             extract_result: [{
               data_id: observed.batchDataId,
               state: 'done',
-              full_zip_url: `${origin}/results/paper.zip`,
+              full_zip_url: mineruResultUrl,
             }],
           },
         });
@@ -226,6 +221,11 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         `--load-extension=${extensionCopy}`,
       ],
     });
+    await context.route(mineruResultUrl, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/zip',
+      body: archive,
+    }));
     let serviceWorker = context.serviceWorkers()[0];
     if (!serviceWorker) serviceWorker = await context.waitForEvent('serviceworker');
     const extensionId = new URL(serviceWorker.url()).host;

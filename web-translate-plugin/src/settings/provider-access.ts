@@ -1,3 +1,4 @@
+import { MINERU_RESULT_ORIGIN_PATTERN } from '../providers/mineru/result-origin';
 import {
   defaultSettings,
   type ExtensionSettings,
@@ -60,7 +61,7 @@ export async function checkMineruConfiguration(
   }
   const baseUrl = normalizeMineruBaseUrl(settings.baseUrl);
   const granted = await requestPermission({
-    origins: [providerOriginPattern(baseUrl)],
+    origins: [providerOriginPattern(baseUrl), MINERU_RESULT_ORIGIN_PATTERN],
   });
   if (!granted) throw new Error('未获得 MinerU Origin 授权');
   return { baseUrl, token, modelVersion: settings.modelVersion };
@@ -185,6 +186,7 @@ export async function authorizeProviderSettings(
   const origins = [providerOriginPattern(validated.openAi.baseUrl)];
   if (validated.mineru.token) {
     origins.push(providerOriginPattern(validated.mineru.baseUrl));
+    origins.push(MINERU_RESULT_ORIGIN_PATTERN);
   }
   const granted = await requestPermission({ origins });
   if (!granted) {

@@ -9,6 +9,7 @@ const metadata = {
   title: 'P',
   pageCount: 1,
 };
+const resultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/result.zip';
 
 describe('MinerU Zip 结果加载', () => {
   it('允许目录前缀并生成文档模型', async () => {
@@ -16,7 +17,7 @@ describe('MinerU Zip 结果加载', () => {
       'nested/paper_content_list.json': strToU8(JSON.stringify([{ page_idx: 0, type: 'text', text: 'Hello' }])),
     });
     const fetcher = vi.fn().mockResolvedValue(new Response(zip, { status: 200 }));
-    const model = await loadMineruResult('https://cdn.test/result.zip', metadata, fetcher);
+    const model = await loadMineruResult(resultUrl, metadata, fetcher);
     expect(model.pages[0].blocks[0].text).toBe('Hello');
   });
 
@@ -30,17 +31,29 @@ describe('MinerU Zip 结果加载', () => {
     ['损坏 Zip', new Uint8Array([1, 2, 3]), 'MINERU_ZIP_INVALID'],
   ])('%s 时抛出结构化错误', async (_name, bytes, code) => {
     const fetcher = vi.fn().mockResolvedValue(new Response(bytes, { status: 200 }));
-    await expect(loadMineruResult('https://cdn.test/result.zip', metadata, fetcher)).rejects.toMatchObject({ code });
+    await expect(loadMineruResult(resultUrl, metadata, fetcher)).rejects.toMatchObject({ code });
   });
 
   it('网络失败不读取或回显响应正文', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('secret raw body', { status: 502 }));
     try {
-      await loadMineruResult('https://cdn.test/result.zip', metadata, fetcher);
+      await loadMineruResult(resultUrl, metadata, fetcher);
       throw new Error('expected failure');
     } catch (error) {
       expect(error).toMatchObject({ code: 'MINERU_RESULT_HTTP' });
       expect(String(error)).not.toContain('secret raw body');
     }
+  });
+
+  it.each([
+    'http://cdn-mineru.openxlab.org.cn/pdf/result.zip',
+    'https://evil.example/pdf/result.zip',
+    'https://user:pass@cdn-mineru.openxlab.org.cn/pdf/result.zip',
+  ])('下载前拒绝非官方 MinerU CDN URL：%s', async (url) => {
+    const fetcher = vi.fn();
+    await expect(loadMineruResult(url, metadata, fetcher)).rejects.toMatchObject({
+      code: 'MINERU_RESULT_ORIGIN_INVALID',
+    });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
