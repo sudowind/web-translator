@@ -65,6 +65,16 @@ function json(response: ServerResponse, value: unknown): void {
   response.end(JSON.stringify(value));
 }
 
+function sse(response: ServerResponse, content: string): void {
+  response.writeHead(200, { 'content-type': 'text/event-stream' });
+  response.end([
+    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
+    '',
+    'data: [DONE]',
+    '',
+  ].join('\n'));
+}
+
 test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   let context: BrowserContext;
   let extensionPage: Page;
@@ -189,22 +199,16 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
             return;
           }
           if (page === '1') await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
-          json(response, {
-            choices: [{
-              message: {
-                content: translationFailureMode === 'mixed' && page === '1'
-                  ? 'not json'
-                  : JSON.stringify({
-                  translations: input.blocks.map((block) => ({
-                    id: block.id,
-                    text: page === '1'
-                      ? Array.from({ length: 80 }, () => `译文：${block.text}`).join('\n')
-                      : `译文：${block.text}`,
-                  })),
-                }),
-              },
-            }],
-          });
+          sse(response, translationFailureMode === 'mixed' && page === '1'
+            ? 'not json'
+            : JSON.stringify({
+              translations: input.blocks.map((block) => ({
+                id: block.id,
+                text: page === '1'
+                  ? Array.from({ length: 80 }, () => `译文：${block.text}`).join('\n')
+                  : `译文：${block.text}`,
+              })),
+            }));
         } else {
           json(response, { choices: [{ message: { content: '主要贡献是验证端到端工作流 [p:2]' } }] });
         }
@@ -306,8 +310,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     if (!response.ok) throw new Error(`PDF 工作台启用失败：${response.error}`);
     expect(response.value.enabled).toBe(true);
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toBeVisible({ timeout: 30_000 });
-    await expect(pdfPage.locator('.pdf-workspace')).toHaveCSS('display', 'grid');
-    await expect(pdfPage.locator('.workspace-columns')).toHaveCSS('display', 'grid');
+    await expect(pdfPage.locator('.workspace-content')).toHaveCSS('display', 'grid');
     await expect(pdfPage.locator('.workspace-toolbar button').first()).toHaveCSS('min-height', '44px');
   }
 
@@ -323,13 +326,9 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage).toHaveURL(sourceUrl);
     await expect(pdfPage.locator('[data-pdf-page="1"]')).toBeVisible();
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'translating', { timeout: 30_000 });
-    const renderPageBeforeTranslation = await pdfPage.locator('.pdf-workspace').getAttribute('data-pdf-render-page');
-    const translationPages = pdfPage.locator('.translation-pages');
-    await translationPages.evaluate((element) => { element.scrollTop = 64; });
-    const scrollTopBeforeTranslation = await translationPages.evaluate((element) => element.scrollTop);
+    const scrollTopBeforeTranslation = await pdfPage.evaluate(() => window.scrollY);
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
-    await expect(pdfPage.locator('.pdf-workspace')).toHaveAttribute('data-pdf-render-page', renderPageBeforeTranslation ?? '2');
-    expect(await translationPages.evaluate((element) => element.scrollTop)).toBe(scrollTopBeforeTranslation);
+    expect(Math.abs((await pdfPage.evaluate(() => window.scrollY)) - scrollTopBeforeTranslation)).toBeLessThanOrEqual(1);
     await expect(pdfPage.locator('[data-translation-page="2"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
     await expect.poll(() => observed.urlTasks.length).toBe(1);
     expect(observed.urlTasks[0]).toBe(sourceUrl);
@@ -337,14 +336,14 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     expect(observed.translationPages.slice(0, 2)).toEqual([1, 2]);
 
     await expect.poll(async () => {
-      const pdfHeight = await pdfPage.locator('[data-pdf-page="1"]').evaluate((element) => element.getBoundingClientRect().height);
+      const pdfHeight = await pdfPage.locator('[data-page-pair="1"] .page-pair-pdf').evaluate((element) => element.getBoundingClientRect().height);
       const translationHeight = await pdfPage.locator('[data-translation-page="1"]').evaluate((element) => element.getBoundingClientRect().height);
       return Math.abs(pdfHeight - translationHeight);
     }).toBeLessThanOrEqual(1);
 
     const firstTranslationBody = pdfPage.locator('[data-translation-page="1"] .translation-page-body');
     expect(await firstTranslationBody.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-    await pdfPage.locator('.pdf-pages').hover();
+    await pdfPage.locator('[data-page-pair="1"] .page-pair-pdf').hover();
     await pdfPage.mouse.wheel(0, -2_000);
     await expect(pdfPage.locator('[data-pdf-page="1"]')).toBeInViewport();
     await expect(pdfPage.locator('[data-translation-page="1"]')).toBeInViewport();

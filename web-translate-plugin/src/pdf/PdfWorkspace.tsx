@@ -8,10 +8,9 @@ import { classifyTranslationFailure, formatTranslationFailure, type TranslationF
 import { PageScheduler } from '../translation/page-scheduler';
 import { isPdfTranslationProgress, type PdfMessage, type PdfMessageResponse, type PdfSourceTransfer } from './messages';
 import { OperationEpoch } from './operation-epoch';
-import { PdfViewer } from './PdfViewer';
+import { PairedPageViewer } from './PairedPageViewer';
 import { initialPageFromUrl } from './source-page';
-import { SyncController, type PdfPane } from './sync-controller';
-import { TranslationPane, type TranslationPageStatus } from './TranslationPane';
+import type { TranslationPageStatus } from './TranslationPane';
 import { initialLifecycleState, lifecycleReducer } from './workspace-reducer';
 
 export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
@@ -23,59 +22,23 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [pageFailures, setPageFailures] = React.useState(new Map<number, TranslationFailure>());
   const [pageAttempts, setPageAttempts] = React.useState(new Map<number, number>());
   const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl));
-  const [pdfRenderPage, setPdfRenderPage] = React.useState(() => initialPageFromUrl(sourceUrl));
+  const [navigationPage, setNavigationPage] = React.useState(() => initialPageFromUrl(sourceUrl));
   const [scale, setScale] = React.useState(1.1);
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
-  const [pageHeights, setPageHeights] = React.useState<ReadonlyMap<number, number>>(new Map());
   const [agentOpen, setAgentOpen] = React.useState(true);
   const [agentMessages, setAgentMessages] = React.useState<AgentMessage[]>([]);
   const [agentBusy, setAgentBusy] = React.useState(false);
   const [agentNotice, setAgentNotice] = React.useState<string>();
   const [agentError, setAgentError] = React.useState<string>();
-  const leftRef = React.useRef<HTMLDivElement>(null);
-  const rightRef = React.useRef<HTMLDivElement>(null);
   const schedulerRef = React.useRef<PageScheduler | null>(null);
   const pumpRef = React.useRef<() => void>(() => undefined);
   const parseStarted = React.useRef(false);
   const operationEpoch = React.useRef(new OperationEpoch());
-  const syncRef = React.useRef<SyncController | null>(null);
-  const scrollIntentTimeouts = React.useRef(new Map<PdfPane, ReturnType<typeof globalThis.setTimeout>>());
-  const pendingTranslationScrollTop = React.useRef<number | null>(null);
   const pdfBytes = React.useMemo(
     () => source ? Uint8Array.from(source.bytes) : null,
     [source],
   );
-
-  if (!syncRef.current) {
-    syncRef.current = new SyncController((pane, page, progress) => {
-      const container = pane === 'pdf' ? leftRef.current : rightRef.current;
-      const selector = pane === 'pdf'
-        ? `[data-pdf-page="${page}"]`
-        : `[data-translation-page="${page}"]`;
-      const anchor = container?.querySelector<HTMLElement>(selector);
-      const scroller = container?.firstElementChild as HTMLElement | null;
-      if (anchor && scroller) {
-        scroller.scrollTop = anchor.offsetTop + anchor.offsetHeight * progress;
-      }
-    });
-  }
-
-  const beginUserScroll = React.useCallback((pane: PdfPane) => {
-    syncRef.current?.beginUserScroll(pane);
-    const existing = scrollIntentTimeouts.current.get(pane);
-    if (existing !== undefined) globalThis.clearTimeout(existing);
-    const timeout = globalThis.setTimeout(() => {
-      syncRef.current?.endUserScroll(pane);
-      scrollIntentTimeouts.current.delete(pane);
-    }, 180);
-    scrollIntentTimeouts.current.set(pane, timeout);
-  }, []);
-
-  React.useEffect(() => () => {
-    for (const timeout of scrollIntentTimeouts.current.values()) globalThis.clearTimeout(timeout);
-    scrollIntentTimeouts.current.clear();
-  }, []);
 
   React.useEffect(() => {
     if (!model) return;
@@ -86,19 +49,6 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     browser.runtime.onMessage.addListener(listener);
     return () => browser.runtime.onMessage.removeListener(listener);
   }, [model]);
-
-  const onPageHeightsChange = React.useCallback((heights: ReadonlyMap<number, number>) => {
-    const scroller = rightRef.current?.firstElementChild as HTMLElement | null;
-    pendingTranslationScrollTop.current = scroller?.scrollTop ?? null;
-    setPageHeights(new Map(heights));
-  }, []);
-
-  React.useLayoutEffect(() => {
-    if (pendingTranslationScrollTop.current === null) return;
-    const scroller = rightRef.current?.firstElementChild as HTMLElement | null;
-    if (scroller) scroller.scrollTop = pendingTranslationScrollTop.current;
-    pendingTranslationScrollTop.current = null;
-  }, [pageHeights]);
 
   React.useEffect(() => {
     dispatch({ type: 'load-started' });
@@ -217,10 +167,8 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     setFeedback(`已完成 ${done}/${model.pageCount} 页 · 翻译中 ${translating} 页 · 失败 ${failed} 页`);
   }, [model, pageStatus]);
 
-  const visibleFrom = React.useCallback((pane: PdfPane, page: number, progress: number) => {
+  const onPageVisible = React.useCallback((page: number) => {
     setActivePage(page);
-    if (pane === 'pdf') setPdfRenderPage(page);
-    syncRef.current?.onVisible(pane, page, progress);
   }, []);
 
   const navigateToPage = React.useCallback((page: number) => {
@@ -228,8 +176,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     if (pageCount < 1) return;
     const target = Math.min(Math.max(page, 1), pageCount);
     setActivePage(target);
-    setPdfRenderPage(target);
-    syncRef.current?.navigateToPage(target);
+    setNavigationPage(target);
   }, [documentPageCount, model?.pageCount]);
 
   function retryCurrent() {
@@ -311,7 +258,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }
 
   return (
-    <main className="pdf-workspace" data-renderer="pdfjs" data-pdf-render-page={pdfRenderPage}>
+    <main className="pdf-workspace" data-renderer="pdfjs" data-pdf-render-page={activePage}>
       <header className="workspace-toolbar">
         <strong>{source?.title ?? 'PDF 翻译工作台'}</strong>
         <span>第 {activePage} 页</span>
@@ -326,55 +273,31 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         <button type="button" onClick={() => void browser.runtime.sendMessage({ type: 'pdf-workspace:disable' })}>关闭工作台</button>
       </header>
       <p className="workspace-status" aria-live="polite" data-phase={lifecycle.phase}>{feedback}</p>
-      <div className={`workspace-columns ${agentOpen ? 'agent-open' : 'agent-collapsed'}`}>
-        <section
-          ref={leftRef}
-          className="pdf-column"
-          tabIndex={0}
-          onWheel={() => beginUserScroll('pdf')}
-          onTouchStart={() => beginUserScroll('pdf')}
-          onPointerDown={() => beginUserScroll('pdf')}
-          onKeyDown={() => beginUserScroll('pdf')}
-        >
+      <div className={`workspace-content ${agentOpen ? 'agent-open' : 'agent-collapsed'}`}>
+        <section className="reading-stream">
+          {!model && source?.kind === 'authenticated' && <div className="upload-consent" role="region" aria-label="MinerU 上传同意">
+              <h2>确认发送到第三方解析服务</h2>
+              <dl><dt>目标服务</dt><dd>MinerU</dd><dt>文件名</dt><dd>{source.title}</dd><dt>大小</dt><dd>{formatBytes(source.size)}</dd></dl>
+              <p>此 PDF 需要认证。点击同意后，文件字节将发送到第三方 MinerU 解析服务。</p>
+              <button type="button" disabled={documentPageCount < 1} onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
+            </div>}
           {source && pdfBytes
-            ? <PdfViewer
+            ? <PairedPageViewer
               bytes={pdfBytes}
               scale={scale}
-              activePage={pdfRenderPage}
-              onDocumentReady={onDocumentReady}
-              onPageHeightsChange={onPageHeightsChange}
-              onPageVisible={(page, progress) => visibleFrom('pdf', page, progress)}
-            />
-            : <p role="status">正在读取 PDF…</p>}
-        </section>
-        <section
-          ref={rightRef}
-          className="translation-column"
-          tabIndex={0}
-          onWheel={() => beginUserScroll('translation')}
-          onTouchStart={() => beginUserScroll('translation')}
-          onPointerDown={() => beginUserScroll('translation')}
-          onKeyDown={() => beginUserScroll('translation')}
-        >
-          {model
-            ? <TranslationPane
+              activePage={activePage}
+              navigationPage={navigationPage}
               model={model}
               translations={translations}
               pageStatus={pageStatus}
               pageFailures={pageFailures}
               pageAttempts={pageAttempts}
-              pageHeights={pageHeights}
-              onPageVisible={(page, progress) => visibleFrom('translation', page, progress)}
-              onPageBoundary={(page, direction) => navigateToPage(page + direction)}
+              onDocumentReady={onDocumentReady}
+              onPageVisible={onPageVisible}
               onRetryPage={retryPage}
               onCopyFailure={(failure) => void navigator.clipboard.writeText(formatTranslationFailure(failure))}
             />
-            : source?.kind === 'authenticated' ? <div className="upload-consent" role="region" aria-label="MinerU 上传同意">
-              <h2>确认发送到第三方解析服务</h2>
-              <dl><dt>目标服务</dt><dd>MinerU</dd><dt>文件名</dt><dd>{source.title}</dd><dt>大小</dt><dd>{formatBytes(source.size)}</dd></dl>
-              <p>此 PDF 需要认证。点击同意后，文件字节将发送到第三方 MinerU 解析服务。</p>
-              <button type="button" disabled={documentPageCount < 1} onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
-            </div> : <p role="status">等待 MinerU 解析；PDF 左栏可独立阅读。</p>}
+            : <p role="status">正在读取 PDF…</p>}
         </section>
         <AgentPanel
           open={agentOpen}

@@ -137,14 +137,16 @@ export function PdfViewer({
   );
 }
 
-function PdfPageCanvas({
+export function PdfPageCanvas({
   document,
   pageNumber,
   scale,
+  onHeightChange,
 }: {
   document: PDFDocumentProxy;
   pageNumber: number;
   scale: number;
+  onHeightChange?(pageNumber: number, height: number): void;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [text, setText] = React.useState('');
@@ -182,7 +184,21 @@ function PdfPageCanvas({
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [document, pageNumber, scale]);
+  }, [document, onHeightChange, pageNumber, scale]);
+
+  React.useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !onHeightChange) return;
+    const report = () => {
+      if (!canvas.style.width) return;
+      const height = canvas.getBoundingClientRect().height;
+      if (height > 0) onHeightChange(pageNumber, height);
+    };
+    const observer = new ResizeObserver(report);
+    observer.observe(canvas);
+    report();
+    return () => observer.disconnect();
+  }, [onHeightChange, pageNumber]);
 
   return (
     <div className="pdf-page-canvas-wrap">
