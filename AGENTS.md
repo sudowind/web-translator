@@ -9,6 +9,7 @@
 
 ## 当前规格记录
 
+- PDF 翻译失败诊断与滚动渲染稳定性：`docs/superpowers/specs/2026-07-12-pdf-translation-diagnostics-render-stability-design.md`
 - PDF 逐页等高滚动与顺序翻译：`docs/superpowers/specs/2026-07-12-pdf-page-aligned-scroll-sequential-translation-design.md`
 - PDF 逐页等高滚动与顺序翻译实施计划：`docs/superpowers/plans/2026-07-12-pdf-page-aligned-scroll-sequential-translation-plan.md`
 - LLM 默认模型与翻译诊断重构：`docs/superpowers/specs/2026-07-12-llm-default-model-translation-diagnostics-design.md`
