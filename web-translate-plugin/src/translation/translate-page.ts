@@ -3,6 +3,7 @@ import type {
   TranslationRequest,
   TranslationResult,
 } from '../providers/openai/contracts';
+import { classifyTranslationFailure, type TranslationFailure } from './failure';
 
 interface PageTranslationClient {
   translate(
@@ -19,9 +20,12 @@ interface TranslationLanguages {
 export class PageTranslationError extends Error {
   readonly name = 'PageTranslationError';
 
-  constructor(readonly code: string, readonly retryable: boolean) {
-    super(code);
+  constructor(readonly failure: TranslationFailure) {
+    super(failure.code);
   }
+
+  get code(): string { return this.failure.code; }
+  get retryable(): boolean { return this.failure.retryable; }
 }
 
 const translatableKinds = new Set([
@@ -40,30 +44,37 @@ export async function translatePage(
   signal?: AbortSignal,
   sleep: (ms: number) => Promise<void> = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms)),
+  model = 'unknown',
 ): Promise<TranslationResult[]> {
   const blocks = page.blocks
     .filter((block) => translatableKinds.has(block.kind))
     .map(({ id, text }) => ({ id, text }));
   if (blocks.length === 0) return [];
 
+  const startedAt = Date.now();
   for (let attempt = 0; attempt < 3; attempt += 1) {
     signal?.throwIfAborted();
     try {
       return await client.translate({ ...languages, blocks }, signal);
     } catch (error) {
       if (isAbortError(error)) throw error;
-      const status = readStatus(error);
-      const retryable = status === 429 || (status !== undefined && status >= 500);
-      if (!retryable || attempt === 2) {
-        throw new PageTranslationError(
-          status === undefined ? 'TRANSLATION_FAILED' : `TRANSLATION_HTTP_${status}`,
-          retryable,
-        );
+      const failure = classifyTranslationFailure(error, {
+        attempts: attempt + 1,
+        durationMs: Date.now() - startedAt,
+        model,
+      });
+      const autoRetry = failure.category === 'rate-limit' || failure.category === 'server' || failure.category === 'network';
+      if (!autoRetry || attempt === 2) {
+        throw new PageTranslationError(failure);
       }
       await sleepWithSignal(sleep, 1_000 * 2 ** attempt, signal);
     }
   }
-  throw new PageTranslationError('TRANSLATION_FAILED', false);
+  throw new PageTranslationError(classifyTranslationFailure(undefined, {
+    attempts: 3,
+    durationMs: Date.now() - startedAt,
+    model,
+  }));
 }
 
 async function sleepWithSignal(
@@ -83,16 +94,6 @@ async function sleepWithSignal(
   } finally {
     signal.removeEventListener('abort', onAbort);
   }
-}
-
-function readStatus(error: unknown): number | undefined {
-  if (typeof error === 'object' && error !== null && 'status' in error) {
-    const status = (error as { status?: unknown }).status;
-    if (typeof status === 'number') return status;
-  }
-  const message = error instanceof Error ? error.message : '';
-  const match = /\((\d{3})\)/.exec(message);
-  return match ? Number(match[1]) : undefined;
 }
 
 function isAbortError(error: unknown): boolean {

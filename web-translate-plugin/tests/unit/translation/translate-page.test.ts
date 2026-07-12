@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { TranslationProviderError } from '../../../src/providers/openai/client';
 import { translatePage } from '../../../src/translation/translate-page';
 
 const page = {
@@ -49,5 +50,30 @@ describe('逐页翻译', () => {
     await sleepStarted;
     controller.abort();
     await expect(pending).rejects.toHaveProperty('name', 'AbortError');
+  });
+
+  it('识别稳定 Provider 错误码并只重试临时错误', async () => {
+    const retrying = vi.fn()
+      .mockRejectedValueOnce(new TranslationProviderError('TRANSLATION_HTTP_429'))
+      .mockRejectedValueOnce(new TranslationProviderError('TRANSLATION_HTTP_503'))
+      .mockResolvedValueOnce([{ id: 'b1', text: '你好' }]);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await expect(translatePage(
+      { translate: retrying }, page,
+      { sourceLanguage: 'en', targetLanguage: 'zh-CN' },
+      undefined, sleep, 'qwen-plus',
+    )).resolves.toHaveLength(1);
+    expect(retrying).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[1000], [2000]]);
+
+    for (const code of ['TRANSLATION_TIMEOUT', 'TRANSLATION_JSON_INVALID', 'TRANSLATION_ID_MISSING']) {
+      const translate = vi.fn().mockRejectedValue(new TranslationProviderError(code));
+      await expect(translatePage(
+        { translate }, page,
+        { sourceLanguage: 'en', targetLanguage: 'zh-CN' },
+        undefined, undefined, 'qwen-plus',
+      )).rejects.toMatchObject({ failure: { code, attempts: 1 } });
+      expect(translate).toHaveBeenCalledOnce();
+    }
   });
 });

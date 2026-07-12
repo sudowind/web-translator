@@ -304,6 +304,8 @@ export class PdfWorkspaceService {
       page,
       { sourceLanguage: settings.sourceLanguage, targetLanguage: settings.targetLanguage },
       signal,
+      undefined,
+      settings.openAi.defaultModel,
     );
     signal.throwIfAborted();
     await this.enqueueMutation(hash, generation, () => this.dependencies.putTranslation(key, result));
