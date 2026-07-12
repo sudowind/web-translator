@@ -170,6 +170,7 @@ Provider 客户端只负责 URL、认证、fetch、Abort、响应格式校验和
 - Endpoint。
 - API Key。
 - 根据常见 Endpoint 自动预选类型；用户手动选择后不再自动覆盖。
+- “快速测试 LLM 连接”按钮，只验证 Endpoint、Key、模型和最短 Chat 请求，固定关闭思考并使用 15 秒超时。
 
 ### 翻译配置区域
 
