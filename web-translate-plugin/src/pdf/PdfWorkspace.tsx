@@ -23,6 +23,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [pageFailures, setPageFailures] = React.useState(new Map<number, TranslationFailure>());
   const [pageAttempts, setPageAttempts] = React.useState(new Map<number, number>());
   const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl));
+  const [pdfRenderPage, setPdfRenderPage] = React.useState(() => initialPageFromUrl(sourceUrl));
   const [scale, setScale] = React.useState(1.1);
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
@@ -218,6 +219,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
 
   const visibleFrom = React.useCallback((pane: PdfPane, page: number, progress: number) => {
     setActivePage(page);
+    if (pane === 'pdf') setPdfRenderPage(page);
     syncRef.current?.onVisible(pane, page, progress);
   }, []);
 
@@ -226,6 +228,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     if (pageCount < 1) return;
     const target = Math.min(Math.max(page, 1), pageCount);
     setActivePage(target);
+    setPdfRenderPage(target);
     syncRef.current?.navigateToPage(target);
   }, [documentPageCount, model?.pageCount]);
 
@@ -308,7 +311,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }
 
   return (
-    <main className="pdf-workspace" data-renderer="pdfjs">
+    <main className="pdf-workspace" data-renderer="pdfjs" data-pdf-render-page={pdfRenderPage}>
       <header className="workspace-toolbar">
         <strong>{source?.title ?? 'PDF 翻译工作台'}</strong>
         <span>第 {activePage} 页</span>
@@ -337,7 +340,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
             ? <PdfViewer
               bytes={pdfBytes}
               scale={scale}
-              activePage={activePage}
+              activePage={pdfRenderPage}
               onDocumentReady={onDocumentReady}
               onPageHeightsChange={onPageHeightsChange}
               onPageVisible={(page, progress) => visibleFrom('pdf', page, progress)}

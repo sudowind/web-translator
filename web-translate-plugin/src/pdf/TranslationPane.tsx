@@ -5,6 +5,7 @@ import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import type { TranslationFailure } from '../translation/failure';
 import { pageWheelAction } from './page-wheel';
+import { selectDominantPage } from './visible-page';
 
 export type TranslationPageStatus =
   | 'pending'
@@ -39,16 +40,31 @@ export function TranslationPane({
 }) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const touchY = React.useRef<number | null>(null);
+  const lastReportedPage = React.useRef<number | null>(null);
   React.useEffect(() => {
     if (!rootRef.current) return;
+    const visibility = new Map<number, { ratio: number; progress: number }>();
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
         const page = Number((entry.target as HTMLElement).dataset.translationPage);
+        if (!entry.isIntersecting) {
+          visibility.delete(page);
+          continue;
+        }
         const rootTop = entry.rootBounds?.top ?? 0;
         const height = Math.max(1, entry.boundingClientRect.height);
-        onPageVisible(page, Math.max(0, Math.min(1, (rootTop - entry.boundingClientRect.top) / height)));
+        visibility.set(page, {
+          ratio: entry.intersectionRatio,
+          progress: Math.max(0, Math.min(1, (rootTop - entry.boundingClientRect.top) / height)),
+        });
       }
+      const page = selectDominantPage(
+        Array.from(visibility, ([candidate, value]) => ({ page: candidate, intersectionRatio: value.ratio })),
+        lastReportedPage.current ?? 1,
+      );
+      if (page === null || page === lastReportedPage.current) return;
+      lastReportedPage.current = page;
+      onPageVisible(page, visibility.get(page)?.progress ?? 0);
     }, { root: rootRef.current, threshold: [0.25, 0.6] });
     rootRef.current.querySelectorAll<HTMLElement>('[data-translation-page]').forEach((page) => observer.observe(page));
     return () => observer.disconnect();

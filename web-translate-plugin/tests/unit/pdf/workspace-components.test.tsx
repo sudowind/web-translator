@@ -16,8 +16,8 @@ const model: DocumentModel = {
 
 describe('PDF 双栏组件契约', () => {
   it('只把当前页与邻近页放入立即渲染窗口', () => {
-    expect(visiblePageWindow(5, 10)).toEqual(new Set([4, 5, 6]));
-    expect(visiblePageWindow(1, 10)).toEqual(new Set([1, 2]));
+    expect(visiblePageWindow(5, 10)).toEqual(new Set([3, 4, 5, 6, 7]));
+    expect(visiblePageWindow(1, 10)).toEqual(new Set([1, 2, 3]));
   });
 
   it('译文逐页输出状态锚点且不直接注入不可信 HTML', () => {

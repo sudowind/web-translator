@@ -6,6 +6,7 @@ import {
   type RenderTask,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+import { selectDominantPage } from './visible-page';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -21,9 +22,10 @@ interface PdfViewerProps {
 export function visiblePageWindow(
   activePage: number,
   pageCount: number,
+  radius = 2,
 ): Set<number> {
   const pages = new Set<number>();
-  for (let page = activePage - 1; page <= activePage + 1; page += 1) {
+  for (let page = activePage - radius; page <= activePage + radius; page += 1) {
     if (page >= 1 && page <= pageCount) pages.add(page);
   }
   return pages;
@@ -39,8 +41,11 @@ export function PdfViewer({
 }: PdfViewerProps) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const initialPagePositioned = React.useRef(false);
+  const activePageRef = React.useRef(activePage);
+  const lastReportedPage = React.useRef<number | null>(null);
   const [document, setDocument] = React.useState<PDFDocumentProxy | null>(null);
   const [pageCount, setPageCount] = React.useState(0);
+  activePageRef.current = activePage;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -70,15 +75,26 @@ export function PdfViewer({
 
   React.useEffect(() => {
     if (!rootRef.current || pageCount === 0) return;
+    const visibility = new Map<number, { ratio: number; progress: number }>();
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
         const page = Number((entry.target as HTMLElement).dataset.pdfPage);
+        if (!entry.isIntersecting) {
+          visibility.delete(page);
+          continue;
+        }
         const rootTop = entry.rootBounds?.top ?? 0;
         const height = Math.max(1, entry.boundingClientRect.height);
         const progress = Math.max(0, Math.min(1, (rootTop - entry.boundingClientRect.top) / height));
-        onPageVisible(page, progress);
+        visibility.set(page, { ratio: entry.intersectionRatio, progress });
       }
+      const page = selectDominantPage(
+        Array.from(visibility, ([candidate, value]) => ({ page: candidate, intersectionRatio: value.ratio })),
+        lastReportedPage.current ?? activePageRef.current,
+      );
+      if (page === null || page === lastReportedPage.current) return;
+      lastReportedPage.current = page;
+      onPageVisible(page, visibility.get(page)?.progress ?? 0);
     }, { root: rootRef.current, threshold: [0.25, 0.6] });
     rootRef.current.querySelectorAll<HTMLElement>('[data-pdf-page]').forEach((page) => observer.observe(page));
     return () => observer.disconnect();
