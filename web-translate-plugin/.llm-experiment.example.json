@@ -1,0 +1,7 @@
+{
+  "baseUrl": "https://example.com/compatible-mode/v1",
+  "apiKey": "请仅在 .llm-experiment.local.json 中填写",
+  "model": "your-model",
+  "timeoutMs": 120000,
+  "blockCount": 12
+}

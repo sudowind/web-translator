@@ -263,11 +263,11 @@ new Response(
 
 ```powershell
 git check-ignore -v web-translate-plugin/.llm-experiment.local.json
-git grep -n "sk-ws" -- . ':!web-translate-plugin/.llm-experiment.local.json'
+git status --ignored --short web-translate-plugin/.llm-experiment.local.json
 node --check web-translate-plugin/scripts/llm-timeout-experiment.mjs
 ```
 
-预期：本地配置命中 `.gitignore`；仓库跟踪内容没有 Key 前缀；实验脚本语法有效。
+预期：本地配置命中 `.gitignore` 并显示为 `!!`；实验脚本语法有效。提交前仅暂存示例配置和脚本，不暂存本地配置。
 
 - [ ] **步骤 4：运行最终质量门禁**
 
