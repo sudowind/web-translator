@@ -1,11 +1,16 @@
+import { LlmProviderError, OpenAiChatClient } from './chat-client';
 import type {
+  OpenAiSettings,
   TranslationRequest,
   TranslationResult,
-  OpenAiSettings,
 } from './contracts';
 
-interface ChatCompletionsResponse {
-  choices?: Array<{ message?: { content?: unknown } }>;
+export class TranslationProviderError extends Error {
+  readonly name = 'TranslationProviderError';
+
+  constructor(readonly code: string) {
+    super(code);
+  }
 }
 
 export class OpenAiTranslationClient {
@@ -18,57 +23,47 @@ export class OpenAiTranslationClient {
     request: TranslationRequest,
     signal?: AbortSignal,
   ): Promise<TranslationResult[]> {
-    const { apiKey, baseUrl, model } = this.settings;
-    if (!apiKey.trim() || !baseUrl.trim() || !model.trim()) {
+    const { apiKey, baseUrl, translation } = this.settings;
+    if (!apiKey.trim() || !baseUrl.trim() || !translation.model.trim()) {
       throw new Error('翻译 Provider 配置不完整');
     }
 
     const requestIds = new Set<string>();
     for (const { id } of request.blocks) {
-      if (requestIds.has(id)) {
-        throw new Error(`翻译请求包含重复 id: ${id}`);
-      }
+      if (requestIds.has(id)) throw new Error(`翻译请求包含重复 id: ${id}`);
       requestIds.add(id);
     }
 
-    const { sourceLanguage, targetLanguage } = request;
-    const fetcher = this.fetcher;
-    const response = await fetcher(
-      `${baseUrl.replace(/\/+$/, '')}/chat/completions`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          response_format: { type: 'json_object' },
+    let content: string;
+    try {
+      content = await new OpenAiChatClient(this.settings, this.fetcher).complete(
+        {
+          purpose: 'translation',
           messages: [
             {
               role: 'system',
               content:
-                `Translate each block from ${sourceLanguage} to ${targetLanguage}. ` +
+                `Translate each block from ${request.sourceLanguage} to ${request.targetLanguage}. ` +
                 'Return one JSON object with a translations array. Preserve every id exactly once.',
             },
-            {
-              role: 'user',
-              content: JSON.stringify({ blocks: request.blocks }),
-            },
+            { role: 'user', content: JSON.stringify({ blocks: request.blocks }) },
           ],
-        }),
+        },
         signal,
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error(`翻译请求失败 (${response.status})`);
-    }
-
-    const payload = (await response.json()) as ChatCompletionsResponse;
-    const content = payload.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') {
-      throw new Error('翻译响应格式无效');
+      );
+    } catch (error) {
+      if (error instanceof LlmProviderError) {
+        const status = /^LLM_HTTP_(\d+)$/.exec(error.code)?.[1];
+        if (status) throw new TranslationProviderError(`TRANSLATION_HTTP_${status}`);
+        if (error.code === 'LLM_TIMEOUT') {
+          throw new TranslationProviderError('TRANSLATION_TIMEOUT');
+        }
+        if (error.code === 'LLM_RESPONSE_INVALID') {
+          throw new TranslationProviderError('TRANSLATION_RESPONSE_INVALID');
+        }
+        throw new TranslationProviderError('TRANSLATION_NETWORK');
+      }
+      throw error;
     }
 
     let parsed: unknown;
@@ -90,21 +85,15 @@ export class OpenAiTranslationClient {
       }
       resultById.set(translation.id, translation);
     }
-    if (resultById.size !== expectedIds.size) {
-      throw new Error('翻译响应缺少 id');
-    }
+    if (resultById.size !== expectedIds.size) throw new Error('翻译响应缺少 id');
 
     return request.blocks.map(({ id }) => resultById.get(id)!);
   }
 
   private readTranslations(value: unknown): TranslationResult[] {
-    if (typeof value !== 'object' || value === null) {
-      throw new Error('翻译响应格式无效');
-    }
+    if (typeof value !== 'object' || value === null) throw new Error('翻译响应格式无效');
     const translations = (value as { translations?: unknown }).translations;
-    if (!Array.isArray(translations)) {
-      throw new Error('翻译响应格式无效');
-    }
+    if (!Array.isArray(translations)) throw new Error('翻译响应格式无效');
     if (
       !translations.every(
         (item): item is TranslationResult =>

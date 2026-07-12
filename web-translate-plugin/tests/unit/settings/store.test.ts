@@ -17,7 +17,20 @@ describe('网页翻译设置', () => {
       openAi: {
         apiKey: '',
         baseUrl: '',
-        model: '',
+        dialect: 'generic-openai',
+        translation: {
+          model: '',
+          reasoning: { mode: 'off' },
+          timeoutMs: 30_000,
+        },
+        agent: {
+          inheritTranslationModel: true,
+          profile: {
+            model: '',
+            reasoning: { mode: 'auto', effort: 'medium' },
+            timeoutMs: 120_000,
+          },
+        },
       },
       mineru: {
         baseUrl: 'https://mineru.net',
@@ -31,7 +44,20 @@ describe('网页翻译设置', () => {
     const openAi = {
       apiKey: 'secret-key',
       baseUrl: 'https://llm.example/v1',
-      model: 'translator',
+      dialect: 'generic-openai' as const,
+      translation: {
+        model: 'translator',
+        reasoning: { mode: 'off' as const },
+        timeoutMs: 30_000,
+      },
+      agent: {
+        inheritTranslationModel: true,
+        profile: {
+          model: 'translator',
+          reasoning: { mode: 'auto' as const, effort: 'medium' as const },
+          timeoutMs: 120_000,
+        },
+      },
     } satisfies OpenAiSettings;
     const settings = {
       openAi,
@@ -63,7 +89,78 @@ describe('网页翻译设置', () => {
       },
     });
     await expect(getSettings()).resolves.toMatchObject({
+      openAi: {
+        apiKey: 'key',
+        baseUrl: 'https://api.example.test/v1',
+        dialect: 'generic-openai',
+        translation: {
+          model: 'm',
+          reasoning: { mode: 'off' },
+          timeoutMs: 30_000,
+        },
+        agent: {
+          inheritTranslationModel: true,
+          profile: {
+            model: 'm',
+            reasoning: { mode: 'auto', effort: 'medium' },
+            timeoutMs: 120_000,
+          },
+        },
+      },
       mineru: { baseUrl: 'https://mineru.net', token: '', modelVersion: 'vlm' },
+    });
+  });
+
+  it('从百炼旧 Endpoint 推断 Provider 类型', async () => {
+    await fakeBrowser.storage.local.set({
+      'webpage-translation-settings': {
+        openAi: {
+          apiKey: 'key',
+          baseUrl: 'https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+          model: 'qwen-plus',
+        },
+        sourceLanguage: 'en',
+        targetLanguage: 'zh-CN',
+      },
+    });
+    await expect(getSettings()).resolves.toMatchObject({
+      openAi: {
+        dialect: 'dashscope',
+        translation: { model: 'qwen-plus' },
+        agent: { inheritTranslationModel: true },
+      },
+    });
+  });
+
+  it('逐字段修复部分损坏的新结构', async () => {
+    await fakeBrowser.storage.local.set({
+      'webpage-translation-settings': {
+        openAi: {
+          apiKey: 'key',
+          baseUrl: 'https://api.openai.com/v1',
+          dialect: 'broken',
+          translation: { model: 'gpt-test', reasoning: {}, timeoutMs: 'bad' },
+          agent: { inheritTranslationModel: 'yes', profile: {} },
+        },
+      },
+    });
+    await expect(getSettings()).resolves.toMatchObject({
+      openAi: {
+        dialect: 'openai',
+        translation: {
+          model: 'gpt-test',
+          reasoning: { mode: 'off' },
+          timeoutMs: 30_000,
+        },
+        agent: {
+          inheritTranslationModel: true,
+          profile: {
+            model: 'gpt-test',
+            reasoning: { mode: 'auto', effort: 'medium' },
+            timeoutMs: 120_000,
+          },
+        },
+      },
     });
   });
 });

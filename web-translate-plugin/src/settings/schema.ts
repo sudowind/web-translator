@@ -2,10 +2,35 @@ import type { MineruSettings } from '../providers/mineru/contracts';
 
 export type { MineruSettings } from '../providers/mineru/contracts';
 
+export type ProviderDialect =
+  | 'openai'
+  | 'dashscope'
+  | 'minimax'
+  | 'generic-openai';
+export type ReasoningMode = 'off' | 'auto' | 'on';
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
+export interface ReasoningSettings {
+  mode: ReasoningMode;
+  effort?: ReasoningEffort;
+  budgetTokens?: number;
+}
+
+export interface ModelProfile {
+  model: string;
+  reasoning: ReasoningSettings;
+  timeoutMs: number;
+}
+
 export interface OpenAiSettings {
   apiKey: string;
   baseUrl: string;
-  model: string;
+  dialect: ProviderDialect;
+  translation: ModelProfile;
+  agent: {
+    inheritTranslationModel: boolean;
+    profile: ModelProfile;
+  };
 }
 
 export interface ExtensionSettings {
@@ -15,12 +40,27 @@ export interface ExtensionSettings {
   targetLanguage: string;
 }
 
-export const defaultSettings: ExtensionSettings = {
-  openAi: {
-    apiKey: '',
-    baseUrl: '',
+export const defaultOpenAiSettings: OpenAiSettings = {
+  apiKey: '',
+  baseUrl: '',
+  dialect: 'generic-openai',
+  translation: {
     model: '',
+    reasoning: { mode: 'off' },
+    timeoutMs: 30_000,
   },
+  agent: {
+    inheritTranslationModel: true,
+    profile: {
+      model: '',
+      reasoning: { mode: 'auto', effort: 'medium' },
+      timeoutMs: 120_000,
+    },
+  },
+};
+
+export const defaultSettings: ExtensionSettings = {
+  openAi: defaultOpenAiSettings,
   mineru: {
     baseUrl: 'https://mineru.net',
     token: '',
@@ -29,3 +69,27 @@ export const defaultSettings: ExtensionSettings = {
   sourceLanguage: 'en',
   targetLanguage: 'zh-CN',
 };
+
+export function inferProviderDialect(baseUrl: string): ProviderDialect {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase();
+    if (hostname === 'api.openai.com') return 'openai';
+    if (
+      hostname.endsWith('.maas.aliyuncs.com') ||
+      hostname === 'dashscope.aliyuncs.com' ||
+      hostname.endsWith('.dashscope.aliyuncs.com')
+    ) return 'dashscope';
+    if (hostname === 'api.minimax.chat' || hostname === 'api.minimaxi.com') {
+      return 'minimax';
+    }
+  } catch {
+    // 无效 URL 由保存校验负责；迁移时使用安全通用类型。
+  }
+  return 'generic-openai';
+}
+
+export function resolveAgentProfile(settings: OpenAiSettings): ModelProfile {
+  return settings.agent.inheritTranslationModel
+    ? { ...settings.agent.profile, model: settings.translation.model }
+    : settings.agent.profile;
+}

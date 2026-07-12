@@ -2,6 +2,9 @@ import {
   defaultSettings,
   type ExtensionSettings,
   type MineruSettings,
+  type ModelProfile,
+  type OpenAiSettings,
+  type ProviderDialect,
 } from './schema';
 
 type PermissionRequester = (permissions: {
@@ -66,16 +69,30 @@ export function validateProviderSettings(
   settings: ExtensionSettings,
 ): ExtensionSettings {
   const apiKey = settings.openAi.apiKey.trim();
-  const model = settings.openAi.model.trim();
   const sourceLanguage = settings.sourceLanguage.trim();
   const targetLanguage = settings.targetLanguage.trim();
   if (!apiKey) throw new Error('API Key 不能为空，请填写后重试');
-  if (!model) throw new Error('模型不能为空，请填写后重试');
   if (!sourceLanguage || !targetLanguage) {
     throw new Error('源语言和目标语言不能为空');
   }
   providerOriginPattern(settings.openAi.baseUrl);
   const baseUrl = settings.openAi.baseUrl.trim().replace(/\/+$/, '');
+  const dialect = normalizeDialect(settings.openAi.dialect);
+  const translation = normalizeProfile(
+    settings.openAi.translation,
+    'translation',
+    dialect,
+  );
+  const inheritTranslationModel = Boolean(
+    settings.openAi.agent.inheritTranslationModel,
+  );
+  const agentProfile = normalizeProfile(
+    inheritTranslationModel
+      ? { ...settings.openAi.agent.profile, model: translation.model }
+      : settings.openAi.agent.profile,
+    'agent',
+    dialect,
+  );
   const token = settings.mineru.token.trim();
   let mineru = defaultSettings.mineru;
   if (token) {
@@ -90,11 +107,64 @@ export function validateProviderSettings(
     };
   }
   return {
-    openAi: { apiKey, baseUrl, model },
+    openAi: {
+      apiKey,
+      baseUrl,
+      dialect,
+      translation,
+      agent: {
+        inheritTranslationModel,
+        profile: agentProfile,
+      },
+    },
     mineru,
     sourceLanguage,
     targetLanguage,
   };
+}
+
+function normalizeDialect(value: ProviderDialect): ProviderDialect {
+  if (
+    value === 'openai' || value === 'dashscope' || value === 'minimax' ||
+    value === 'generic-openai'
+  ) return value;
+  throw new Error('Provider 类型无效');
+}
+
+function normalizeProfile(
+  profile: ModelProfile,
+  purpose: 'translation' | 'agent',
+  dialect: ProviderDialect,
+): ModelProfile {
+  const model = profile.model.trim();
+  if (!model) throw new Error(`${purpose === 'translation' ? '翻译' : '问答'}模型不能为空`);
+  const min = purpose === 'translation' ? 5_000 : 15_000;
+  const max = purpose === 'translation' ? 120_000 : 300_000;
+  if (!Number.isSafeInteger(profile.timeoutMs) || profile.timeoutMs < min || profile.timeoutMs > max) {
+    throw new Error(`${purpose === 'translation' ? '翻译' : '问答'}超时范围无效`);
+  }
+  const reasoning = { ...profile.reasoning };
+  if (purpose === 'translation' && reasoning.mode !== 'off') {
+    throw new Error('翻译结构化输出必须关闭思考模式');
+  }
+  if (!['off', 'auto', 'on'].includes(reasoning.mode)) {
+    throw new Error('思考模式无效');
+  }
+  if (dialect === 'generic-openai' && reasoning.mode === 'on') {
+    throw new Error('通用 OpenAI 兼容接口无法确认思考协议');
+  }
+  if (dialect === 'minimax' && reasoning.mode === 'on') {
+    throw new Error('MiniMax 仅支持关闭或自动思考');
+  }
+  if (reasoning.budgetTokens !== undefined &&
+    (!Number.isSafeInteger(reasoning.budgetTokens) || reasoning.budgetTokens < 1 || reasoning.budgetTokens > 131_072)) {
+    throw new Error('思考 Token 上限无效');
+  }
+  if (dialect === 'openai' && reasoning.mode === 'on' &&
+    !['low', 'medium', 'high'].includes(reasoning.effort ?? '')) {
+    throw new Error('OpenAI 思考强度无效');
+  }
+  return { model, reasoning, timeoutMs: profile.timeoutMs };
 }
 
 export async function authorizeProviderSettings(

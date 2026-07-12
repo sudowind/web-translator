@@ -7,7 +7,20 @@ const settings = {
   openAi: {
     baseUrl: 'https://api.example.test/v1',
     apiKey: 'secret',
-    model: 'translate-model',
+    dialect: 'generic-openai' as const,
+    translation: {
+      model: 'translate-model',
+      reasoning: { mode: 'off' as const },
+      timeoutMs: 30_000,
+    },
+    agent: {
+      inheritTranslationModel: true,
+      profile: {
+        model: 'translate-model',
+        reasoning: { mode: 'auto' as const },
+        timeoutMs: 120_000,
+      },
+    },
   },
   mineru: {
     baseUrl: 'https://mineru.net',

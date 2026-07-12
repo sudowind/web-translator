@@ -18,5 +18,6 @@ describe('论文智能体面板', () => {
     expect(html).toContain('第 2 页');
     expect(html).toContain('停止');
     expect(html).toContain('收起');
+    expect(html).toContain('模型正在思考或生成回答…');
   });
 });

@@ -6,7 +6,20 @@ describe('OpenAI 兼容翻译客户端', () => {
   const settings = {
     apiKey: 'secret-key',
     baseUrl: 'https://llm.example/v1/',
-    model: 'translator',
+    dialect: 'dashscope' as const,
+    translation: {
+      model: 'translator',
+      reasoning: { mode: 'off' as const },
+      timeoutMs: 30_000,
+    },
+    agent: {
+      inheritTranslationModel: true,
+      profile: {
+        model: 'translator',
+        reasoning: { mode: 'auto' as const },
+        timeoutMs: 120_000,
+      },
+    },
   };
 
   it('使用 chat completions JSON Object 协议并按 block id 返回结果', async () => {
@@ -52,7 +65,7 @@ describe('OpenAI 兼容翻译客户端', () => {
     expect(fetcher).toHaveBeenCalledOnce();
     const [url, init] = fetcher.mock.calls[0];
     expect(url).toBe('https://llm.example/v1/chat/completions');
-    expect(init?.signal).toBe(controller.signal);
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
     expect(init?.headers).toEqual(
       expect.objectContaining({ Authorization: 'Bearer secret-key' }),
     );
@@ -121,7 +134,7 @@ describe('OpenAI 兼容翻译客户端', () => {
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
       }),
-    ).rejects.toThrow('翻译请求失败 (503)');
+    ).rejects.toMatchObject({ code: 'TRANSLATION_HTTP_503' });
   });
 
   it('在发起请求前拒绝重复的 request block id', async () => {
@@ -139,6 +152,20 @@ describe('OpenAI 兼容翻译客户端', () => {
       }),
     ).rejects.toThrow('翻译请求包含重复 id: duplicate');
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('将底层网络错误映射为稳定翻译错误码', async () => {
+    const client = new OpenAiTranslationClient(
+      settings,
+      vi.fn<typeof fetch>().mockRejectedValue(new TypeError('secret network detail')),
+    );
+    await expect(
+      client.translate({
+        blocks: [{ id: 'b1', text: 'Hello' }],
+        sourceLanguage: 'en',
+        targetLanguage: 'zh-CN',
+      }),
+    ).rejects.toMatchObject({ code: 'TRANSLATION_NETWORK' });
   });
 
   it('调用原生 fetcher 时不绑定客户端实例为 this', async () => {

@@ -7,6 +7,11 @@ import { PdfWorkspaceService } from '../../../src/pdf/workspace-service';
 
 const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 7, kind: 'remote' as const, bytes: [37, 80, 68, 70, 45, 49, 10] };
 const model: DocumentModel = { id: source.hash, sourceUrl: source.url, hash: source.hash, title: source.title, pageCount: 1, pages: [{ id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' }] }] };
+const openAiSettings = {
+  apiKey: 'secret', baseUrl: 'https://api.test/v1', dialect: 'generic-openai' as const,
+  translation: { model: 'm', reasoning: { mode: 'off' as const }, timeoutMs: 30_000 },
+  agent: { inheritTranslationModel: true, profile: { model: 'm', reasoning: { mode: 'auto' as const }, timeoutMs: 120_000 } },
+};
 
 describe('后台 PDF 工作台服务', () => {
   it('公共源在后台创建 MinerU URL 任务并持久化文档', async () => {
@@ -30,7 +35,7 @@ describe('后台 PDF 工作台服务', () => {
     const service = new PdfWorkspaceService({
       loadSource: vi.fn(), getDocument: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue(model), putDocument: vi.fn(), clearCache: vi.fn(),
       getTranslation: vi.fn().mockResolvedValue(undefined), putTranslation, putTask: vi.fn(),
-      getSettings: vi.fn().mockResolvedValue({ openAi: { apiKey: 'secret', baseUrl: 'https://api.test/v1', model: 'm' }, mineru: {}, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
+      getSettings: vi.fn().mockResolvedValue({ openAi: openAiSettings, mineru: {}, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
       createMineru: vi.fn(), loadMineru: vi.fn(), createOpenAi: vi.fn().mockReturnValue({ translate }),
     });
     await expect(service.handle({ type: 'pdf:parse-start', source: { ...source, kind: 'authenticated' }, pageCount: 1, consent: false }, 7)).rejects.toMatchObject({ code: 'PDF_AUTH_UPLOAD_REQUIRES_CONSENT' });
@@ -104,7 +109,7 @@ describe('后台 PDF 工作台服务', () => {
     const ask = vi.fn().mockResolvedValue('Answer [p:1]');
     const service = new PdfWorkspaceService({
       loadSource: vi.fn(), getDocument: vi.fn().mockResolvedValue(model), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
-      getSettings: vi.fn().mockResolvedValue({ openAi: { apiKey: 'secret', baseUrl: 'https://api.test/v1', model: 'm' }, mineru: {}, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
+      getSettings: vi.fn().mockResolvedValue({ openAi: openAiSettings, mineru: {}, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
       createMineru: vi.fn(), loadMineru: vi.fn(), createOpenAi: vi.fn(), createAgent: vi.fn().mockReturnValue({ ask }),
     });
     await expect(service.handle({ type: 'pdf:agent-ask', hash: source.hash, activePage: 1, selection: 'selected', recentMessages: [], question: 'What?', maxCharacters: 10 }, 7)).resolves.toMatchObject({ answer: 'Answer [p:1]', mode: 'compressed' });
@@ -215,7 +220,7 @@ describe('PDF workspace 生命周期修复波', () => {
 function makeService(mineru?: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
   return new PdfWorkspaceService({
     loadSource: vi.fn(), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
-    getSettings: vi.fn().mockResolvedValue({ openAi: { apiKey: 'secret', baseUrl: 'https://api.test/v1', model: 'm' }, mineru: { baseUrl: 'https://mineru.net', token: 'secret', modelVersion: 'vlm' }, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
+    getSettings: vi.fn().mockResolvedValue({ openAi: openAiSettings, mineru: { baseUrl: 'https://mineru.net', token: 'secret', modelVersion: 'vlm' }, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
     createMineru: vi.fn().mockReturnValue(mineru), loadMineru: vi.fn().mockResolvedValue(model), createOpenAi: vi.fn(), createAgent: vi.fn(),
     ...overrides,
   } as never);

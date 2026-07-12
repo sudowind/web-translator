@@ -22,6 +22,8 @@ fieldset { margin: 24px 0 0; padding: 16px; border: 1px solid var(--border); bor
 input, select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #94a3b8; border-radius: 8px; color: #172033; background: #fff; font: inherit; }
 input:focus-visible, select:focus-visible, button:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
 input[aria-invalid="true"] { border-color: var(--error); }
+.checkbox-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.checkbox-row input { width: 20px; min-height: 20px; margin: 0; }
 .help, .error { margin: 4px 0 0; font-size: 14px; }
 .help { color: var(--muted); }
 .error { color: var(--error); font-weight: 600; }

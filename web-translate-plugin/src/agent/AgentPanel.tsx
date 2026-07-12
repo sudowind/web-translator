@@ -48,6 +48,7 @@ export function AgentPanel({
     <aside className="agent-panel" aria-label="论文智能体">
       <header><strong>论文智能体</strong><button type="button" onClick={onToggle}>收起</button></header>
       {notice && <p role="status">{notice}</p>}
+      {busy && <p role="status">模型正在思考或生成回答…</p>}
       {error && <p role="alert">{error}</p>}
       <div className="agent-messages">
         {messages.map((message, index) => (

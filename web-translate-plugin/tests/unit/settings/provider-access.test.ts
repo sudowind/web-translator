@@ -7,12 +7,26 @@ import {
   providerOriginPattern,
   validateProviderSettings,
 } from '../../../src/settings/provider-access';
+import { resolveAgentProfile } from '../../../src/settings/schema';
 
 const validSettings = {
   openAi: {
     baseUrl: 'https://api.example.test:8443/v1/',
     apiKey: ' secret ',
-    model: ' model-name ',
+    dialect: 'generic-openai' as const,
+    translation: {
+      model: ' model-name ',
+      reasoning: { mode: 'off' as const },
+      timeoutMs: 30_000,
+    },
+    agent: {
+      inheritTranslationModel: true,
+      profile: {
+        model: ' agent-model ',
+        reasoning: { mode: 'auto' as const, effort: 'medium' as const },
+        timeoutMs: 120_000,
+      },
+    },
   },
   mineru: {
     baseUrl: 'https://mineru.example.test/',
@@ -71,7 +85,20 @@ describe('Provider 设置授权', () => {
       openAi: {
         baseUrl: 'https://api.example.test:8443/v1',
         apiKey: 'secret',
-        model: 'model-name',
+        dialect: 'generic-openai',
+        translation: {
+          model: 'model-name',
+          reasoning: { mode: 'off' },
+          timeoutMs: 30_000,
+        },
+        agent: {
+          inheritTranslationModel: true,
+          profile: {
+            model: 'model-name',
+            reasoning: { mode: 'auto', effort: 'medium' },
+            timeoutMs: 120_000,
+          },
+        },
       },
       mineru: {
         baseUrl: 'https://mineru.example.test',
@@ -85,6 +112,26 @@ describe('Provider 设置授权', () => {
         openAi: { ...validSettings.openAi, apiKey: '' },
       }),
     ).toThrow('API Key');
+  });
+
+  it('解析继承模型并拒绝通用接口开启思考', () => {
+    expect(resolveAgentProfile(validSettings.openAi).model).toBe(
+      validSettings.openAi.translation.model,
+    );
+    expect(() => validateProviderSettings({
+      ...validSettings,
+      openAi: {
+        ...validSettings.openAi,
+        agent: {
+          inheritTranslationModel: false,
+          profile: {
+            model: 'agent-model',
+            reasoning: { mode: 'on' },
+            timeoutMs: 120_000,
+          },
+        },
+      },
+    })).toThrow('通用 OpenAI 兼容接口无法确认思考协议');
   });
 
   it('权限拒绝时不返回可保存配置', async () => {

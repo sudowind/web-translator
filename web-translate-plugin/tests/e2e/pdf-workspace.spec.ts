@@ -238,7 +238,20 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         openAi: {
           baseUrl: `${fixtureOrigin}/openai/v1`,
           apiKey: 'e2e-openai-key',
-          model: 'e2e-model',
+          dialect: 'generic-openai',
+          translation: {
+            model: 'e2e-model',
+            reasoning: { mode: 'off' },
+            timeoutMs: 30000,
+          },
+          agent: {
+            inheritTranslationModel: true,
+            profile: {
+              model: 'e2e-model',
+              reasoning: { mode: 'auto' },
+              timeoutMs: 120000,
+            },
+          },
         },
         mineru: {
           baseUrl: `${fixtureOrigin}/mineru`,
