@@ -54,8 +54,18 @@ describe('OpenAI 兼容请求构造器', () => {
     expect(result.body).toMatchObject({
       model: 'translate-model',
       response_format: { type: 'json_object' },
+      stream: true,
       enable_thinking: false,
     });
+  });
+
+  it('仅翻译请求启用流式响应', () => {
+    expect(
+      buildChatRequest({ purpose: 'connection-test', settings: settings('dashscope'), messages }).body,
+    ).not.toHaveProperty('stream');
+    expect(
+      buildChatRequest({ purpose: 'agent', settings: settings('dashscope'), messages }).body,
+    ).not.toHaveProperty('stream');
   });
 
   it('按方言映射智能体思考参数', () => {

@@ -34,7 +34,10 @@ export function buildChatRequest(input: BuildChatRequestInput): BuiltChatRequest
   };
 
   if (purpose === 'connection-test') body.max_tokens = 16;
-  if (purpose === 'translation') body.response_format = { type: 'json_object' };
+  if (purpose === 'translation') {
+    body.response_format = { type: 'json_object' };
+    body.stream = true;
+  }
   applyReasoning(body, settings.dialect, reasoning);
 
   return {

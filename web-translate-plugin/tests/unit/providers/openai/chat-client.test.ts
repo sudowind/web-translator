@@ -24,6 +24,30 @@ const settings: OpenAiSettings = {
 
 afterEach(() => vi.useRealTimers());
 
+function controlledSseResponse(): {
+  response: Response;
+  push: (chunk: string) => void;
+  close: () => void;
+  error: (reason: unknown) => void;
+} {
+  const encoder = new TextEncoder();
+  let streamController!: ReadableStreamDefaultController<Uint8Array>;
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        streamController = controller;
+      },
+    }),
+    { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+  );
+  return {
+    response,
+    push: (chunk) => streamController.enqueue(encoder.encode(chunk)),
+    close: () => streamController.close(),
+    error: (reason) => streamController.error(reason),
+  };
+}
+
 describe('OpenAI 兼容传输层', () => {
   it('发送构造后的请求并读取文本内容', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
@@ -102,5 +126,53 @@ describe('OpenAI 兼容传输层', () => {
     await expect(
       client.complete({ purpose: 'connection-test', messages: [] }),
     ).rejects.toEqual(new LlmProviderError('LLM_NETWORK'));
+  });
+
+  it('翻译流持续活动时允许总耗时超过配置的空闲超时', async () => {
+    vi.useFakeTimers();
+    const stream = controlledSseResponse();
+    const fetcher = vi.fn<typeof fetch>((_input, init) => {
+      init?.signal?.addEventListener('abort', () => {
+        stream.error(new DOMException('Aborted', 'AbortError'));
+      });
+      return Promise.resolve(stream.response);
+    });
+    const client = new OpenAiChatClient(
+      settings,
+      fetcher,
+    );
+    const completion = expect(
+      client.complete({ purpose: 'translation', messages: [] }),
+    ).resolves.toBe('{"translations":[]}');
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    stream.push('data: {"choices":[{"delta":{"content":"{\\"translations\\":"}}]}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(20_000);
+    stream.push('data: {"choices":[{"delta":{"content":"[]}"}}]}\n\ndata: [DONE]\n\n');
+    stream.close();
+
+    await completion;
+  });
+
+  it('翻译流连续空闲达到配置时长时返回超时', async () => {
+    vi.useFakeTimers();
+    const stream = controlledSseResponse();
+    const fetcher = vi.fn<typeof fetch>((_input, init) => {
+      init?.signal?.addEventListener('abort', () => {
+        stream.error(new DOMException('Aborted', 'AbortError'));
+      });
+      return Promise.resolve(stream.response);
+    });
+    const client = new OpenAiChatClient(
+      settings,
+      fetcher,
+    );
+    const timedOut = expect(
+      client.complete({ purpose: 'translation', messages: [] }),
+    ).rejects.toMatchObject({ code: 'LLM_TIMEOUT' });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await timedOut;
   });
 });

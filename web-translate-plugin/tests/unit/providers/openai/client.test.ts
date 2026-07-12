@@ -2,6 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { OpenAiTranslationClient } from '../../../../src/providers/openai/client';
 
+function sseResponse(content: string): Response {
+  const event = JSON.stringify({ choices: [{ delta: { content } }] });
+  return new Response(`data: ${event}\n\ndata: [DONE]\n\n`, {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+}
+
 describe('OpenAI 兼容翻译客户端', () => {
   const settings = {
     apiKey: 'secret-key',
@@ -24,22 +32,13 @@ describe('OpenAI 兼容翻译客户端', () => {
 
   it('使用 chat completions JSON Object 协议并按 block id 返回结果', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
+      sseResponse(
         JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({
-                  translations: [
-                    { id: 'b2', text: '世界' },
-                    { id: 'b1', text: '你好' },
-                  ],
-                }),
-              },
-            },
+          translations: [
+            { id: 'b2', text: '世界' },
+            { id: 'b1', text: '你好' },
           ],
         }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     );
     const controller = new AbortController();
@@ -73,6 +72,7 @@ describe('OpenAI 兼容翻译客户端', () => {
       expect.objectContaining({
         model: 'translator',
         response_format: { type: 'json_object' },
+        stream: true,
       }),
     );
   });
@@ -95,10 +95,7 @@ describe('OpenAI 兼容翻译客户端', () => {
     ],
   ])('拒绝%s响应', async (_label, content) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({ choices: [{ message: { content } }] }),
-        { status: 200 },
-      ),
+      sseResponse(content),
     );
     const client = new OpenAiTranslationClient(settings, fetcher);
 
@@ -174,19 +171,10 @@ describe('OpenAI 兼容翻译客户端', () => {
       receivedThis = this;
       if (this !== undefined) throw new TypeError('Illegal invocation');
       return Promise.resolve(
-        new Response(
+        sseResponse(
           JSON.stringify({
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    translations: [{ id: 'b1', text: '你好' }],
-                  }),
-                },
-              },
-            ],
+            translations: [{ id: 'b1', text: '你好' }],
           }),
-          { status: 200 },
         ),
       );
     } as typeof fetch;

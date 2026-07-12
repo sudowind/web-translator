@@ -4,6 +4,7 @@ import {
   type ChatMessage,
   type LlmPurpose,
 } from './request-builder';
+import { readChatCompletionSse, SseResponseError } from './sse';
 
 export class LlmProviderError extends Error {
   readonly name = 'LlmProviderError';
@@ -31,10 +32,15 @@ export class OpenAiChatClient {
     let timedOut = false;
     const abortFromCaller = () => controller.abort();
     signal?.addEventListener('abort', abortFromCaller, { once: true });
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const armTimeout = () => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    };
+    armTimeout();
 
     try {
       const fetcher = this.fetcher;
@@ -52,6 +58,11 @@ export class OpenAiChatClient {
       );
       if (!response.ok) throw new LlmProviderError(`LLM_HTTP_${response.status}`);
 
+      if (body.stream === true) {
+        armTimeout();
+        return await readChatCompletionSse(response, armTimeout);
+      }
+
       let payload: unknown;
       try {
         payload = await response.json();
@@ -65,9 +76,12 @@ export class OpenAiChatClient {
       if (error instanceof LlmProviderError) throw error;
       if (timedOut) throw new LlmProviderError('LLM_TIMEOUT');
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (error instanceof SseResponseError) {
+        throw new LlmProviderError('LLM_RESPONSE_INVALID');
+      }
       throw new LlmProviderError('LLM_NETWORK');
     } finally {
-      clearTimeout(timeout);
+      if (timeout !== undefined) clearTimeout(timeout);
       signal?.removeEventListener('abort', abortFromCaller);
     }
   }
