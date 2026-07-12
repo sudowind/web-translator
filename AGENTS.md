@@ -9,6 +9,7 @@
 
 ## 当前规格记录
 
+- arXiv 论文离线界面外在线全链路验收：`docs/superpowers/specs/2026-07-12-arxiv-live-pipeline-verification-design.md`
 - LLM 流式翻译与空闲超时：`docs/superpowers/specs/2026-07-12-llm-streaming-idle-timeout-design.md`
 - LLM 流式翻译与空闲超时实施计划：`docs/superpowers/plans/2026-07-12-llm-streaming-idle-timeout-plan.md`
 - PDF 翻译失败诊断与滚动渲染稳定性：`docs/superpowers/specs/2026-07-12-pdf-translation-diagnostics-render-stability-design.md`
