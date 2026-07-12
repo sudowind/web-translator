@@ -42,9 +42,10 @@ export async function readChatCompletionSse(
 }
 
 function readDelta(value: unknown): string | undefined {
-  if (!isRecord(value) || !Array.isArray(value.choices) || value.choices.length === 0) {
+  if (!isRecord(value) || !Array.isArray(value.choices)) {
     throw new SseResponseError('SSE_EVENT_INVALID');
   }
+  if (value.choices.length === 0) return undefined;
   const first = value.choices[0];
   if (!isRecord(first) || !isRecord(first.delta)) {
     throw new SseResponseError('SSE_EVENT_INVALID');

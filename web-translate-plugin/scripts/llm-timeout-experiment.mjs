@@ -31,7 +31,7 @@ async function main() {
   }
 
   console.log('\n汇总');
-  console.table(results.map(({ name, status, headersMs, firstTextMs, maxChunkGapMs, totalMs, outputChars, jsonValid, schemaValid, error }) => ({
+  console.table(results.map(({ name, status, headersMs, firstTextMs, maxChunkGapMs, totalMs, outputChars, jsonValid, schemaValid, eventShapes, error }) => ({
     case: name,
     status,
     headersMs,
@@ -41,6 +41,7 @@ async function main() {
     outputChars,
     jsonValid,
     schemaValid,
+    eventShapes: eventShapes ? JSON.stringify(eventShapes) : '',
     error,
   })));
 }
@@ -120,6 +121,7 @@ async function runCase(config, messages, experiment) {
       measured.content,
       '',
       measured.maxChunkGapMs ?? null,
+      measured.eventShapes ?? null,
     );
   } catch (error) {
     const code = controller.signal.aborted ? 'TOTAL_TIMEOUT' : safeError(error);
@@ -144,6 +146,13 @@ async function readStream(response, started) {
   let firstTextMs = null;
   let previousTextAt = null;
   let maxChunkGapMs = null;
+  const eventShapes = {
+    total: 0,
+    text: 0,
+    metadataOnly: 0,
+    emptyChoices: 0,
+    missingDelta: 0,
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -161,20 +170,32 @@ async function readStream(response, started) {
       } catch {
         continue;
       }
+      eventShapes.total += 1;
+      if (!Array.isArray(event?.choices) || event.choices.length === 0) {
+        eventShapes.emptyChoices += 1;
+        continue;
+      }
+      if (typeof event.choices[0]?.delta !== 'object' || event.choices[0].delta === null) {
+        eventShapes.missingDelta += 1;
+        continue;
+      }
       const delta = event?.choices?.[0]?.delta?.content;
       if (typeof delta === 'string' && delta.length > 0) {
+        eventShapes.text += 1;
         const receivedAt = elapsed(started);
         if (firstTextMs === null) firstTextMs = receivedAt;
         if (previousTextAt !== null) maxChunkGapMs = Math.max(maxChunkGapMs ?? 0, receivedAt - previousTextAt);
         previousTextAt = receivedAt;
         content += delta;
+      } else {
+        eventShapes.metadataOnly += 1;
       }
     }
   }
-  return { content, firstTextMs, maxChunkGapMs };
+  return { content, firstTextMs, maxChunkGapMs, eventShapes };
 }
 
-function result(name, status, headersMs, firstTextMs, totalMs, content, error = '', maxChunkGapMs = null) {
+function result(name, status, headersMs, firstTextMs, totalMs, content, error = '', maxChunkGapMs = null, eventShapes = null) {
   let parsed;
   let jsonValid = false;
   try {
@@ -192,6 +213,7 @@ function result(name, status, headersMs, firstTextMs, totalMs, content, error = 
     outputChars: content.length,
     jsonValid,
     schemaValid,
+    eventShapes,
     error,
   };
 }

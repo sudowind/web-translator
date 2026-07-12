@@ -44,6 +44,18 @@ describe('OpenAI Chat Completions SSE 解析器', () => {
     expect(onActivity).toHaveBeenCalledTimes(2);
   });
 
+  it('允许百炼在有效文本后发送空 choices 尾事件', async () => {
+    const onActivity = vi.fn();
+    const response = streamResponse([
+      'data: {"choices":[{"delta":{"content":"OK"}}]}\n\n',
+      'data: {"choices":[],"usage":{"total_tokens":10}}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+
+    await expect(readChatCompletionSse(response, onActivity)).resolves.toBe('OK');
+    expect(onActivity).toHaveBeenCalledTimes(2);
+  });
+
   it('缺少响应体时返回稳定错误', async () => {
     await expect(readChatCompletionSse(new Response(null), vi.fn())).rejects.toEqual(
       new SseResponseError('SSE_BODY_MISSING'),
@@ -58,7 +70,7 @@ describe('OpenAI Chat Completions SSE 解析器', () => {
 
   it('无效事件结构时返回稳定错误', async () => {
     await expect(
-      readChatCompletionSse(streamResponse(['data: {"choices":[]}\n\n']), vi.fn()),
+      readChatCompletionSse(streamResponse(['data: {"choices":[{}]}\n\n']), vi.fn()),
     ).rejects.toEqual(new SseResponseError('SSE_EVENT_INVALID'));
   });
 
