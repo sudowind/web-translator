@@ -32,6 +32,8 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [agentBusy, setAgentBusy] = React.useState(false);
   const [agentNotice, setAgentNotice] = React.useState<string>();
   const [agentError, setAgentError] = React.useState<string>();
+  const [previewBlockId, setPreviewBlockId] = React.useState<string | null>(null);
+  const [pinnedBlockId, setPinnedBlockId] = React.useState<string | null>(null);
   const schedulerRef = React.useRef<PageScheduler | null>(null);
   const pumpRef = React.useRef<() => void>(() => undefined);
   const parseStarted = React.useRef(false);
@@ -43,6 +45,12 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     () => source ? Uint8Array.from(source.bytes) : null,
     [source],
   );
+  const highlightedBlockId = previewBlockId ?? pinnedBlockId;
+
+  React.useEffect(() => {
+    setPreviewBlockId(null);
+    setPinnedBlockId(null);
+  }, [model?.hash]);
 
   const flushAgentDeltas = React.useCallback(() => {
     if (agentFlushTimer.current !== undefined) {
@@ -345,10 +353,14 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               pageStatus={pageStatus}
               pageFailures={pageFailures}
               pageAttempts={pageAttempts}
+              highlightedBlockId={highlightedBlockId}
+              pinnedBlockId={pinnedBlockId}
               onDocumentReady={onDocumentReady}
               onPageVisible={onPageVisible}
               onRetryPage={retryPage}
               onCopyFailure={(failure) => void navigator.clipboard.writeText(formatTranslationFailure(failure))}
+              onBlockPreview={setPreviewBlockId}
+              onBlockPin={(blockId) => setPinnedBlockId((current) => current === blockId ? null : blockId)}
             />
             : <p role="status">正在读取 PDF…</p>}
         </section>

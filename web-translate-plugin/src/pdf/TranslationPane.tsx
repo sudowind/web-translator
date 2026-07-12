@@ -5,6 +5,7 @@ import type { DocumentBlock, DocumentPage } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import { MarkdownContent } from '../rendering/MarkdownContent';
 import type { TranslationFailure } from '../translation/failure';
+import { mineruPolygonToPercentRect } from './block-highlight';
 
 export type TranslationPageStatus =
   | 'pending'
@@ -111,7 +112,7 @@ function TranslationBlock({
   onPreview(blockId: string | null): void;
   onPin(blockId: string): void;
 }) {
-  const interactive = block.polygon !== undefined;
+  const interactive = mineruPolygonToPercentRect(block.polygon) !== null;
   const content = text ?? (block.kind === 'figure' ? block.text || block.resourceUrl || '图片' : fallback);
   return (
     <article

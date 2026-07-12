@@ -47,11 +47,15 @@ interface PairedPageViewerProps {
   pageStatus: ReadonlyMap<number, TranslationPageStatus>;
   pageFailures: ReadonlyMap<number, TranslationFailure>;
   pageAttempts: ReadonlyMap<number, number>;
+  highlightedBlockId?: string | null;
+  pinnedBlockId?: string | null;
   translationPlaceholder?: React.ReactNode;
   onDocumentReady(pageCount: number): void;
   onPageVisible(page: number, progress: number): void;
   onRetryPage(page: number): void;
   onCopyFailure(failure: TranslationFailure): void;
+  onBlockPreview(blockId: string | null): void;
+  onBlockPin(blockId: string): void;
 }
 
 export function PairedPageViewer({
@@ -64,11 +68,15 @@ export function PairedPageViewer({
   pageStatus,
   pageFailures,
   pageAttempts,
+  highlightedBlockId,
+  pinnedBlockId,
   translationPlaceholder,
   onDocumentReady,
   onPageVisible,
   onRetryPage,
   onCopyFailure,
+  onBlockPreview,
+  onBlockPin,
 }: PairedPageViewerProps) {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const activePageRef = React.useRef(activePage);
@@ -180,13 +188,14 @@ export function PairedPageViewer({
       {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => {
         const height = pageHeights.get(number) ?? 780;
         const page = model?.pages[number - 1];
+        const highlightedBlock = page?.blocks.find((block) => block.id === highlightedBlockId);
         return (
           <PagePair
             key={number}
             number={number}
             height={height}
             pdf={document && renderWindow.has(number)
-              ? <PdfPageCanvas document={document} pageNumber={number} scale={scale} onHeightChange={onHeightChange} />
+              ? <PdfPageCanvas document={document} pageNumber={number} scale={scale} onHeightChange={onHeightChange} highlightedBlock={highlightedBlock} />
               : <div className="pdf-page-placeholder" aria-hidden="true" />}
             translation={page
               ? <TranslationPage
@@ -197,6 +206,9 @@ export function PairedPageViewer({
                 status={pageStatus.get(number) ?? 'pending'}
                 failure={pageFailures.get(number)}
                 attempt={pageAttempts.get(number)}
+                pinnedBlockId={pinnedBlockId}
+                onBlockPreview={onBlockPreview}
+                onBlockPin={onBlockPin}
                 onRetry={() => onRetryPage(number)}
                 onCopyFailure={onCopyFailure}
               />

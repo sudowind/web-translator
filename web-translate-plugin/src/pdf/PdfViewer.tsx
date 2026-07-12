@@ -3,9 +3,14 @@ import {
   getDocument,
   GlobalWorkerOptions,
   type PDFDocumentProxy,
+  type PDFPageProxy,
+  type PageViewport,
   type RenderTask,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+import type { DocumentBlock } from '../document/model';
+import { PdfBlockHighlightLayer } from './PdfBlockHighlightLayer';
+import { PdfTextLayer } from './PdfTextLayer';
 import { selectDominantPage } from './visible-page';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -142,18 +147,24 @@ export function PdfPageCanvas({
   pageNumber,
   scale,
   onHeightChange,
+  highlightedBlock,
 }: {
   document: PDFDocumentProxy;
   pageNumber: number;
   scale: number;
   onHeightChange?(pageNumber: number, height: number): void;
+  highlightedBlock?: DocumentBlock;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const [text, setText] = React.useState('');
+  const [textLayer, setTextLayer] = React.useState<{ page: PDFPageProxy; viewport: PageViewport } | null>(null);
+  const [renderError, setRenderError] = React.useState<string>();
+  const handleTextLayerError = React.useCallback(() => setRenderError('PDF 文本层渲染失败'), []);
 
   React.useEffect(() => {
     let cancelled = false;
     let renderTask: RenderTask | undefined;
+    setTextLayer(null);
+    setRenderError(undefined);
     void document.getPage(pageNumber).then(async (page) => {
       if (cancelled || !canvasRef.current) return;
       const viewport = page.getViewport({ scale });
@@ -163,21 +174,16 @@ export function PdfPageCanvas({
       canvas.height = Math.floor(viewport.height * ratio);
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
+      setTextLayer({ page, viewport });
       renderTask = page.render({
         canvas,
         viewport,
         transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
       });
-      const textContent = await page.getTextContent();
-      if (!cancelled) {
-        setText(textContent.items
-          .map((item) => 'str' in item ? item.str : '')
-          .join(' '));
-      }
       await renderTask.promise;
     }).catch((error: unknown) => {
       if (!cancelled && !(error instanceof Error && error.name === 'RenderingCancelledException')) {
-        setText('PDF 页面渲染失败');
+        setRenderError('PDF 页面渲染失败');
       }
     });
     return () => {
@@ -203,7 +209,13 @@ export function PdfPageCanvas({
   return (
     <div className="pdf-page-canvas-wrap">
       <canvas ref={canvasRef} />
-      <p className="pdf-text-layer" aria-label={`第 ${pageNumber} 页可选择文本`}>{text}</p>
+      <PdfBlockHighlightLayer polygon={highlightedBlock?.polygon} />
+      {textLayer && <PdfTextLayer
+        page={textLayer.page}
+        viewport={textLayer.viewport}
+        onError={handleTextLayerError}
+      />}
+      {renderError && <p className="pdf-page-render-error" role="status">{renderError}</p>}
     </div>
   );
 }
