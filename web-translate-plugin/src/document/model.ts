@@ -1,4 +1,4 @@
-export const DOCUMENT_SCHEMA_VERSION = 2;
+export const DOCUMENT_SCHEMA_VERSION = 3;
 
 export type BlockKind =
   | 'heading'
@@ -17,6 +17,7 @@ export interface DocumentBlock {
   order: number;
   kind: BlockKind;
   text: string;
+  caption?: string;
   headingLevel?: number;
   latex?: string;
   html?: string;

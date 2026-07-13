@@ -64,8 +64,8 @@ export function normalizeMineru(
       : baseKind;
     const page = pages[pageIndex as number];
     const order = page.blocks.length;
-    const caption = imageCaption ?? tableCaption;
-    const normalizedText = text ?? caption?.join('\n') ?? '';
+    const caption = normalizeCaption(imageCaption ?? tableCaption);
+    const normalizedText = text ?? caption ?? '';
     const headingLevel = kind === 'heading'
       ? (type === 'title' ? 1 : textLevel)
       : undefined;
@@ -79,6 +79,7 @@ export function normalizeMineru(
       order,
       kind,
       text: normalizedText,
+      ...(caption === undefined ? {} : { caption }),
       ...(headingLevel === undefined ? {} : { headingLevel }),
       ...(latex === undefined ? {} : { latex }),
       ...(html === undefined ? {} : { html }),
@@ -156,6 +157,14 @@ function optionalStringArray(value: unknown): string[] | undefined {
     throw new MineruDataError('MINERU_FIELD_INVALID');
   }
   return value;
+}
+
+function normalizeCaption(value: string[] | undefined): string | undefined {
+  const caption = value
+    ?.map((item) => item.trim())
+    .filter(Boolean)
+    .join('\n');
+  return caption || undefined;
 }
 
 function optionalNumberArray(value: unknown): number[] | undefined {

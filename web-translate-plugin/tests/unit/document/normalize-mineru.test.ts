@@ -44,6 +44,37 @@ describe('MinerU 文档规范化', () => {
     ]);
   });
 
+  it('把 MinerU 表格与图片标题写入独立 caption 并忽略全空白标题', () => {
+    const model = normalizeMineru([
+      {
+        page_idx: 0,
+        type: 'table',
+        text: 'table OCR must stay separate',
+        table_body: '<table><tr><td>secret cell</td></tr></table>',
+        table_caption: [' Table one ', 'continued'],
+      },
+      {
+        page_idx: 0,
+        type: 'image',
+        text: 'image OCR must stay separate',
+        img_path: 'images/figure.png',
+        image_caption: [' Figure one '],
+      },
+      { page_idx: 0, type: 'table', table_caption: [' ', '\t'] },
+      { page_idx: 0, type: 'image', img_path: 'images/no-title.png' },
+    ], { ...metadata, pageCount: 1 });
+
+    expect(model.schemaVersion).toBe(3);
+    expect(model.pages[0].blocks).toMatchObject([
+      { kind: 'table', text: 'table OCR must stay separate', caption: 'Table one\ncontinued' },
+      { kind: 'figure', text: 'image OCR must stay separate', caption: 'Figure one' },
+      { kind: 'table', text: '' },
+      { kind: 'figure', text: '' },
+    ]);
+    expect(model.pages[0].blocks[2]).not.toHaveProperty('caption');
+    expect(model.pages[0].blocks[3]).not.toHaveProperty('caption');
+  });
+
   it.each([-1, 1.5, '1', Number.MAX_SAFE_INTEGER + 1])(
     '拒绝非法 text_level：%j',
     (text_level) => {
