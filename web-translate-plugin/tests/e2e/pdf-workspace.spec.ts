@@ -86,12 +86,13 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   const authenticatedPdf = createTwoPagePdf('Authenticated');
   const archive = Buffer.from(zipSync({
     'nested/paper_content_list.json': strToU8(JSON.stringify([
-      { page_idx: 0, type: 'title', text: 'Paper title', bbox: [100, 80, 900, 150] },
+      { page_idx: 0, type: 'text', text: 'Paper title', text_level: 1, bbox: [100, 80, 900, 150] },
       { page_idx: 0, type: 'text', text: 'Introduction with x squared', bbox: [100, 200, 900, 400] },
+      { page_idx: 0, type: 'text', text: 'Scaled Dot-Product Attention', text_level: 3, bbox: [100, 405, 900, 455] },
       { page_idx: 0, type: 'list', text: '- First item\n- Second item', bbox: [100, 420, 900, 560] },
-      { page_idx: 0, type: 'equation', text: 'E=mc^2', bbox: [200, 580, 800, 680] },
+      { page_idx: 0, type: 'interline_equation', text: '$$\n\\operatorname{Attention}(Q,K,V)=\\operatorname{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V \\tag{1}\n$$', bbox: [200, 580, 800, 680] },
       { page_idx: 0, type: 'table', text: 'Source table', table_body: '<table><tr><td>A</td><td>B</td></tr></table>', bbox: [100, 700, 900, 900] },
-      { page_idx: 1, type: 'title', text: 'Results', bbox: [100, 80, 900, 150] },
+      { page_idx: 1, type: 'text', text: 'Results', text_level: 2, bbox: [100, 80, 900, 150] },
       { page_idx: 1, type: 'text', text: 'Main contribution', bbox: [100, 200, 900, 400] },
     ])),
   }));
@@ -202,12 +203,12 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
             response.end(JSON.stringify({ error: { message: 'rate limited' } }));
             return;
           }
-          if (page === '1') await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+          if (page === '1') await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
           sse(response, translationFailureMode === 'mixed' && page === '1'
             ? 'not json'
             : JSON.stringify({
               translations: input.blocks.map((block) => ({ id: block.id, text:
-                block.kind === 'heading' ? '**论文标题**' :
+                block.kind === 'heading' ? (block.text === 'Paper title' ? '**论文标题**' : '**缩放点积注意力**') :
                 block.kind === 'list' ? '- 第一项\n- 第二项' :
                 block.kind === 'table' ? '| 项目 | 结果 |\n| --- | --- |\n| A | 已翻译 |' :
                 page === '1' ? Array.from({ length: 80 }, () => '这是**重点**，含行内公式 $x^2$。').join('\n') :
@@ -349,9 +350,12 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
 
     const pageOne = pdfPage.locator('[data-translation-page="1"]');
     await expect(pageOne.locator('[data-block-kind="heading"] h3 strong')).toHaveText('论文标题');
+    await expect(pageOne.locator('[data-block-kind="heading"] h5 strong')).toHaveText('缩放点积注意力');
     await expect(pageOne.locator('[data-block-kind="list"] ul')).toBeVisible();
     await expect(pageOne.locator('[data-block-kind="table"] table')).toBeVisible();
-    await expect(pageOne.locator('[data-block-kind="formula"] .katex')).toBeVisible();
+    await expect(pageOne.locator('[data-block-kind="formula"] .katex-display')).toBeVisible();
+    await expect(pageOne.locator('[data-block-kind="formula"] .katex-error')).toHaveCount(0);
+    await expect(pageOne.locator('[data-block-kind="formula"]')).toContainText('(1)');
     await pageOne.evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(pageOne).toHaveScreenshot('rich-translation-page.png', { animations: 'disabled' });
     const richTranslationBody = pageOne.locator('.translation-page-body');
