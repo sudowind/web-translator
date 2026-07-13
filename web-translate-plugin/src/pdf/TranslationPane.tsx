@@ -145,12 +145,20 @@ function renderBlockContent(block: DocumentBlock, content: string): React.ReactN
     return <div className="translation-formula" dangerouslySetInnerHTML={{ __html: markup }} />;
   }
   if (block.kind === 'heading') {
-    return <h3><MarkdownContent content={content} inline /></h3>;
+    const Heading = headingTagForLevel(block.headingLevel);
+    return <Heading><MarkdownContent content={content} inline /></Heading>;
   }
   if (block.kind === 'table') {
     return <MarkdownContent content={content === '翻译中…' || content === '翻译失败' ? content : content || block.text} />;
   }
   return <MarkdownContent content={content} />;
+}
+
+function headingTagForLevel(level = 1): 'h3' | 'h4' | 'h5' | 'h6' {
+  if (level <= 1) return 'h3';
+  if (level === 2) return 'h4';
+  if (level === 3) return 'h5';
+  return 'h6';
 }
 
 function statusLabel(status: TranslationPageStatus): string {

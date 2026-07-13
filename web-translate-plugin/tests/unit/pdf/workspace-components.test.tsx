@@ -11,12 +11,15 @@ const model: DocumentModel = {
   id: 'h', sourceUrl: 'https://x.test/p.pdf', hash: 'h', title: 'Paper', pageCount: 2,
   pages: [
     { id: 'p1', index: 0, blocks: [
-      { id: 'h1', pageId: 'p1', order: 0, kind: 'heading', text: 'Heading', polygon: [100, 100, 900, 180] },
-      { id: 'b1', pageId: 'p1', order: 1, kind: 'paragraph', text: '<script>alert(1)</script>', polygon: [100, 200, 900, 500] },
-      { id: 'l1', pageId: 'p1', order: 2, kind: 'list', text: '- One\n- Two' },
-      { id: 't1', pageId: 'p1', order: 3, kind: 'table', text: 'A', html: '<table><tr><td>A</td></tr></table>' },
+      { id: 'h1', pageId: 'p1', order: 0, kind: 'heading', headingLevel: 1, text: 'Heading 1', polygon: [100, 100, 900, 180] },
+      { id: 'h2', pageId: 'p1', order: 1, kind: 'heading', headingLevel: 2, text: 'Heading 2' },
+      { id: 'h3', pageId: 'p1', order: 2, kind: 'heading', headingLevel: 3, text: 'Heading 3' },
+      { id: 'h8', pageId: 'p1', order: 3, kind: 'heading', headingLevel: 8, text: 'Heading 8' },
+      { id: 'b1', pageId: 'p1', order: 4, kind: 'paragraph', text: '<script>alert(1)</script>', polygon: [100, 200, 900, 500] },
+      { id: 'l1', pageId: 'p1', order: 5, kind: 'list', text: '- One\n- Two' },
+      { id: 't1', pageId: 'p1', order: 6, kind: 'table', text: 'A', html: '<table><tr><td>A</td></tr></table>' },
     ] },
-    { id: 'p2', index: 1, blocks: [{ id: 'b2', pageId: 'p2', order: 0, kind: 'formula', text: 'x^2', latex: 'x^2' }] },
+    { id: 'p2', index: 1, blocks: [{ id: 'b2', pageId: 'p2', order: 0, kind: 'formula', text: '$$ x^2 \\tag{1} $$', latex: 'x^2 \\tag{1}' }] },
   ],
 };
 
@@ -34,6 +37,9 @@ describe('PDF 逐页配对组件契约', () => {
         height={640}
         translations={new Map([
           ['h1', { id: 'h1', text: '标题' }],
+          ['h2', { id: 'h2', text: '二级标题' }],
+          ['h3', { id: 'h3', text: '三级标题' }],
+          ['h8', { id: 'h8', text: '八级标题' }],
           ['b1', { id: 'b1', text: '<img src=x onerror=alert(1)>' }],
           ['l1', { id: 'l1', text: '- 第一\n- 第二' }],
           ['t1', { id: 't1', text: '|列|\n|---|\n|甲|' }],
@@ -53,6 +59,9 @@ describe('PDF 逐页配对组件契约', () => {
     expect(html).toContain('data-block-id="h1"');
     expect(html).toContain('data-block-kind="heading"');
     expect(html).toContain('<h3>');
+    expect(html).toContain('<h4>');
+    expect(html).toContain('<h5>');
+    expect(html).toContain('<h6>');
     expect(html).toContain('<ul>');
     expect(html).toContain('<table>');
     expect(html).toContain('data-pinned="true"');
@@ -80,6 +89,8 @@ describe('PDF 逐页配对组件契约', () => {
       />,
     );
     expect(html).toContain('katex');
+    expect(html).toContain('katex-display');
+    expect(html).not.toContain('katex-error');
     expect(html).toContain('失败：请求超时');
     expect(html).toContain('<details');
     expect(html).not.toContain('<details open=""');
