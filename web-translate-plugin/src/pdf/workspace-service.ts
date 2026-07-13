@@ -1,4 +1,4 @@
-import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../document/model';
+import { DOCUMENT_SCHEMA_VERSION, type DocumentModel, type DocumentPage } from '../document/model';
 import { OpenAiPaperAgentClient } from '../agent/client';
 import { buildAgentContext } from '../agent/context-builder';
 import { MineruClient } from '../providers/mineru/client';
@@ -16,7 +16,7 @@ import {
   type StoredTranslation,
   type TranslationKey,
 } from '../storage/repositories';
-import { translatePage } from '../translation/translate-page';
+import { translatePage, translationBlocksForPage } from '../translation/translate-page';
 import { loadPdfSource } from './pdf-source';
 import type { PdfAgentProgress, PdfMessage, PdfMessageValue, PdfSourceTransfer, PdfTranslationProgress } from './messages';
 
@@ -304,10 +304,11 @@ export class PdfWorkspaceService {
       target: settings.targetLanguage,
       provider: 'openai',
       model: settings.openAi.defaultModel,
-      schema: 1,
+      schema: translationCacheSchemaForPage(page),
     };
+    const expectedIds = translationBlocksForPage(page).map((block) => block.id);
     const cached = await this.dependencies.getTranslation(key);
-    if (cached && isTranslations(cached.blocks)) return cached.blocks;
+    if (cached && isTranslationsForIds(cached.blocks, expectedIds)) return cached.blocks;
     const result = await translatePage(
       this.dependencies.createOpenAi(settings.openAi),
       page,
@@ -403,9 +404,26 @@ function safeTaskError(result: { state: string; error?: string }): string {
     : 'MINERU_RESULT_MISSING';
 }
 
-function isTranslations(value: unknown): value is TranslationResult[] {
-  return Array.isArray(value) && value.every((item) =>
-    typeof item === 'object' && item !== null &&
-    typeof (item as TranslationResult).id === 'string' &&
-    typeof (item as TranslationResult).text === 'string');
+function translationCacheSchemaForPage(page: DocumentPage): 1 | 2 {
+  return page.blocks.some((block) => block.kind === 'table' || block.kind === 'figure') ? 2 : 1;
+}
+
+function isTranslationsForIds(
+  value: unknown,
+  expectedIds: readonly string[],
+): value is TranslationResult[] {
+  if (!Array.isArray(value)) return false;
+  const expected = new Set(expectedIds);
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (
+      typeof item !== 'object' || item === null ||
+      typeof (item as TranslationResult).id !== 'string' ||
+      typeof (item as TranslationResult).text !== 'string' ||
+      !expected.has((item as TranslationResult).id) ||
+      seen.has((item as TranslationResult).id)
+    ) return false;
+    seen.add((item as TranslationResult).id);
+  }
+  return seen.size === expected.size;
 }

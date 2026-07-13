@@ -7,6 +7,18 @@ import { PdfWorkspaceService } from '../../../src/pdf/workspace-service';
 
 const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 7, kind: 'remote' as const, bytes: [37, 80, 68, 70, 45, 49, 10] };
 const model: DocumentModel = { schemaVersion: DOCUMENT_SCHEMA_VERSION, id: source.hash, sourceUrl: source.url, hash: source.hash, title: source.title, pageCount: 1, pages: [{ id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' }] }] };
+const mediaModel: DocumentModel = {
+  ...model,
+  pages: [{
+    id: 'p1',
+    index: 0,
+    blocks: [
+      { id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' },
+      { id: 't1', pageId: 'p1', order: 1, kind: 'table', text: 'table OCR', caption: 'Table title', html: '<table><tr><td>secret</td></tr></table>' },
+      { id: 'f1', pageId: 'p1', order: 2, kind: 'figure', text: 'image OCR', caption: 'Figure title', resourceUrl: 'images/secret.png' },
+    ],
+  }],
+};
 const staleModel: DocumentModel = { ...model, schemaVersion: DOCUMENT_SCHEMA_VERSION - 1 };
 const openAiSettings = {
   apiKey: 'secret', baseUrl: 'https://api.test/v1', dialect: 'generic-openai' as const,
@@ -65,6 +77,92 @@ describe('后台 PDF 工作台服务', () => {
     expect(loadMineru).toHaveBeenCalledOnce();
     await expect(service.handle({ type: 'pdf:translate-page', hash: source.hash, page: 1 }, 7)).resolves.toEqual(cachedTranslation);
     expect(createOpenAi).not.toHaveBeenCalled();
+  });
+
+  it('缺少媒体标题 ID 的旧缓存会重新翻译并覆盖媒体页缓存', async () => {
+    const cached = [{ id: 'b1', text: '正文译文' }];
+    const fresh = [
+      { id: 'b1', text: '正文译文' },
+      { id: 't1', text: '表格标题' },
+      { id: 'f1', text: '图片标题' },
+    ];
+    const translate = vi.fn().mockResolvedValue(fresh);
+    const putTranslation = vi.fn();
+    const getTranslation = vi.fn().mockResolvedValue({ blocks: cached });
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(mediaModel),
+      getTranslation,
+      putTranslation,
+      createOpenAi: vi.fn().mockReturnValue({ translate }),
+    });
+
+    await expect(service.handle(
+      { type: 'pdf:translate-page', hash: source.hash, page: 1 },
+      7,
+    )).resolves.toEqual(fresh);
+    expect(getTranslation).toHaveBeenCalledWith(expect.objectContaining({ schema: 2 }));
+    expect(translate).toHaveBeenCalledOnce();
+    expect(putTranslation).toHaveBeenCalledWith(expect.objectContaining({ schema: 2 }), fresh);
+  });
+
+  it('完整媒体缓存直接复用且不创建 LLM 客户端', async () => {
+    const cached = [
+      { id: 'b1', text: '正文译文' },
+      { id: 't1', text: '表格标题' },
+      { id: 'f1', text: '图片标题' },
+    ];
+    const createOpenAi = vi.fn();
+    const getTranslation = vi.fn().mockResolvedValue({ blocks: cached });
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(mediaModel),
+      getTranslation,
+      createOpenAi,
+    });
+
+    await expect(service.handle(
+      { type: 'pdf:translate-page', hash: source.hash, page: 1 },
+      7,
+    )).resolves.toEqual(cached);
+    expect(getTranslation).toHaveBeenCalledWith(expect.objectContaining({ schema: 2 }));
+    expect(createOpenAi).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['重复 ID', [{ id: 'b1', text: '一' }, { id: 'b1', text: '二' }, { id: 't1', text: '表格' }, { id: 'f1', text: '图片' }]],
+    ['额外 ID', [{ id: 'b1', text: '正文' }, { id: 't1', text: '表格' }, { id: 'f1', text: '图片' }, { id: 'old-table', text: '旧表格' }]],
+  ])('媒体缓存包含%s时重新翻译', async (_case, blocks) => {
+    const fresh = [
+      { id: 'b1', text: '正文' },
+      { id: 't1', text: '表格' },
+      { id: 'f1', text: '图片' },
+    ];
+    const translate = vi.fn().mockResolvedValue(fresh);
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(mediaModel),
+      getTranslation: vi.fn().mockResolvedValue({ blocks }),
+      createOpenAi: vi.fn().mockReturnValue({ translate }),
+    });
+
+    await expect(service.handle(
+      { type: 'pdf:translate-page', hash: source.hash, page: 1 },
+      7,
+    )).resolves.toEqual(fresh);
+    expect(translate).toHaveBeenCalledOnce();
+  });
+
+  it('纯文本页继续使用翻译缓存 schema 1', async () => {
+    const cached = [{ id: 'b1', text: '你好' }];
+    const getTranslation = vi.fn().mockResolvedValue({ blocks: cached });
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(model),
+      getTranslation,
+    });
+
+    await expect(service.handle(
+      { type: 'pdf:translate-page', hash: source.hash, page: 1 },
+      7,
+    )).resolves.toEqual(cached);
+    expect(getTranslation).toHaveBeenCalledWith(expect.objectContaining({ schema: 1 }));
   });
 
   it('公共源在后台创建 MinerU URL 任务并持久化文档', async () => {

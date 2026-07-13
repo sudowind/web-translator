@@ -9,7 +9,10 @@ const page = {
     { id: 'h1', pageId: 'h:p1', order: 0, kind: 'heading' as const, text: 'Title' },
     { id: 'b1', pageId: 'h:p1', order: 0, kind: 'paragraph' as const, text: 'Hello' },
     { id: 'b2', pageId: 'h:p1', order: 1, kind: 'formula' as const, text: 'x', latex: 'x' },
-    { id: 't1', pageId: 'h:p1', order: 2, kind: 'table' as const, text: '', html: '<table><tr><td>A</td></tr></table>' },
+    { id: 't1', pageId: 'h:p1', order: 2, kind: 'table' as const, text: 'table OCR', caption: 'Table title', html: '<table><tr><td>secret</td></tr></table>' },
+    { id: 'f1', pageId: 'h:p1', order: 3, kind: 'figure' as const, text: 'image OCR', caption: 'Figure title', resourceUrl: 'images/secret.png' },
+    { id: 't2', pageId: 'h:p1', order: 4, kind: 'table' as const, text: 'no title', html: '<table></table>' },
+    { id: 'f2', pageId: 'h:p1', order: 5, kind: 'figure' as const, text: 'no title', resourceUrl: 'images/no-title.png' },
   ],
 };
 
@@ -17,16 +20,24 @@ describe('逐页翻译', () => {
   it('只发送可翻译块并保留严格 ID', async () => {
     const translate = vi.fn().mockResolvedValue([
       { id: 'h1', text: '标题' }, { id: 'b1', text: '你好' }, { id: 't1', text: '|列|\n|---|\n|甲|' },
+      { id: 'f1', text: '图片标题' },
     ]);
-    await expect(translatePage({ translate }, page, { sourceLanguage: 'en', targetLanguage: 'zh-CN' })).resolves.toHaveLength(3);
+    await expect(translatePage({ translate }, page, { sourceLanguage: 'en', targetLanguage: 'zh-CN' })).resolves.toHaveLength(4);
     expect(translate).toHaveBeenCalledWith({
       sourceLanguage: 'en', targetLanguage: 'zh-CN',
       blocks: [
         { id: 'h1', kind: 'heading', text: 'Title' },
         { id: 'b1', kind: 'paragraph', text: 'Hello' },
-        { id: 't1', kind: 'table', text: '<table><tr><td>A</td></tr></table>' },
+        { id: 't1', kind: 'table', text: 'Table title' },
+        { id: 'f1', kind: 'figure', text: 'Figure title' },
       ],
     }, undefined);
+    const request = JSON.stringify(translate.mock.calls[0][0]);
+    expect(request).not.toContain('secret');
+    expect(request).not.toContain('table OCR');
+    expect(request).not.toContain('image OCR');
+    expect(request).not.toContain('t2');
+    expect(request).not.toContain('f2');
   });
 
   it('429/5xx 最多重试三次，401 不重试，sleep 可注入', async () => {

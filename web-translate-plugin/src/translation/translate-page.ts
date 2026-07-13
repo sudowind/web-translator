@@ -35,8 +35,24 @@ const translatableKinds = new Set([
   'caption',
   'footnote',
   'other',
-  'table',
 ]);
+
+export function translationBlocksForPage(
+  page: DocumentPage,
+): TranslationRequest['blocks'] {
+  const blocks: TranslationRequest['blocks'] = [];
+  for (const block of page.blocks) {
+    if (block.kind === 'table' || block.kind === 'figure') {
+      const caption = block.caption?.trim();
+      if (caption) blocks.push({ id: block.id, kind: block.kind, text: caption });
+      continue;
+    }
+    if (translatableKinds.has(block.kind)) {
+      blocks.push({ id: block.id, kind: block.kind, text: block.text });
+    }
+  }
+  return blocks;
+}
 
 export async function translatePage(
   client: PageTranslationClient,
@@ -48,9 +64,7 @@ export async function translatePage(
   model = 'unknown',
   onAttempt?: (attempt: number) => void,
 ): Promise<TranslationResult[]> {
-  const blocks = page.blocks
-    .filter((block) => translatableKinds.has(block.kind))
-    .map(({ id, kind, text, html }) => ({ id, kind, text: kind === 'table' ? html ?? text : text }));
+  const blocks = translationBlocksForPage(page);
   if (blocks.length === 0) return [];
 
   const startedAt = Date.now();
