@@ -10,6 +10,7 @@
 ## 当前规格记录
 
 - PDF MinerU 标题层级与独立公式修复：`docs/superpowers/specs/2026-07-13-pdf-mineru-heading-formula-design.md`
+- PDF MinerU 标题层级与独立公式修复实施计划：`docs/superpowers/plans/2026-07-13-pdf-mineru-heading-formula-plan.md`
 - PDF 富文本渲染、Agent 流式回答与区块联动：`docs/superpowers/specs/2026-07-12-pdf-rich-rendering-agent-stream-block-interaction-design.md`
 - PDF 富文本渲染、Agent 流式回答与区块联动实施计划：`docs/superpowers/plans/2026-07-12-pdf-rich-rendering-agent-stream-block-interaction-plan.md`
 - PDF 单主滚动与逐页配对布局：`docs/superpowers/specs/2026-07-12-pdf-single-scroll-paired-pages-design.md`
