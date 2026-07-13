@@ -43,7 +43,7 @@ export class OpenAiTranslationClient {
               content:
                 `Translate each block from ${request.sourceLanguage} to ${request.targetLanguage}. ` +
                 'Return one JSON object with a translations array. Preserve every id exactly once; never merge or split blocks. ' +
-                'Preserve Markdown structure, inline/display math delimiters, code fences and table rows/columns. ' +
+                'Preserve Markdown structure, inline/display math delimiters and code fences. ' +
                 'Do not translate math expressions. For table and figure blocks, the input text is caption only. ' +
                 'Translate it as plain Markdown; never output a table body or image content.',
             },

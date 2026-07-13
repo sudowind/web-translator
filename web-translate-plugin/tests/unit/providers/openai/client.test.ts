@@ -80,6 +80,7 @@ describe('OpenAI 兼容翻译客户端', () => {
     expect(body.messages[0].content).toContain('Do not translate math expressions');
     expect(body.messages[0].content).toContain('For table and figure blocks, the input text is caption only');
     expect(body.messages[0].content).toContain('never output a table body or image content');
+    expect(body.messages[0].content).not.toContain('table rows/columns');
     expect(JSON.parse(body.messages[1].content).blocks[1]).toEqual({ id: 'b2', kind: 'table', text: '| A | B |' });
   });
 
