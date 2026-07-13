@@ -2,11 +2,11 @@ import 'fake-indexeddb/auto';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import type { DocumentModel } from '../../../src/document/model';
+import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
 import { PdfWorkspaceService } from '../../../src/pdf/workspace-service';
 
 const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 7, kind: 'remote' as const, bytes: [37, 80, 68, 70, 45, 49, 10] };
-const model: DocumentModel = { id: source.hash, sourceUrl: source.url, hash: source.hash, title: source.title, pageCount: 1, pages: [{ id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' }] }] };
+const model: DocumentModel = { schemaVersion: DOCUMENT_SCHEMA_VERSION, id: source.hash, sourceUrl: source.url, hash: source.hash, title: source.title, pageCount: 1, pages: [{ id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' }] }] };
 const openAiSettings = {
   apiKey: 'secret', baseUrl: 'https://api.test/v1', dialect: 'generic-openai' as const,
   defaultModel: 'm',

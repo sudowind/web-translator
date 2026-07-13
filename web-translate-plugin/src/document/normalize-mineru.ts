@@ -1,8 +1,9 @@
 import { blockId, pageId } from './ids';
-import type {
-  BlockKind,
-  DocumentMetadata,
-  DocumentModel,
+import {
+  DOCUMENT_SCHEMA_VERSION,
+  type BlockKind,
+  type DocumentMetadata,
+  type DocumentModel,
 } from './model';
 
 export class MineruDataError extends Error {
@@ -56,11 +57,21 @@ export function normalizeMineru(
     const tableCaption = optionalStringArray(value.table_caption);
     const bbox = optionalNumberArray(value.bbox);
     const polygon = optionalNumberArray(value.polygon);
-    const kind = kinds[type] ?? 'other';
+    const textLevel = optionalTextLevel(value.text_level);
+    const baseKind = kinds[type] ?? 'other';
+    const kind: BlockKind = type === 'text' && (textLevel ?? 0) > 0
+      ? 'heading'
+      : baseKind;
     const page = pages[pageIndex as number];
     const order = page.blocks.length;
     const caption = imageCaption ?? tableCaption;
     const normalizedText = text ?? caption?.join('\n') ?? '';
+    const headingLevel = kind === 'heading'
+      ? (type === 'title' ? 1 : textLevel)
+      : undefined;
+    const latex = kind === 'formula'
+      ? normalizeFormulaLatex(normalizedText)
+      : undefined;
 
     page.blocks.push({
       id: blockId(normalizedMetadata.hash, pageIndex as number, order),
@@ -68,14 +79,20 @@ export function normalizeMineru(
       order,
       kind,
       text: normalizedText,
-      ...(kind === 'formula' ? { latex: normalizedText } : {}),
+      ...(headingLevel === undefined ? {} : { headingLevel }),
+      ...(latex === undefined ? {} : { latex }),
       ...(html === undefined ? {} : { html }),
       ...(imagePath === undefined ? {} : { resourceUrl: imagePath }),
       ...((polygon ?? bbox) === undefined ? {} : { polygon: polygon ?? bbox }),
     });
   }
 
-  return { id: normalizedMetadata.hash, ...normalizedMetadata, pages };
+  return {
+    schemaVersion: DOCUMENT_SCHEMA_VERSION,
+    id: normalizedMetadata.hash,
+    ...normalizedMetadata,
+    pages,
+  };
 }
 
 function normalizeMetadata(metadata: DocumentMetadata): DocumentMetadata {
@@ -114,6 +131,23 @@ function optionalString(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') throw new MineruDataError('MINERU_FIELD_INVALID');
   return value;
+}
+
+function optionalTextLevel(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new MineruDataError('MINERU_FIELD_INVALID');
+  }
+  return value as number;
+}
+
+function normalizeFormulaLatex(value: string): string {
+  const trimmed = value.trim();
+  const dollars = /^\$\$([\s\S]*?)\$\$$/.exec(trimmed);
+  const brackets = /^\\\[([\s\S]*?)\\\]$/.exec(trimmed);
+  const latex = (dollars?.[1] ?? brackets?.[1] ?? trimmed).trim();
+  if (!latex) throw new MineruDataError('MINERU_FIELD_INVALID');
+  return latex;
 }
 
 function optionalStringArray(value: unknown): string[] | undefined {

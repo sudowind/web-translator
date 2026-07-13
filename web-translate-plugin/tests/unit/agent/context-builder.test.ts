@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DocumentModel } from '../../../src/document/model';
+import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
 import { buildAgentContext } from '../../../src/agent/context-builder';
 
 const model: DocumentModel = {
+  schemaVersion: DOCUMENT_SCHEMA_VERSION,
   id: 'h', sourceUrl: 'https://x.test/p.pdf', hash: 'h', title: 'Paper', pageCount: 2,
   pages: [
     { id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'heading', text: 'Introduction' }, { id: 'b2', pageId: 'p1', order: 1, kind: 'paragraph', text: 'Background' }] },

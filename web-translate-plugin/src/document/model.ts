@@ -1,3 +1,5 @@
+export const DOCUMENT_SCHEMA_VERSION = 2;
+
 export type BlockKind =
   | 'heading'
   | 'paragraph'
@@ -15,6 +17,7 @@ export interface DocumentBlock {
   order: number;
   kind: BlockKind;
   text: string;
+  headingLevel?: number;
   latex?: string;
   html?: string;
   resourceUrl?: string;
@@ -28,6 +31,7 @@ export interface DocumentPage {
 }
 
 export interface DocumentModel {
+  schemaVersion: number;
   id: string;
   sourceUrl: string;
   hash: string;

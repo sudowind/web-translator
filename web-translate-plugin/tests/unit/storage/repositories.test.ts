@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { DocumentModel } from '../../../src/document/model';
+import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
 import {
   clearAllCache,
   clearDocumentCache,
@@ -14,6 +14,7 @@ import {
 } from '../../../src/storage/repositories';
 
 const model: DocumentModel = {
+  schemaVersion: DOCUMENT_SCHEMA_VERSION,
   id: 'hash|one',
   sourceUrl: 'https://example.test/p.pdf',
   hash: 'hash|one',

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { DOCUMENT_SCHEMA_VERSION } from '../../../src/document/model';
 import { normalizeMineru } from '../../../src/document/normalize-mineru';
 
 const metadata = {
@@ -10,6 +11,49 @@ const metadata = {
 };
 
 describe('MinerU 文档规范化', () => {
+  it('使用 text_level 区分正文与各级标题并保留原始层级', () => {
+    const model = normalizeMineru([
+      { page_idx: 0, type: 'text', text: 'Body', text_level: 0, bbox: [10, 20, 30, 40] },
+      { page_idx: 0, type: 'text', text: 'Section', text_level: 1, bbox: [10, 50, 30, 70] },
+      { page_idx: 0, type: 'text', text: 'Subsection', text_level: 3, bbox: [10, 80, 30, 100] },
+      { page_idx: 0, type: 'title', text: 'Legacy title', bbox: [10, 110, 30, 130] },
+    ], { ...metadata, pageCount: 1 });
+
+    expect(model.schemaVersion).toBe(DOCUMENT_SCHEMA_VERSION);
+    expect(model.pages[0].blocks).toMatchObject([
+      { kind: 'paragraph', text: 'Body' },
+      { kind: 'heading', text: 'Section', headingLevel: 1 },
+      { kind: 'heading', text: 'Subsection', headingLevel: 3 },
+      { kind: 'heading', text: 'Legacy title', headingLevel: 1 },
+    ]);
+  });
+
+  it('去除独立公式的显示定界符但保留原始文本和公式编号', () => {
+    const source = '$$\n\\operatorname{Attention}(Q,K,V)=QK^T\\tag{1}\n$$';
+    const bracketed = '\\[ x^2 + y^2 \\]';
+    const model = normalizeMineru([
+      { page_idx: 0, type: 'equation', text: source },
+      { page_idx: 0, type: 'equation', text: bracketed },
+      { page_idx: 0, type: 'equation', text: 'E=mc^2' },
+    ], { ...metadata, pageCount: 1 });
+
+    expect(model.pages[0].blocks).toMatchObject([
+      { kind: 'formula', text: source, latex: '\\operatorname{Attention}(Q,K,V)=QK^T\\tag{1}' },
+      { kind: 'formula', text: bracketed, latex: 'x^2 + y^2' },
+      { kind: 'formula', text: 'E=mc^2', latex: 'E=mc^2' },
+    ]);
+  });
+
+  it.each([-1, 1.5, '1', Number.MAX_SAFE_INTEGER + 1])(
+    '拒绝非法 text_level：%j',
+    (text_level) => {
+      expect(() => normalizeMineru(
+        [{ page_idx: 0, type: 'text', text: 'secret heading', text_level }],
+        { ...metadata, pageCount: 1 },
+      )).toThrowError(expect.objectContaining({ code: 'MINERU_FIELD_INVALID' }));
+    },
+  );
+
   it('保留空白页、页内顺序、公式、表格、图片与坐标', () => {
     const model = normalizeMineru([
       { page_idx: 0, type: 'title', text: 'A Paper', bbox: [1, 2, 3, 4] },
