@@ -7,6 +7,7 @@ import { PdfWorkspaceService } from '../../../src/pdf/workspace-service';
 
 const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 7, kind: 'remote' as const, bytes: [37, 80, 68, 70, 45, 49, 10] };
 const model: DocumentModel = { schemaVersion: DOCUMENT_SCHEMA_VERSION, id: source.hash, sourceUrl: source.url, hash: source.hash, title: source.title, pageCount: 1, pages: [{ id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' }] }] };
+const staleModel: DocumentModel = { ...model, schemaVersion: DOCUMENT_SCHEMA_VERSION - 1 };
 const openAiSettings = {
   apiKey: 'secret', baseUrl: 'https://api.test/v1', dialect: 'generic-openai' as const,
   defaultModel: 'm',
@@ -15,6 +16,57 @@ const openAiSettings = {
 };
 
 describe('后台 PDF 工作台服务', () => {
+  it('当前版本的文档缓存直接命中，不重新请求 MinerU', async () => {
+    const createMineru = vi.fn();
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(model),
+      createMineru,
+    });
+
+    await expect(service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7)).resolves.toEqual(model);
+    expect(createMineru).not.toHaveBeenCalled();
+  });
+
+  it('旧版本文档缓存会重新解析并写入当前版本', async () => {
+    const putDocument = vi.fn();
+    const loadMineru = vi.fn().mockResolvedValue(model);
+    const service = makeService({
+      createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }),
+      createUploadTask: vi.fn(),
+      waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }),
+    }, {
+      getDocument: vi.fn().mockResolvedValue(staleModel),
+      putDocument,
+      loadMineru,
+    });
+
+    await expect(service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7)).resolves.toEqual(model);
+    expect(loadMineru).toHaveBeenCalledOnce();
+    expect(putDocument).toHaveBeenCalledWith(expect.objectContaining({ schemaVersion: DOCUMENT_SCHEMA_VERSION }));
+  });
+
+  it('旧文档重新解析后仍复用同块 ID 的译文缓存', async () => {
+    const cachedTranslation = [{ id: 'b1', text: '你好' }];
+    const createOpenAi = vi.fn();
+    const loadMineru = vi.fn().mockResolvedValue(model);
+    const getDocument = vi.fn().mockResolvedValueOnce(staleModel).mockResolvedValue(model);
+    const service = makeService({
+      createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }),
+      createUploadTask: vi.fn(),
+      waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }),
+    }, {
+      getDocument,
+      getTranslation: vi.fn().mockResolvedValue({ blocks: cachedTranslation }),
+      createOpenAi,
+      loadMineru,
+    });
+
+    await service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7);
+    expect(loadMineru).toHaveBeenCalledOnce();
+    await expect(service.handle({ type: 'pdf:translate-page', hash: source.hash, page: 1 }, 7)).resolves.toEqual(cachedTranslation);
+    expect(createOpenAi).not.toHaveBeenCalled();
+  });
+
   it('公共源在后台创建 MinerU URL 任务并持久化文档', async () => {
     const putDocument = vi.fn();
     const putTask = vi.fn();

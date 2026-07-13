@@ -1,4 +1,4 @@
-import type { DocumentModel } from '../document/model';
+import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../document/model';
 import { OpenAiPaperAgentClient } from '../agent/client';
 import { buildAgentContext } from '../agent/context-builder';
 import { MineruClient } from '../providers/mineru/client';
@@ -159,7 +159,7 @@ export class PdfWorkspaceService {
   ): Promise<DocumentModel> {
     const generation = this.generation(source.hash);
     const cached = await this.dependencies.getDocument(source.hash);
-    if (cached) return cached;
+    if (cached?.schemaVersion === DOCUMENT_SCHEMA_VERSION) return cached;
     if (source.kind === 'authenticated' && !consent) {
       throw new PdfWorkspaceServiceError('PDF_AUTH_UPLOAD_REQUIRES_CONSENT');
     }
