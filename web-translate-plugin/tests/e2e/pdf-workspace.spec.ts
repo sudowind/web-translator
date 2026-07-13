@@ -90,15 +90,33 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       { page_idx: 0, type: 'text', text: 'Introduction with x squared', bbox: [100, 200, 900, 400] },
       { page_idx: 0, type: 'text', text: 'Scaled Dot-Product Attention', text_level: 3, bbox: [100, 405, 900, 455] },
       { page_idx: 0, type: 'list', text: '- First item\n- Second item', bbox: [100, 420, 900, 560] },
+      {
+        page_idx: 0,
+        type: 'image',
+        text: 'image OCR must not be translated',
+        image_caption: ['Attention architecture'],
+        img_path: 'images/secret-figure.png',
+        bbox: [100, 460, 900, 560],
+      },
       { page_idx: 0, type: 'interline_equation', text: '$$\n\\operatorname{Attention}(Q,K,V)=\\operatorname{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V \\tag{1}\n$$', bbox: [200, 580, 800, 680] },
-      { page_idx: 0, type: 'table', text: 'Source table', table_body: '<table><tr><td>A</td><td>B</td></tr></table>', bbox: [100, 700, 900, 900] },
+      {
+        page_idx: 0,
+        type: 'table',
+        text: 'table OCR must not be translated',
+        table_caption: ['Attention results'],
+        table_body: '<table><tr><td>secret table cell</td></tr></table>',
+        bbox: [100, 700, 900, 900],
+      },
       { page_idx: 1, type: 'text', text: 'Results', text_level: 2, bbox: [100, 80, 900, 150] },
       { page_idx: 1, type: 'text', text: 'Main contribution', bbox: [100, 200, 900, 400] },
+      { page_idx: 1, type: 'table', table_body: '<table><tr><td>no title</td></tr></table>' },
+      { page_idx: 1, type: 'image', img_path: 'images/no-title.png' },
     ])),
   }));
   const observed = {
     urlTasks: [] as string[],
     translationPages: [] as number[],
+    translationBlocks: [] as Array<Array<{ id: string; kind?: string; text: string }>>,
     batchInitializations: 0,
     uploads: 0,
     batchDataId: '',
@@ -197,6 +215,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
             blocks: Array<{ id: string; kind?: string; text: string }>;
           };
           const page = input.blocks[0]?.id.match(/:p(\d+):/)?.[1];
+          observed.translationBlocks.push(input.blocks);
           if (page) observed.translationPages.push(Number(page));
           if (translationFailureMode === 'mixed' && page === '2') {
             response.writeHead(429, { 'content-type': 'application/json' });
@@ -210,7 +229,8 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
               translations: input.blocks.map((block) => ({ id: block.id, text:
                 block.kind === 'heading' ? (block.text === 'Paper title' ? '**论文标题**' : '**缩放点积注意力**') :
                 block.kind === 'list' ? '- 第一项\n- 第二项' :
-                block.kind === 'table' ? '| 项目 | 结果 |\n| --- | --- |\n| A | 已翻译 |' :
+                block.kind === 'table' ? '注意力结果' :
+                block.kind === 'figure' ? '注意力架构' :
                 page === '1' ? Array.from({ length: 80 }, () => '这是**重点**，含行内公式 $x^2$。').join('\n') :
                 `译文：${block.text}`,
               })),
@@ -331,6 +351,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     translationFailureMode = 'none';
     observed.urlTasks.length = 0;
     observed.translationPages.length = 0;
+    observed.translationBlocks.length = 0;
     const sourceUrl = `${origin}/download?id=public#page=2`;
     const pdfPage = await context.newPage();
     await pdfPage.goto(sourceUrl);
@@ -347,12 +368,23 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     expect(observed.urlTasks[0]).toBe(sourceUrl);
     await expect.poll(() => observed.translationPages.length).toBeGreaterThanOrEqual(2);
     expect(observed.translationPages.slice(0, 2)).toEqual([1, 2]);
+    const serializedBlocks = JSON.stringify(observed.translationBlocks);
+    expect(serializedBlocks).toContain('Attention results');
+    expect(serializedBlocks).toContain('Attention architecture');
+    expect(serializedBlocks).not.toContain('secret table cell');
+    expect(serializedBlocks).not.toContain('secret-figure.png');
+    expect(serializedBlocks).not.toContain('table OCR must not be translated');
+    expect(serializedBlocks).not.toContain('image OCR must not be translated');
 
     const pageOne = pdfPage.locator('[data-translation-page="1"]');
     await expect(pageOne.locator('[data-block-kind="heading"] h3 strong')).toHaveText('论文标题');
     await expect(pageOne.locator('[data-block-kind="heading"] h5 strong')).toHaveText('缩放点积注意力');
     await expect(pageOne.locator('[data-block-kind="list"] ul')).toBeVisible();
-    await expect(pageOne.locator('[data-block-kind="table"] table')).toBeVisible();
+    await expect(pageOne.locator('[data-media-kind="table"]')).toContainText('注意力结果');
+    await expect(pageOne.locator('[data-media-kind="figure"]')).toContainText('注意力架构');
+    await expect(pageOne.locator('.translation-page-body table')).toHaveCount(0);
+    await expect(pageOne.locator('.translation-page-body img')).toHaveCount(0);
+    await expect(pdfPage.locator('[data-translation-page="2"] [data-media-state]')).toHaveText(['无标题', '无标题']);
     await expect(pageOne.locator('[data-block-kind="formula"] .katex-display')).toBeVisible();
     await expect(pageOne.locator('[data-block-kind="formula"] .katex-error')).toHaveCount(0);
     await expect(pageOne.locator('[data-block-kind="formula"]')).toContainText('(1)');
@@ -391,6 +423,8 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await paragraphBlock.click();
     await expect(paragraphBlock).toHaveAttribute('data-pinned', 'true');
     await pdfPage.locator('[data-page-pair="1"] .page-pair-pdf').hover();
+    await expect(highlight).toBeVisible();
+    await pageOne.locator('[data-block-kind="table"]').hover();
     await expect(highlight).toBeVisible();
 
     await expect.poll(() => pdfPage.locator('[data-page-pair="1"] .pdf-text-layer span').count()).toBeGreaterThanOrEqual(2);
