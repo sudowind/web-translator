@@ -86,7 +86,7 @@ export function TranslationPage({
             key={block.id}
             block={block}
             text={translations.get(block.id)?.text}
-            fallback={status === 'failed' ? '翻译失败' : '翻译中…'}
+            status={status}
             pinned={pinnedBlockId === block.id}
             onPreview={onBlockPreview}
             onPin={onBlockPin}
@@ -100,20 +100,21 @@ export function TranslationPage({
 function TranslationBlock({
   block,
   text,
-  fallback,
+  status,
   pinned,
   onPreview,
   onPin,
 }: {
   block: DocumentBlock;
   text?: string;
-  fallback: string;
+  status: TranslationPageStatus;
   pinned: boolean;
   onPreview(blockId: string | null): void;
   onPin(blockId: string): void;
 }) {
   const interactive = mineruPolygonToPercentRect(block.polygon) !== null;
-  const content = text ?? (block.kind === 'figure' ? block.text || block.resourceUrl || '图片' : fallback);
+  const content = text ?? (status === 'failed' ? '翻译失败' : '翻译中…');
+  const media = block.kind === 'table' || block.kind === 'figure';
   return (
     <article
       className="translation-block"
@@ -134,7 +135,9 @@ function TranslationBlock({
         onPin(block.id);
       }}
     >
-      {renderBlockContent(block, content)}
+      {media
+        ? <MediaPlaceholder block={block} translation={text} status={status} />
+        : renderBlockContent(block, content)}
     </article>
   );
 }
@@ -148,10 +151,39 @@ function renderBlockContent(block: DocumentBlock, content: string): React.ReactN
     const Heading = headingTagForLevel(block.headingLevel);
     return <Heading><MarkdownContent content={content} inline /></Heading>;
   }
-  if (block.kind === 'table') {
-    return <MarkdownContent content={content === '翻译中…' || content === '翻译失败' ? content : content || block.text} />;
-  }
   return <MarkdownContent content={content} />;
+}
+
+function MediaPlaceholder({
+  block,
+  translation,
+  status,
+}: {
+  block: DocumentBlock;
+  translation?: string;
+  status: TranslationPageStatus;
+}) {
+  const label = block.kind === 'table' ? '表格' : '图片';
+  const hasCaption = Boolean(block.caption?.trim());
+  const stateText = !hasCaption
+    ? '无标题'
+    : translation
+      ? undefined
+      : status === 'failed'
+        ? '标题翻译失败'
+        : status === 'done'
+          ? '标题译文缺失'
+          : '标题翻译中…';
+  return (
+    <div className="translation-media-placeholder" data-media-kind={block.kind}>
+      <span className="translation-media-label">{label}</span>
+      <div className="translation-media-caption">
+        {translation
+          ? <MarkdownContent content={translation} inline />
+          : <span data-media-state>{stateText}</span>}
+      </div>
+    </div>
+  );
 }
 
 function headingTagForLevel(level = 1): 'h3' | 'h4' | 'h5' | 'h6' {

@@ -17,7 +17,9 @@ const model: DocumentModel = {
       { id: 'h8', pageId: 'p1', order: 3, kind: 'heading', headingLevel: 8, text: 'Heading 8' },
       { id: 'b1', pageId: 'p1', order: 4, kind: 'paragraph', text: '<script>alert(1)</script>', polygon: [100, 200, 900, 500] },
       { id: 'l1', pageId: 'p1', order: 5, kind: 'list', text: '- One\n- Two' },
-      { id: 't1', pageId: 'p1', order: 6, kind: 'table', text: 'A', html: '<table><tr><td>A</td></tr></table>' },
+      { id: 't1', pageId: 'p1', order: 6, kind: 'table', text: 'table OCR', caption: 'Table title', html: '<table><tr><td>secret cell</td></tr></table>' },
+      { id: 'f1', pageId: 'p1', order: 7, kind: 'figure', text: 'image OCR', caption: 'Figure title', resourceUrl: 'images/secret.png' },
+      { id: 't2', pageId: 'p1', order: 8, kind: 'table', text: '', html: '<table></table>' },
     ] },
     { id: 'p2', index: 1, blocks: [{ id: 'b2', pageId: 'p2', order: 0, kind: 'formula', text: '$$ x^2 \\tag{1} $$', latex: 'x^2 \\tag{1}' }] },
   ],
@@ -42,7 +44,7 @@ describe('PDF 逐页配对组件契约', () => {
           ['h8', { id: 'h8', text: '八级标题' }],
           ['b1', { id: 'b1', text: '<img src=x onerror=alert(1)>' }],
           ['l1', { id: 'l1', text: '- 第一\n- 第二' }],
-          ['t1', { id: 't1', text: '|列|\n|---|\n|甲|' }],
+          ['t1', { id: 't1', text: '表格标题' }],
         ])}
         status="done"
         pinnedBlockId="b1"
@@ -63,12 +65,48 @@ describe('PDF 逐页配对组件契约', () => {
     expect(html).toContain('<h5>');
     expect(html).toContain('<h6>');
     expect(html).toContain('<ul>');
-    expect(html).toContain('<table>');
+    expect(html).toContain('class="translation-media-placeholder"');
+    expect(html).toContain('data-media-kind="table"');
+    expect(html).toContain('data-media-kind="figure"');
+    expect(html).toContain('表格标题');
+    expect(html).toContain('标题译文缺失');
+    expect(html).toContain('无标题');
+    expect(html).not.toContain('<table>');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('secret');
+    expect(html).not.toContain('翻译中');
     expect(html).toContain('data-pinned="true"');
     expect(html).toContain('class="translation-page"');
     expect(html).toContain('style="height:640px"');
     expect(html).toContain('class="translation-page-body"');
     expect(html).not.toContain('class="translation-pages"');
+  });
+
+  it.each([
+    ['translating' as const, '标题翻译中…'],
+    ['failed' as const, '标题翻译失败'],
+  ])('媒体标题在 %s 状态下显示明确文案', (status, expected) => {
+    const html = renderToStaticMarkup(
+      <TranslationPage
+        page={{
+          id: 'media-page',
+          index: 0,
+          blocks: [{
+            id: 'media-table', pageId: 'media-page', order: 0, kind: 'table',
+            text: 'table OCR', caption: 'Table title', html: '<table><tr><td>secret</td></tr></table>',
+          }],
+        }}
+        number={1}
+        height={480}
+        translations={new Map()}
+        status={status}
+        onRetry={() => undefined}
+        onCopyFailure={() => undefined}
+      />,
+    );
+    expect(html).toContain(expected);
+    expect(html).not.toContain('<table>');
+    expect(html).not.toContain('secret');
   });
 
   it('公式、失败详情和重试次数仍在单页中完整呈现', () => {

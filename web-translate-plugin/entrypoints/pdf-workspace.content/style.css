@@ -68,6 +68,10 @@
 .translation-block[data-block-kind="heading"] > h6 { font-size: 15.5px; }
 .translation-formula { max-width: 100%; overflow-x: auto; padding: 12px 0; }
 .translation-formula .katex-display { width: max-content; min-width: 100%; margin: 0; text-align: center; }
+.translation-media-placeholder { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; min-height: 72px; padding: 14px; border: 1px dashed #94a3b8; border-radius: 8px; background: #f8fafc; }
+.translation-media-label { display: inline-flex; min-height: 28px; align-items: center; padding: 2px 9px; border-radius: 999px; color: #1e3a8a; background: #dbeafe; font-size: 13px; font-weight: 700; }
+.translation-media-caption { min-width: 0; padding-top: 2px; color: #172033; line-height: 1.55; overflow-wrap: anywhere; }
+.translation-media-caption [data-media-state] { color: var(--pdf-muted); }
 .markdown-content { min-width: 0; color: #172033; line-height: 1.65; overflow-wrap: anywhere; }
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
