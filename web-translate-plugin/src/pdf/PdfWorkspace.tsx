@@ -12,6 +12,7 @@ import { OperationEpoch } from './operation-epoch';
 import { PairedPageViewer } from './PairedPageViewer';
 import { initialPageFromUrl } from './source-page';
 import type { TranslationPageStatus } from './TranslationPane';
+import { WorkspaceToolbar, workspaceFeedbackPlacement } from './WorkspaceToolbar';
 import { initialLifecycleState, lifecycleReducer } from './workspace-reducer';
 
 export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
@@ -27,7 +28,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [scale, setScale] = React.useState(1.1);
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
-  const [agentOpen, setAgentOpen] = React.useState(true);
+  const [agentOpen, setAgentOpen] = React.useState(false);
   const [agentMessages, setAgentMessages] = React.useState<AgentMessage[]>([]);
   const [agentBusy, setAgentBusy] = React.useState(false);
   const [agentNotice, setAgentNotice] = React.useState<string>();
@@ -46,6 +47,9 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     [source],
   );
   const highlightedBlockId = previewBlockId ?? pinnedBlockId;
+  const pageCount = model?.pageCount ?? documentPageCount;
+  const feedbackPlacement = workspaceFeedbackPlacement(lifecycle.phase);
+  const hasFailedPages = Array.from(pageStatus.values()).some((status) => status === 'failed');
 
   React.useEffect(() => {
     setPreviewBlockId(null);
@@ -320,21 +324,30 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
 
   return (
     <main className="pdf-workspace" data-renderer="pdfjs" data-pdf-render-page={activePage}>
-      <header className="workspace-toolbar">
-        <strong>{source?.title ?? 'PDF 翻译工作台'}</strong>
-        <span>第 {activePage} 页</span>
-        <button type="button" onClick={() => setScale((value) => Math.max(0.5, value - 0.1))}>缩小</button>
-        <button type="button" onClick={() => setScale((value) => Math.min(3, value + 0.1))}>放大</button>
-        <button type="button" onClick={retryCurrent}>重试当前页</button>
-        <button type="button" onClick={retryFailed}>重试失败页</button>
-        {lifecycle.phase === 'failed' && source?.kind === 'remote' && <button type="button" onClick={() => startParse(documentPageCount, false)}>重试解析</button>}
-        <button type="button" onClick={stopAgent}>取消当前任务</button>
-        <button type="button" onClick={() => void clearCache()}>清理本文缓存</button>
-        <button type="button" onClick={() => void browser.runtime.openOptionsPage()}>设置</button>
-        <button type="button" onClick={() => void browser.runtime.sendMessage({ type: 'pdf-workspace:disable' })}>关闭工作台</button>
-      </header>
-      <p className="workspace-status" aria-live="polite" data-phase={lifecycle.phase}>{feedback}</p>
-      <div className={`workspace-content ${agentOpen ? 'agent-open' : 'agent-collapsed'}`}>
+      <WorkspaceToolbar
+        title={source?.title ?? 'PDF 翻译工作台'}
+        activePage={activePage}
+        pageCount={pageCount}
+        progressLabel={feedback}
+        agentOpen={agentOpen}
+        canRetryFailed={hasFailedPages}
+        canStopAgent={agentBusy}
+        onZoomOut={() => setScale((value) => Math.max(0.5, value - 0.1))}
+        onZoomIn={() => setScale((value) => Math.min(3, value + 0.1))}
+        onToggleAgent={() => setAgentOpen((open) => !open)}
+        onRetryCurrent={retryCurrent}
+        onRetryFailed={retryFailed}
+        onRetryParsing={lifecycle.phase === 'failed' && source?.kind === 'remote'
+          ? () => startParse(documentPageCount, false)
+          : undefined}
+        onStopAgent={stopAgent}
+        onClearCache={() => void clearCache()}
+        onOpenSettings={() => void browser.runtime.openOptionsPage()}
+        onCloseWorkspace={() => void browser.runtime.sendMessage({ type: 'pdf-workspace:disable' })}
+      />
+      {feedbackPlacement === 'notice' &&
+        <p className="workspace-status" aria-live="polite" data-phase={lifecycle.phase}>{feedback}</p>}
+      <div className={`workspace-content ${agentOpen ? 'agent-open' : 'agent-closed'}`}>
         <section className="reading-stream">
           {!model && source?.kind === 'authenticated' && <div className="upload-consent" role="region" aria-label="MinerU 上传同意">
               <h2>确认发送到第三方解析服务</h2>

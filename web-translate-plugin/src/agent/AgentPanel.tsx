@@ -42,27 +42,30 @@ export function AgentPanel({
   onToggle(): void;
 }) {
   const [question, setQuestion] = React.useState('');
-  if (!open) {
-    return <aside className="agent-panel collapsed"><button type="button" onClick={onToggle}>展开论文智能体</button></aside>;
-  }
+  if (!open) return null;
   return (
     <aside className="agent-panel" aria-label="论文智能体">
-      <header><strong>论文智能体</strong><button type="button" onClick={onToggle}>收起</button></header>
-      {notice && <p role="status">{notice}</p>}
-      {busy && <p role="status">模型正在思考或生成回答…</p>}
-      {error && <p role="alert">{error}</p>}
-      <div className="agent-messages">
-        {messages.map((message, index) => (
-          <div key={index} data-role={message.role} data-status={message.status}>
-            <MarkdownContent
-              content={message.content || (message.status === 'streaming' ? '正在生成…' : '')}
-              pageCount={pageCount}
-              onNavigatePage={onNavigate}
-            />
-          </div>
-        ))}
+      <header className="agent-panel-header">
+        <strong>论文智能体</strong>
+        <button type="button" onClick={onToggle}>收起</button>
+      </header>
+      <div className="agent-panel-body">
+        {notice && <p role="status">{notice}</p>}
+        {busy && <p role="status">模型正在思考或生成回答…</p>}
+        {error && <p role="alert">{error}</p>}
+        <div className="agent-messages">
+          {messages.map((message, index) => (
+            <div key={index} data-role={message.role} data-status={message.status}>
+              <MarkdownContent
+                content={message.content || (message.status === 'streaming' ? '正在生成…' : '')}
+                pageCount={pageCount}
+                onNavigatePage={onNavigate}
+              />
+            </div>
+          ))}
+        </div>
       </div>
-      <form onSubmit={(event) => {
+      <form className="agent-composer" onSubmit={(event) => {
         event.preventDefault();
         const value = question.trim();
         if (!value) return;
