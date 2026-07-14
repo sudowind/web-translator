@@ -344,7 +344,10 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     expect(response.value.enabled).toBe(true);
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toBeVisible({ timeout: 30_000 });
     await expect(pdfPage.locator('.workspace-content')).toHaveCSS('display', 'grid');
-    await expect(pdfPage.locator('.workspace-toolbar button').first()).toHaveCSS('min-height', '44px');
+    await expect(pdfPage.locator('.workspace-toolbar button').first()).toHaveCSS('min-height', '36px');
+    await expect(pdfPage.locator('.agent-panel')).toHaveCount(0);
+    await expect(pdfPage.getByRole('button', { name: '论文智能体' })).toHaveAttribute('aria-expanded', 'false');
+    await expect(pdfPage.locator('.workspace-content')).toHaveClass(/agent-closed/);
   }
 
   test('公开 PDF 保持通用 URL，并完成解析、翻译、智能体、联动与恢复', async () => {
@@ -388,6 +391,10 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pageOne.locator('[data-block-kind="formula"] .katex-display')).toBeVisible();
     await expect(pageOne.locator('[data-block-kind="formula"] .katex-error')).toHaveCount(0);
     await expect(pageOne.locator('[data-block-kind="formula"]')).toContainText('(1)');
+    await pdfPage.evaluate(() => window.scrollTo(0, 0));
+    await expect(pdfPage).toHaveScreenshot('editorial-workspace-agent-closed.png', {
+      animations: 'disabled',
+    });
     await pageOne.evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(pageOne).toHaveScreenshot('rich-translation-page.png', { animations: 'disabled' });
     const richTranslationBody = pageOne.locator('.translation-page-body');
@@ -447,6 +454,19 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('[data-pdf-page="2"]')).toBeInViewport();
     await expect(pdfPage.locator('[data-translation-page="2"]')).toBeInViewport();
 
+    const agentToggle = pdfPage.getByRole('button', { name: '论文智能体' });
+    await agentToggle.click();
+    await expect(agentToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(pdfPage.locator('.agent-panel')).toBeVisible();
+    const overlap = await pdfPage.evaluate(() => {
+      const translation = document.querySelector('[data-translation-page="1"]')!.getBoundingClientRect();
+      const agent = document.querySelector('.agent-panel')!.getBoundingClientRect();
+      return Math.max(0, translation.right - agent.left);
+    });
+    expect(overlap).toBe(0);
+    await expect(pdfPage).toHaveScreenshot('editorial-workspace-agent-open.png', {
+      animations: 'disabled',
+    });
     await pdfPage.getByLabel('向论文提问').fill('这篇论文的主要贡献是什么？');
     await pdfPage.getByRole('button', { name: '发送' }).click();
     const streamedAnswer = pdfPage.locator('.agent-messages [data-role="assistant"]').last();
@@ -464,11 +484,13 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('[data-translation-page="2"]')).toBeInViewport();
 
     await pdfPage.getByRole('button', { name: '收起' }).click();
-    await expect(pdfPage.getByRole('button', { name: '展开论文智能体' })).toBeVisible();
-    await pdfPage.getByRole('button', { name: '展开论文智能体' }).click();
+    await expect(pdfPage.locator('.agent-panel')).toHaveCount(0);
+    await expect(agentToggle).toHaveAttribute('aria-expanded', 'false');
+    await agentToggle.click();
     await expect(pdfPage.getByLabel('向论文提问')).toBeVisible();
 
     const restoredPageLoaded = pdfPage.waitForEvent('load');
+    await pdfPage.getByLabel('更多操作').click();
     await pdfPage.getByRole('button', { name: '关闭工作台' }).click();
     await restoredPageLoaded;
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0, { timeout: 30_000 });
