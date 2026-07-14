@@ -10,6 +10,7 @@
 ## 当前规格记录
 
 - PDF 现代编辑型极简界面：`docs/superpowers/specs/2026-07-14-pdf-modern-editorial-ui-design.md`
+- PDF 现代编辑型极简界面实施计划：`docs/superpowers/plans/2026-07-14-pdf-modern-editorial-ui-plan.md`
 - PDF 表格与图片标题翻译及占位渲染：`docs/superpowers/specs/2026-07-13-pdf-media-caption-placeholder-design.md`
 - PDF 表格与图片标题翻译及占位渲染实施计划：`docs/superpowers/plans/2026-07-13-pdf-media-caption-placeholder-plan.md`
 - PDF MinerU 标题层级与独立公式修复：`docs/superpowers/specs/2026-07-13-pdf-mineru-heading-formula-design.md`
