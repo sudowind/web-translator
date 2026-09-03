@@ -9,7 +9,9 @@ import {
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import type { DocumentBlock } from '../document/model';
+import { computePageDisplayMetrics, type PageDisplayMetrics } from './page-layout';
 import { PdfBlockHighlightLayer } from './PdfBlockHighlightLayer';
+import { sharedPdfRenderQueue, type PdfRenderPriority } from './pdf-render-queue';
 import { PdfTextLayer } from './PdfTextLayer';
 import { selectDominantPage } from './visible-page';
 
@@ -147,6 +149,9 @@ export function PdfPageCanvas({
   page: suppliedPage,
   pageNumber,
   scale,
+  displayWidth,
+  maximumOutputScale,
+  renderPriority = 'visible-final',
   onHeightChange,
   highlightedBlock,
 }: {
@@ -154,100 +159,191 @@ export function PdfPageCanvas({
   page?: PDFPageProxy;
   pageNumber: number;
   scale: number;
+  displayWidth?: number;
+  maximumOutputScale?: number;
+  renderPriority?: PdfRenderPriority;
   onHeightChange?(pageNumber: number, height: number): void;
   highlightedBlock?: DocumentBlock;
 }) {
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const [textLayer, setTextLayer] = React.useState<{ page: PDFPageProxy; viewport: PageViewport; renderId: number } | null>(null);
+  const firstCanvasRef = React.useRef<HTMLCanvasElement>(null);
+  const secondCanvasRef = React.useRef<HTMLCanvasElement>(null);
+  const activeBuffer = React.useRef<number | null>(null);
+  const retainedMaximumOutputScale = React.useRef(maximumOutputScale ?? 2);
+  const retainedRenderPriority = React.useRef(renderPriority);
+  const [devicePixelRatio, setDevicePixelRatio] = React.useState(() => globalThis.devicePixelRatio || 1);
+  const [committedFrame, setCommittedFrame] = React.useState<{
+    page: PDFPageProxy;
+    viewport: PageViewport;
+    renderId: number;
+    bufferIndex: number;
+    metrics: PageDisplayMetrics;
+  } | null>(null);
+  const [pendingMetrics, setPendingMetrics] = React.useState<PageDisplayMetrics>();
   const [renderError, setRenderError] = React.useState<string>();
-  const [fitScale, setFitScale] = React.useState(1);
+  const [rendering, setRendering] = React.useState(false);
   const renderGeneration = React.useRef(0);
-  const textLayerActive = React.useRef(false);
+  const activeTextLayers = React.useRef(new Set<number>());
   const textLayerWaiters = React.useRef<Array<() => void>>([]);
+  retainedMaximumOutputScale.current = Math.max(retainedMaximumOutputScale.current, maximumOutputScale ?? 2);
+  const priorityRank: Record<PdfRenderPriority, number> = { 'visible-final': 0, 'near-preview': 1, 'idle-preview': 2 };
+  if (priorityRank[renderPriority] < priorityRank[retainedRenderPriority.current]) retainedRenderPriority.current = renderPriority;
+  const effectiveMaximumOutputScale = retainedMaximumOutputScale.current;
+  const effectiveRenderPriority = retainedRenderPriority.current;
+  const suppliedMetrics = React.useMemo(() => {
+    if (!suppliedPage) return undefined;
+    const baseViewport = suppliedPage.getViewport({ scale: 1 });
+    return computePageDisplayMetrics({
+      baseWidth: baseViewport.width,
+      baseHeight: baseViewport.height,
+      requestedScale: scale,
+      allocatedWidth: displayWidth ?? baseViewport.width * scale,
+      devicePixelRatio,
+      maximumOutputScale: effectiveMaximumOutputScale,
+    });
+  }, [devicePixelRatio, displayWidth, effectiveMaximumOutputScale, scale, suppliedPage]);
+  const targetMetrics = suppliedMetrics ?? pendingMetrics ?? committedFrame?.metrics;
   const handleTextLayerError = React.useCallback(() => setRenderError('PDF 文本层渲染失败'), []);
   const handleTextLayerActiveChange = React.useCallback((renderId: number, active: boolean) => {
-    if (renderId !== renderGeneration.current) return;
-    textLayerActive.current = active;
-    if (!active) textLayerWaiters.current.splice(0).forEach((resolve) => resolve());
+    if (active) activeTextLayers.current.add(renderId);
+    else activeTextLayers.current.delete(renderId);
+    if (activeTextLayers.current.size === 0) textLayerWaiters.current.splice(0).forEach((resolve) => resolve());
+  }, []);
+
+  React.useEffect(() => {
+    const updatePixelRatio = () => {
+      const nextRatio = globalThis.devicePixelRatio || 1;
+      setDevicePixelRatio((current) => Math.abs(current - nextRatio) < 0.05 ? current : nextRatio);
+    };
+    globalThis.addEventListener?.('resize', updatePixelRatio);
+    return () => globalThis.removeEventListener?.('resize', updatePixelRatio);
   }, []);
 
   React.useEffect(() => {
     const generation = ++renderGeneration.current;
     let cancelled = false;
+    let frameCommitted = false;
     let renderTask: RenderTask | undefined;
+    let releaseRenderSlot: (() => void) | undefined;
     let pageProxy: PDFPageProxy | undefined;
     let renderedCanvas: HTMLCanvasElement | undefined;
     let renderSettled: Promise<unknown> = Promise.resolve();
-    setTextLayer(null);
+    const queueController = new AbortController();
     setRenderError(undefined);
+    setRendering(true);
     void Promise.resolve(suppliedPage ?? document.getPage(pageNumber)).then(async (page) => {
-      if (cancelled || !canvasRef.current) return;
+      if (cancelled) return;
       pageProxy = page;
-      const viewport = page.getViewport({ scale });
-      const canvas = canvasRef.current;
-      renderedCanvas = canvas;
-      const ratio = globalThis.devicePixelRatio || 1;
-      canvas.width = Math.floor(viewport.width * ratio);
-      canvas.height = Math.floor(viewport.height * ratio);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-      setTextLayer({ page, viewport, renderId: generation });
-      renderTask = page.render({
-        canvas,
-        viewport,
-        transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
+      const baseViewport = page.getViewport({ scale: 1 });
+      const metrics = computePageDisplayMetrics({
+        baseWidth: baseViewport.width,
+        baseHeight: baseViewport.height,
+        requestedScale: scale,
+        allocatedWidth: displayWidth ?? baseViewport.width * scale,
+        devicePixelRatio,
+        maximumOutputScale: effectiveMaximumOutputScale,
       });
-      renderSettled = renderTask.promise;
-      await renderSettled;
+      if (cancelled) return;
+      setPendingMetrics(metrics);
+      const viewport = page.getViewport({ scale: metrics.displayScale });
+      const bufferIndex = activeBuffer.current === 0 ? 1 : 0;
+      const canvas = bufferIndex === 0 ? firstCanvasRef.current : secondCanvasRef.current;
+      if (!canvas) return;
+      releaseRenderSlot = await sharedPdfRenderQueue.acquire(effectiveRenderPriority, queueController.signal);
+      try {
+        if (cancelled) return;
+        renderedCanvas = canvas;
+        canvas.width = metrics.bitmapWidth;
+        canvas.height = metrics.bitmapHeight;
+        canvas.style.width = `${metrics.cssWidth}px`;
+        canvas.style.height = `${metrics.cssHeight}px`;
+        renderTask = page.render({
+          canvas,
+          viewport,
+          transform: metrics.outputScale === 1
+            ? undefined
+            : [metrics.outputScale, 0, 0, metrics.outputScale, 0, 0],
+        });
+        renderSettled = renderTask.promise;
+        await renderSettled;
+      } finally {
+        releaseRenderSlot?.();
+        releaseRenderSlot = undefined;
+      }
+      if (cancelled || generation !== renderGeneration.current) return;
+      frameCommitted = true;
+      activeBuffer.current = bufferIndex;
+      setCommittedFrame({ page, viewport, renderId: generation, bufferIndex, metrics });
+      setRendering(false);
+      onHeightChange?.(pageNumber, metrics.cssHeight);
     }).catch((error: unknown) => {
-      if (!cancelled && !(error instanceof Error && error.name === 'RenderingCancelledException')) {
+      if (!cancelled && !(error instanceof Error && ['AbortError', 'RenderingCancelledException'].includes(error.name))) {
         setRenderError('PDF 页面渲染失败');
+        setRendering(false);
       }
     });
     return () => {
       cancelled = true;
+      queueController.abort();
       renderTask?.cancel();
-      const canvas = renderedCanvas;
-      if (canvas) {
-        canvas.width = 0;
-        canvas.height = 0;
+      if (!frameCommitted && renderedCanvas && activeBuffer.current !== (renderedCanvas === firstCanvasRef.current ? 0 : 1)) {
+        renderedCanvas.width = 0;
+        renderedCanvas.height = 0;
       }
       void renderSettled.catch(() => undefined).then(async () => {
         if (renderGeneration.current !== generation) return;
-        if (textLayerActive.current) {
+        if (activeTextLayers.current.size > 0) {
           await new Promise<void>((resolve) => textLayerWaiters.current.push(resolve));
         }
         if (renderGeneration.current === generation) pageProxy?.cleanup();
       });
     };
-  }, [document, onHeightChange, pageNumber, scale, suppliedPage]);
+  }, [devicePixelRatio, displayWidth, document, effectiveMaximumOutputScale, effectiveRenderPriority, onHeightChange, pageNumber, scale, suppliedPage]);
 
   React.useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !onHeightChange) return;
-    const report = () => {
-      if (!canvas.style.width) return;
-      const height = canvas.getBoundingClientRect().height;
-      const width = canvas.getBoundingClientRect().width;
-      const viewportWidth = Number.parseFloat(canvas.style.width);
-      if (viewportWidth > 0) setFitScale(width / viewportWidth);
-      if (height > 0) onHeightChange(pageNumber, height);
+    if (!committedFrame) return;
+    const inactiveCanvas = committedFrame.bufferIndex === 0 ? secondCanvasRef.current : firstCanvasRef.current;
+    if (!inactiveCanvas) return;
+    inactiveCanvas.width = 0;
+    inactiveCanvas.height = 0;
+    inactiveCanvas.style.removeProperty('width');
+    inactiveCanvas.style.removeProperty('height');
+  }, [committedFrame]);
+
+  React.useEffect(() => {
+    const canvases = [firstCanvasRef.current, secondCanvasRef.current];
+    return () => {
+      for (const canvas of canvases) {
+        if (!canvas) continue;
+        canvas.width = 0;
+        canvas.height = 0;
+      }
     };
-    const observer = new ResizeObserver(report);
-    observer.observe(canvas);
-    report();
-    return () => observer.disconnect();
-  }, [onHeightChange, pageNumber]);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (targetMetrics && targetMetrics.cssHeight > 0) onHeightChange?.(pageNumber, targetMetrics.cssHeight);
+  }, [onHeightChange, pageNumber, targetMetrics]);
+
+  const previewFitScale = committedFrame && targetMetrics
+    ? Math.min(1, targetMetrics.cssWidth / committedFrame.metrics.cssWidth)
+    : 1;
 
   return (
-    <div className="pdf-page-canvas-wrap">
-      <canvas ref={canvasRef} />
+    <div
+      className="pdf-page-canvas-wrap"
+      data-rendering={rendering}
+      data-output-scale={committedFrame?.metrics.outputScale}
+      data-fitted-to-container={targetMetrics?.fittedToContainer || undefined}
+      style={targetMetrics ? { width: targetMetrics.cssWidth, height: targetMetrics.cssHeight } : undefined}
+    >
+      <canvas ref={firstCanvasRef} data-pdf-canvas-buffer="0" data-active={committedFrame?.bufferIndex === 0} />
+      <canvas ref={secondCanvasRef} data-pdf-canvas-buffer="1" data-active={committedFrame?.bufferIndex === 1} />
       <PdfBlockHighlightLayer polygon={highlightedBlock?.polygon} />
-      {textLayer && <PdfTextLayer
-        page={textLayer.page}
-        viewport={textLayer.viewport}
-        renderId={textLayer.renderId}
-        fitScale={fitScale}
+      {committedFrame && <PdfTextLayer
+        page={committedFrame.page}
+        viewport={committedFrame.viewport}
+        renderId={committedFrame.renderId}
+        fitScale={previewFitScale}
         onError={handleTextLayerError}
         onActiveChange={handleTextLayerActiveChange}
       />}

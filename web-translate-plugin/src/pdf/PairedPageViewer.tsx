@@ -9,6 +9,7 @@ import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import type { TranslationFailure } from '../translation/failure';
 import type { TranslationMode } from '../translation/page-scheduler';
+import { computeReadingLayout, type ReadingLayout } from './page-layout';
 import { PdfPageCanvas, visiblePageWindow } from './PdfViewer';
 import { TranslationPage, type TranslationPageStatus } from './TranslationPane';
 import { selectDominantPage } from './visible-page';
@@ -16,6 +17,7 @@ import { selectDominantPage } from './visible-page';
 export interface PagePairProps {
   number: number;
   height: number;
+  layout: ReadingLayout;
   pdf: React.ReactNode;
   translation: React.ReactNode;
 }
@@ -38,16 +40,26 @@ export function mapsNearlyEqual(
   return true;
 }
 
-export function PagePair({ number, height, pdf, translation }: PagePairProps) {
+export function PagePair({ number, height, layout, pdf, translation }: PagePairProps) {
+  const sectionStyle = {
+    '--pdf-page-width': `${layout.pdfWidth}px`,
+    '--translation-page-width': `${layout.translationWidth}px`,
+    '--page-pair-gutter': `${layout.gutter}px`,
+    '--page-pair-width': `${layout.pairWidth}px`,
+    width: layout.pairWidth,
+    height: layout.mode === 'paired' ? height : undefined,
+  } as React.CSSProperties;
   return (
     <section
       className="page-pair"
       data-page-pair={number}
+      data-layout={layout.mode}
+      data-fitted-to-container={layout.fittedToContainer || undefined}
       aria-label={`第 ${number} 页原文与译文`}
-      style={{ height }}
+      style={sectionStyle}
     >
-      <div className="page-pair-pdf" data-pdf-page={number} style={{ height }}>{pdf}</div>
-      <div className="page-pair-translation" style={{ height }}>{translation}</div>
+      <div className="page-pair-pdf" data-pdf-page={number} style={{ width: layout.pdfWidth, height }}>{pdf}</div>
+      <div className="page-pair-translation" style={{ width: layout.translationWidth, height }}>{translation}</div>
     </section>
   );
 }
@@ -111,13 +123,75 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   const lastNavigationPage = React.useRef<number | null>(null);
   const [document, setDocument] = React.useState<PDFDocumentProxy | null>(null);
   const [pageCount, setPageCount] = React.useState(0);
+  const [containerWidth, setContainerWidth] = React.useState(0);
+  const [renderScale, setRenderScale] = React.useState(scale);
   const [pageSizes, setPageSizes] = React.useState<ReadonlyMap<number, { width: number; height: number }>>(new Map());
   const [pageHeights, setPageHeights] = React.useState<ReadonlyMap<number, number>>(new Map());
   const translationScrollOffsets = React.useRef(new Map<number, number>());
   const pageSizeCache = React.useRef(new Map<number, { width: number; height: number }>());
   const pageSizeLoads = React.useRef(new Map<number, Promise<{ width: number; height: number }>>());
   const pageProxyCache = React.useRef(new Map<number, PDFPageProxy>());
+  const pageLayoutModes = React.useRef(new Map<number, ReadingLayout['mode']>());
+  const measuredContainerWidth = React.useRef(0);
+  const zoomBurstStartedAt = React.useRef<number | null>(null);
+  const pendingReadingAnchor = React.useRef<{ page: number; progress: number } | null>(null);
   activePageRef.current = activePage;
+
+  const captureReadingAnchor = React.useCallback(() => {
+    const target = rootRef.current?.querySelector<HTMLElement>(`[data-page-pair="${activePageRef.current}"]`);
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const anchorTop = 68;
+    pendingReadingAnchor.current = {
+      page: activePageRef.current,
+      progress: Math.max(0, Math.min(1, (anchorTop - rect.top) / rect.height)),
+    };
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const measure = () => {
+      const nextWidth = root.clientWidth;
+      if (Math.abs(measuredContainerWidth.current - nextWidth) < 0.5) return;
+      captureReadingAnchor();
+      measuredContainerWidth.current = nextWidth;
+      setContainerWidth(nextWidth);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    measure();
+    return () => observer.disconnect();
+  }, [captureReadingAnchor]);
+
+  React.useEffect(() => {
+    if (Math.abs(renderScale - scale) < 0.001) {
+      zoomBurstStartedAt.current = null;
+      return;
+    }
+    const now = performance.now();
+    zoomBurstStartedAt.current ??= now;
+    const maximumRemainingDelay = Math.max(0, 220 - (now - zoomBurstStartedAt.current));
+    const timeout = globalThis.setTimeout(() => {
+      captureReadingAnchor();
+      setRenderScale(scale);
+      zoomBurstStartedAt.current = null;
+    }, Math.min(120, maximumRemainingDelay));
+    return () => globalThis.clearTimeout(timeout);
+  }, [captureReadingAnchor, renderScale, scale]);
+
+  React.useLayoutEffect(() => {
+    const anchor = pendingReadingAnchor.current;
+    if (!anchor || typeof globalThis.scrollBy !== 'function') return;
+    const target = rootRef.current?.querySelector<HTMLElement>(`[data-page-pair="${anchor.page}"]`);
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    const desiredTop = 68 - anchor.progress * rect.height;
+    const delta = rect.top - desiredTop;
+    if (Math.abs(delta) >= 0.5) globalThis.scrollBy(0, delta);
+    pendingReadingAnchor.current = null;
+  }, [containerWidth, renderScale]);
 
   React.useLayoutEffect(() => {
     const duration = performance.now() - renderStartedAt;
@@ -133,6 +207,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
     pageSizeCache.current.clear();
     pageSizeLoads.current.clear();
     pageProxyCache.current.clear();
+    pageLayoutModes.current.clear();
     setPageSizes(new Map());
     setPageHeights(new Map());
     const task = getDocument({ data: bytes });
@@ -197,24 +272,19 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   }, [activePage, document, pageCount]);
 
   const fitAllPageHeights = React.useCallback(() => {
-    const availableWidth = rootRef.current?.querySelector<HTMLElement>('.page-pair-pdf')?.clientWidth ?? 0;
-    if (availableWidth <= 0 || pageSizes.size === 0) return;
+    if (containerWidth <= 0 || pageSizes.size === 0) return;
     const measured = new Map(Array.from(pageSizes, ([number, size]) => [
       number,
-      fitPageHeight(size.width * scale, size.height * scale, availableWidth),
+      size.height * (computeReadingLayout({
+        containerWidth,
+        pageWidth: size.width,
+        requestedScale: renderScale,
+      }).pdfWidth / size.width),
     ]));
     setPageHeights((current) => mapsNearlyEqual(current, measured) ? current : measured);
-  }, [pageSizes, scale]);
+  }, [containerWidth, pageSizes, renderScale]);
 
   React.useLayoutEffect(fitAllPageHeights, [fitAllPageHeights]);
-
-  React.useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    const observer = new ResizeObserver(fitAllPageHeights);
-    observer.observe(root);
-    return () => observer.disconnect();
-  }, [fitAllPageHeights]);
 
   React.useEffect(() => {
     if (!rootRef.current || pageCount === 0) return;
@@ -272,7 +342,14 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
     }
     return estimates;
   }, [firstKnownSize, pageCount]);
-  const availableWidth = rootRef.current?.querySelector<HTMLElement>('.page-pair-pdf')?.clientWidth ?? 0;
+  const activePageSize = pageSizes.get(activePage) ?? pageSizeEstimates.get(activePage) ?? { width: 612, height: 792 };
+  const activeLayout = computeReadingLayout({
+    containerWidth,
+    pageWidth: activePageSize.width,
+    requestedScale: renderScale,
+    previousMode: pageLayoutModes.current.get(activePage),
+  });
+  pageLayoutModes.current.set(activePage, activeLayout.mode);
   const onTranslationScroll = React.useCallback((page: number, scrollTop: number) => {
     translationScrollOffsets.current.set(page, scrollTop);
   }, []);
@@ -282,12 +359,29 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
       className="paired-page-stream"
       aria-label="PDF 原文与逐页译文"
       data-reading-render-count={renderCount.current}
+      data-layout={activeLayout.mode}
+      data-render-scale={renderScale.toFixed(2)}
     >
+      <span className="visually-hidden" aria-live="polite">
+        {activeLayout.fittedToContainer ? 'PDF 已适配阅读区宽度' : ''}
+      </span>
       {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => {
-        const estimatedSize = pageSizeEstimates.get(number);
-        const height = pageHeights.get(number) ?? (estimatedSize && availableWidth > 0
-          ? fitPageHeight(estimatedSize.width * scale, estimatedSize.height * scale, availableWidth)
-          : 780);
+        const estimatedSize = pageSizes.get(number) ?? pageSizeEstimates.get(number) ?? { width: 612, height: 792 };
+        const layout = computeReadingLayout({
+          containerWidth,
+          pageWidth: estimatedSize.width,
+          requestedScale: renderScale,
+          previousMode: pageLayoutModes.current.get(number),
+        });
+        pageLayoutModes.current.set(number, layout.mode);
+        const height = layout.pdfWidth > 0
+          ? estimatedSize.height * (layout.pdfWidth / estimatedSize.width)
+          : pageHeights.get(number) ?? 780;
+        const distanceFromActivePage = Math.abs(number - activePage);
+        const renderPriority = distanceFromActivePage === 0
+          ? 'visible-final'
+          : distanceFromActivePage === 1 ? 'near-preview' : 'idle-preview';
+        const maximumOutputScale = distanceFromActivePage === 0 ? 2 : distanceFromActivePage === 1 ? 1.25 : 1;
         const page = model?.pages[number - 1];
         const highlightedBlock = page?.blocks.find((block) => block.id === highlightedBlockId);
         return (
@@ -295,9 +389,12 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
             key={number}
             number={number}
             height={height}
+            layout={layout}
             document={document}
             pdfPage={pageProxyCache.current.get(number)}
-            scale={scale}
+            scale={renderScale}
+            maximumOutputScale={maximumOutputScale}
+            renderPriority={renderPriority}
             renderPdf={renderWindow.has(number)}
             renderTranslation={translationWindow.has(number)}
             page={page}
@@ -328,9 +425,12 @@ const EMPTY_TRANSLATIONS = new Map<string, TranslationResult>();
 const PairedPageRow = React.memo(function PairedPageRow({
   number,
   height,
+  layout,
   document,
   pdfPage,
   scale,
+  maximumOutputScale,
+  renderPriority,
   renderPdf,
   renderTranslation,
   page,
@@ -352,9 +452,12 @@ const PairedPageRow = React.memo(function PairedPageRow({
 }: {
   number: number;
   height: number;
+  layout: ReadingLayout;
   document: PDFDocumentProxy | null;
   pdfPage?: PDFPageProxy;
   scale: number;
+  maximumOutputScale: number;
+  renderPriority: 'visible-final' | 'near-preview' | 'idle-preview';
   renderPdf: boolean;
   renderTranslation: boolean;
   page?: DocumentModel['pages'][number];
@@ -383,8 +486,19 @@ const PairedPageRow = React.memo(function PairedPageRow({
   return <PagePair
     number={number}
     height={height}
+    layout={layout}
     pdf={document && pdfPage && renderPdf
-      ? <PdfPageCanvas document={document} page={pdfPage} pageNumber={number} scale={scale} onHeightChange={onHeightChange} highlightedBlock={highlightedBlock} />
+      ? <PdfPageCanvas
+        document={document}
+        page={pdfPage}
+        pageNumber={number}
+        scale={scale}
+        displayWidth={layout.pdfWidth}
+        maximumOutputScale={maximumOutputScale}
+        renderPriority={renderPriority}
+        onHeightChange={onHeightChange}
+        highlightedBlock={highlightedBlock}
+      />
       : <div className="pdf-page-placeholder" aria-hidden="true" />}
     translation={page
       ? <TranslationPage

@@ -475,6 +475,73 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage).toHaveScreenshot('editorial-workspace-agent-closed.png', {
       animations: 'disabled',
     });
+
+    await pdfPage.setViewportSize({ width: 2560, height: 1271 });
+    await pdfPage.evaluate(() => window.scrollTo(0, 150));
+    const anchorProgressBeforeZoom = await pdfPage.locator('[data-page-pair="1"]').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return (68 - rect.top) / rect.height;
+    });
+    for (let step = 0; step < 7; step += 1) await pdfPage.getByRole('button', { name: '放大' }).click();
+    await expect(pdfPage.locator('.paired-page-stream')).toHaveAttribute('data-render-scale', '1.80');
+    await expect(pdfPage.locator('[data-page-pair="1"] .pdf-page-canvas-wrap')).toHaveAttribute('data-rendering', 'false');
+    const anchorError = await pdfPage.locator('[data-page-pair="1"]').evaluate((element, previousProgress) => {
+      const rect = element.getBoundingClientRect();
+      return Math.abs(((68 - rect.top) / rect.height) - previousProgress) * rect.height;
+    }, anchorProgressBeforeZoom);
+    expect(anchorError).toBeLessThanOrEqual(8);
+    await pdfPage.evaluate(() => window.scrollTo(0, 0));
+    const compactClosed = await pdfPage.evaluate(() => {
+      const stream = document.querySelector('.paired-page-stream')!.getBoundingClientRect();
+      const pair = document.querySelector('[data-page-pair="1"]')!.getBoundingClientRect();
+      const pdf = document.querySelector('[data-page-pair="1"] .page-pair-pdf')!.getBoundingClientRect();
+      const translation = document.querySelector('[data-page-pair="1"] .page-pair-translation')!.getBoundingClientRect();
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-page-pair="1"] canvas[data-active="true"]')!;
+      const canvasRect = canvas.getBoundingClientRect();
+      return {
+        mode: document.querySelector('[data-page-pair="1"]')!.getAttribute('data-layout'),
+        gutter: translation.left - pdf.right,
+        translationWidth: translation.width,
+        outerMarginDifference: Math.abs(pair.left - stream.left - (stream.right - pair.right)),
+        horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
+        bitmapDensity: canvas.width / canvasRect.width,
+      };
+    });
+    expect(compactClosed.mode).toBe('paired');
+    expect(compactClosed.gutter).toBeGreaterThanOrEqual(12);
+    expect(compactClosed.gutter).toBeLessThanOrEqual(21);
+    expect(compactClosed.translationWidth).toBeLessThanOrEqual(720.5);
+    expect(compactClosed.outerMarginDifference).toBeLessThanOrEqual(2);
+    expect(compactClosed.horizontalOverflow).toBeLessThanOrEqual(1);
+    expect(compactClosed.bitmapDensity).toBeGreaterThanOrEqual(1);
+    await expect(pdfPage).toHaveScreenshot('compact-reading-2560-180.png', { animations: 'disabled' });
+
+    const wideAgentToggle = pdfPage.getByRole('button', { name: '论文智能体' });
+    await wideAgentToggle.click();
+    await expect(pdfPage.locator('.agent-panel')).toBeVisible();
+    const compactOpen = await pdfPage.evaluate(() => {
+      const pair = document.querySelector('[data-page-pair="1"]')!.getBoundingClientRect();
+      const pdf = document.querySelector('[data-page-pair="1"] .page-pair-pdf')!.getBoundingClientRect();
+      const translation = document.querySelector('[data-page-pair="1"] .page-pair-translation')!.getBoundingClientRect();
+      const agent = document.querySelector('.agent-panel')!.getBoundingClientRect();
+      return {
+        mode: document.querySelector('[data-page-pair="1"]')!.getAttribute('data-layout'),
+        gutter: translation.left - pdf.right,
+        translationWidth: translation.width,
+        overlap: Math.max(0, pair.right - agent.left),
+      };
+    });
+    expect(compactOpen.mode).toBe('paired');
+    expect(compactOpen.gutter).toBeGreaterThanOrEqual(12);
+    expect(compactOpen.gutter).toBeLessThanOrEqual(21);
+    expect(compactOpen.translationWidth).toBeLessThanOrEqual(720.5);
+    expect(compactOpen.overlap).toBe(0);
+    await expect(pdfPage).toHaveScreenshot('compact-reading-2560-180-agent-open.png', { animations: 'disabled' });
+    await pdfPage.getByRole('button', { name: '收起' }).click();
+
+    for (let step = 0; step < 7; step += 1) await pdfPage.getByRole('button', { name: '缩小' }).click();
+    await expect(pdfPage.locator('.paired-page-stream')).toHaveAttribute('data-render-scale', '1.10');
+    await pdfPage.setViewportSize({ width: 1440, height: 1000 });
     await pageOne.evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(pageOne).toHaveScreenshot('rich-translation-page.png', { animations: 'disabled' });
     const richTranslationBody = pageOne.locator('.translation-page-body');
@@ -637,7 +704,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('[data-page-pair]')).toHaveCount(76);
     await expect(pdfPage.locator('[data-translation-page]')).toHaveCount(76);
     await expect(pdfPage.locator('[data-page-pair="40"]')).toBeInViewport();
-    await expect(pdfPage.locator('[data-page-pair="40"] canvas')).toBeVisible();
+    await expect(pdfPage.locator('[data-page-pair="40"] canvas[data-active="true"]')).toBeVisible();
     const firstReadableMs = await pdfPage.evaluate(() => performance.now() -
       (window as typeof window & { __pdfLongMetrics: { startedAt: number } }).__pdfLongMetrics.startedAt);
     await expect.poll(() => observed.translationPages.length).toBe(4);
@@ -743,7 +810,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage).toHaveURL(sourceUrl);
     await expect(pdfPage.locator('.workspace-title')).toContainText('2510.12403', { timeout: 90_000 });
     await expect(pdfPage.locator('.workspace-page-total')).toHaveText('/ 76', { timeout: 60_000 });
-    await expect(pdfPage.locator('[data-pdf-page="1"] canvas')).toBeVisible();
+    await expect(pdfPage.locator('[data-pdf-page="1"] canvas[data-active="true"]')).toBeVisible();
 
     const restored = pdfPage.waitForEvent('load');
     await pdfPage.getByLabel('更多操作').click();

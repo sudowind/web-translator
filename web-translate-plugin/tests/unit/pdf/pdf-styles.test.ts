@@ -12,6 +12,11 @@ describe('PDF 富文本与覆盖层样式契约', () => {
     expect(css).toMatch(/\.translation-block\[data-pinned="true"\][^}]*box-shadow:\s*inset 2px 0 var\(--pdf-primary\)/s);
     expect(css).toMatch(/\.page-pair-pdf[^}]*border:\s*0/s);
     expect(css).toMatch(/\.page-pair-translation[^}]*border:\s*0/s);
+    expect(css).toMatch(/\.page-pair\s*\{[^}]*grid-template-columns:\s*var\(--pdf-page-width\) var\(--translation-page-width\)/s);
+    expect(css).toMatch(/\.page-pair\s*\{[^}]*gap:\s*var\(--page-pair-gutter\)/s);
+    expect(css).toMatch(/\.page-pair\s*\{[^}]*margin-inline:\s*auto/s);
+    expect(css).toMatch(/\.page-pair\[data-layout="stacked"\][^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+    expect(css).not.toContain('minmax(320px, .72fr)');
     expect(css).toMatch(/\.translation-media-placeholder[^}]*min-height:\s*5[02]px/s);
     expect(css).not.toMatch(/\.translation-media-placeholder[^}]*border:\s*1px dashed/s);
     expect(css).toMatch(/\.workspace-content\.agent-closed[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);

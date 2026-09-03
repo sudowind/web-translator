@@ -9,6 +9,8 @@
 
 ## 当前规格记录
 
+- PDF 紧凑对译布局与缩放清晰度：`docs/superpowers/specs/2026-09-03-pdf-compact-reading-layout-canvas-clarity-design.md`
+- PDF 紧凑对译布局与缩放清晰度实施计划：`docs/superpowers/plans/2026-09-03-pdf-compact-reading-layout-canvas-clarity-plan.md`
 - PDF 长文档按需翻译与性能优化：`docs/superpowers/specs/2026-09-03-pdf-long-document-on-demand-performance-design.md`
 - PDF 长文档按需翻译与性能优化实施计划：`docs/superpowers/plans/2026-09-03-pdf-long-document-on-demand-performance-plan.md`
 - PDF 工作台现代化与易用性收口：`docs/superpowers/specs/2026-07-23-pdf-ui-polish-design.md`
