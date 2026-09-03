@@ -7,7 +7,7 @@ import {
 import { readChatCompletionSse, SseResponseError } from './sse';
 
 export class LlmProviderError extends Error {
-  readonly name = 'LlmProviderError';
+  override readonly name = 'LlmProviderError';
 
   constructor(readonly code: string) {
     super(code);

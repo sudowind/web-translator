@@ -1,5 +1,5 @@
 export class SseResponseError extends Error {
-  readonly name = 'SseResponseError';
+  override readonly name = 'SseResponseError';
 }
 
 export async function readChatCompletionSse(

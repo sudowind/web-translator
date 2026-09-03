@@ -85,10 +85,15 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
         text: text === 'Hello' ? '你好' : `译文：${text.trim()}`,
       }));
       await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          choices: [{ message: { content: JSON.stringify({ translations }) } }],
-        }),
+        contentType: 'text/event-stream',
+        body: [
+          `data: ${JSON.stringify({
+            choices: [{ delta: { content: JSON.stringify({ translations }) } }],
+          })}`,
+          '',
+          'data: [DONE]',
+          '',
+        ].join('\n'),
       });
     });
 
