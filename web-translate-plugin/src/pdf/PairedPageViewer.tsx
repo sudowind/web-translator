@@ -7,6 +7,7 @@ import {
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import type { TranslationFailure } from '../translation/failure';
+import type { TranslationMode } from '../translation/page-scheduler';
 import { PdfPageCanvas, visiblePageWindow } from './PdfViewer';
 import { TranslationPage, type TranslationPageStatus } from './TranslationPane';
 import { selectDominantPage } from './visible-page';
@@ -21,6 +22,19 @@ export interface PagePairProps {
 export function fitPageHeight(pageWidth: number, pageHeight: number, availableWidth: number): number {
   if (pageWidth <= 0 || pageHeight <= 0 || availableWidth <= 0) return 780;
   return pageHeight * Math.min(1, availableWidth / pageWidth);
+}
+
+export function mapsNearlyEqual(
+  left: ReadonlyMap<number, number>,
+  right: ReadonlyMap<number, number>,
+  epsilon = 0.5,
+): boolean {
+  if (left.size !== right.size) return false;
+  for (const [key, value] of left) {
+    const candidate = right.get(key);
+    if (candidate === undefined || Math.abs(candidate - value) >= epsilon) return false;
+  }
+  return true;
 }
 
 export function PagePair({ number, height, pdf, translation }: PagePairProps) {
@@ -43,7 +57,8 @@ interface PairedPageViewerProps {
   activePage: number;
   navigationPage: number;
   model: DocumentModel | null;
-  translations: ReadonlyMap<string, TranslationResult>;
+  translationsByPage: ReadonlyMap<number, ReadonlyMap<string, TranslationResult>>;
+  translationMode: TranslationMode;
   pageStatus: ReadonlyMap<number, TranslationPageStatus>;
   pageFailures: ReadonlyMap<number, TranslationFailure>;
   pageAttempts: ReadonlyMap<number, number>;
@@ -53,18 +68,24 @@ interface PairedPageViewerProps {
   onDocumentReady(pageCount: number): void;
   onPageVisible(page: number, progress: number): void;
   onRetryPage(page: number): void;
+  onRequestPage(page: number): void;
   onCopyFailure(failure: TranslationFailure): void;
   onBlockPreview(blockId: string | null): void;
   onBlockPin(blockId: string): void;
 }
 
-export function PairedPageViewer({
+export function visibleTranslationPageWindow(activePage: number, pageCount: number): Set<number> {
+  return visiblePageWindow(activePage, pageCount, 2);
+}
+
+export const PairedPageViewer = React.memo(function PairedPageViewer({
   bytes,
   scale,
   activePage,
   navigationPage,
   model,
-  translations,
+  translationsByPage,
+  translationMode,
   pageStatus,
   pageFailures,
   pageAttempts,
@@ -74,6 +95,7 @@ export function PairedPageViewer({
   onDocumentReady,
   onPageVisible,
   onRetryPage,
+  onRequestPage,
   onCopyFailure,
   onBlockPreview,
   onBlockPin,
@@ -86,11 +108,18 @@ export function PairedPageViewer({
   const [pageCount, setPageCount] = React.useState(0);
   const [pageSizes, setPageSizes] = React.useState<ReadonlyMap<number, { width: number; height: number }>>(new Map());
   const [pageHeights, setPageHeights] = React.useState<ReadonlyMap<number, number>>(new Map());
+  const translationScrollOffsets = React.useRef(new Map<number, number>());
+  const pageSizeCache = React.useRef(new Map<number, { width: number; height: number }>());
+  const pageSizeLoads = React.useRef(new Map<number, Promise<{ width: number; height: number }>>());
   activePageRef.current = activePage;
 
   React.useEffect(() => {
     let cancelled = false;
-    const task = getDocument({ data: bytes.slice() });
+    pageSizeCache.current.clear();
+    pageSizeLoads.current.clear();
+    setPageSizes(new Map());
+    setPageHeights(new Map());
+    const task = getDocument({ data: bytes });
     void task.promise.then((pdf) => {
       if (cancelled) return;
       setDocument(pdf);
@@ -106,25 +135,59 @@ export function PairedPageViewer({
   React.useEffect(() => {
     if (!document || pageCount === 0) return;
     let cancelled = false;
-    void Promise.all(Array.from({ length: pageCount }, async (_, index) => {
-      const number = index + 1;
-      const page = await document.getPage(number);
-      const viewport = page.getViewport({ scale });
-      return [number, { width: viewport.width, height: viewport.height }] as const;
-    })).then((entries) => {
-      if (!cancelled) setPageSizes(new Map(entries));
-    });
-    return () => { cancelled = true; };
-  }, [document, pageCount, scale]);
+    let idleHandle: number | undefined;
+    let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
+
+    const readSize = (number: number) => {
+      const cached = pageSizeCache.current.get(number);
+      if (cached) return Promise.resolve(cached);
+      const loading = pageSizeLoads.current.get(number);
+      if (loading) return loading;
+      const promise = document.getPage(number).then((page) => {
+        const viewport = page.getViewport({ scale: 1 });
+        const size = { width: viewport.width, height: viewport.height };
+        pageSizeCache.current.set(number, size);
+        return size;
+      }).finally(() => pageSizeLoads.current.delete(number));
+      pageSizeLoads.current.set(number, promise);
+      return promise;
+    };
+    const publish = async (numbers: number[]) => {
+      await Promise.all(numbers.map(readSize));
+      if (!cancelled) setPageSizes(new Map(pageSizeCache.current));
+    };
+    const priorityPages = [...visiblePageWindow(activePage, pageCount)];
+    const remaining = Array.from({ length: pageCount }, (_, index) => index + 1)
+      .filter((page) => !priorityPages.includes(page));
+    const scheduleIdle = () => {
+      if (cancelled || remaining.length === 0) return;
+      const run = () => {
+        const batch = remaining.splice(0, 4).filter((page) => !pageSizeCache.current.has(page));
+        void publish(batch).finally(scheduleIdle);
+      };
+      if (typeof globalThis.requestIdleCallback === 'function') {
+        idleHandle = globalThis.requestIdleCallback(run, { timeout: 500 });
+      } else {
+        timeoutHandle = globalThis.setTimeout(run, 16);
+      }
+    };
+    void publish(priorityPages).finally(scheduleIdle);
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined) globalThis.cancelIdleCallback(idleHandle);
+      if (timeoutHandle !== undefined) globalThis.clearTimeout(timeoutHandle);
+    };
+  }, [activePage, document, pageCount]);
 
   const fitAllPageHeights = React.useCallback(() => {
     const availableWidth = rootRef.current?.querySelector<HTMLElement>('.page-pair-pdf')?.clientWidth ?? 0;
-    if (availableWidth <= 0 || pageSizes.size !== pageCount) return;
-    setPageHeights(new Map(Array.from(pageSizes, ([number, size]) => [
+    if (availableWidth <= 0 || pageSizes.size === 0) return;
+    const measured = new Map(Array.from(pageSizes, ([number, size]) => [
       number,
-      fitPageHeight(size.width, size.height, availableWidth),
-    ])));
-  }, [pageCount, pageSizes]);
+      fitPageHeight(size.width * scale, size.height * scale, availableWidth),
+    ]));
+    setPageHeights((current) => mapsNearlyEqual(current, measured) ? current : measured);
+  }, [pageSizes, scale]);
 
   React.useLayoutEffect(fitAllPageHeights, [fitAllPageHeights]);
 
@@ -166,7 +229,7 @@ export function PairedPageViewer({
   }, [onPageVisible, pageCount]);
 
   React.useLayoutEffect(() => {
-    if (!rootRef.current || pageCount === 0 || pageHeights.size !== pageCount || lastNavigationPage.current === navigationPage) return;
+    if (!rootRef.current || pageCount === 0 || !pageHeights.has(navigationPage) || lastNavigationPage.current === navigationPage) return;
     const target = rootRef.current.querySelector<HTMLElement>(`[data-page-pair="${navigationPage}"]`);
     if (!target) return;
     target.scrollIntoView({ block: 'start', behavior: lastNavigationPage.current === null ? 'auto' : 'smooth' });
@@ -183,39 +246,127 @@ export function PairedPageViewer({
   }, []);
 
   const renderWindow = visiblePageWindow(activePage, pageCount);
+  const translationWindow = visibleTranslationPageWindow(activePage, pageCount);
+  const fallbackSize = pageSizes.get(activePage) ?? pageSizes.values().next().value;
+  const availableWidth = rootRef.current?.querySelector<HTMLElement>('.page-pair-pdf')?.clientWidth ?? 0;
+  const fallbackHeight = fallbackSize && availableWidth > 0
+    ? fitPageHeight(fallbackSize.width * scale, fallbackSize.height * scale, availableWidth)
+    : 780;
+  const onTranslationScroll = React.useCallback((page: number, scrollTop: number) => {
+    translationScrollOffsets.current.set(page, scrollTop);
+  }, []);
   return (
     <div ref={rootRef} className="paired-page-stream" aria-label="PDF 原文与逐页译文">
       {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => {
-        const height = pageHeights.get(number) ?? 780;
+        const height = pageHeights.get(number) ?? fallbackHeight;
         const page = model?.pages[number - 1];
         const highlightedBlock = page?.blocks.find((block) => block.id === highlightedBlockId);
         return (
-          <PagePair
+          <PairedPageRow
             key={number}
             number={number}
             height={height}
-            pdf={document && renderWindow.has(number)
-              ? <PdfPageCanvas document={document} pageNumber={number} scale={scale} onHeightChange={onHeightChange} highlightedBlock={highlightedBlock} />
-              : <div className="pdf-page-placeholder" aria-hidden="true" />}
-            translation={page
-              ? <TranslationPage
-                page={page}
-                number={number}
-                height={height}
-                translations={translations}
-                status={pageStatus.get(number) ?? 'pending'}
-                failure={pageFailures.get(number)}
-                attempt={pageAttempts.get(number)}
-                pinnedBlockId={pinnedBlockId}
-                onBlockPreview={onBlockPreview}
-                onBlockPin={onBlockPin}
-                onRetry={() => onRetryPage(number)}
-                onCopyFailure={onCopyFailure}
-              />
-              : <div className="translation-page translation-page-placeholder" style={{ height }}>{translationPlaceholder ?? '等待 MinerU 解析'}</div>}
+            document={document}
+            scale={scale}
+            renderPdf={renderWindow.has(number)}
+            renderTranslation={translationWindow.has(number)}
+            page={page}
+            translations={translationsByPage.get(number) ?? EMPTY_TRANSLATIONS}
+            status={pageStatus.get(number) ?? (translationMode === 'on-demand' ? 'unrequested' : 'pending')}
+            failure={pageFailures.get(number)}
+            attempt={pageAttempts.get(number)}
+            highlightedBlock={highlightedBlock}
+            pinnedBlockId={page?.blocks.some((block) => block.id === pinnedBlockId) ? pinnedBlockId : null}
+            translationScrollTop={translationScrollOffsets.current.get(number) ?? 0}
+            translationPlaceholder={translationPlaceholder}
+            onHeightChange={onHeightChange}
+            onTranslationScroll={onTranslationScroll}
+            onRetryPage={onRetryPage}
+            onRequestPage={onRequestPage}
+            onCopyFailure={onCopyFailure}
+            onBlockPreview={onBlockPreview}
+            onBlockPin={onBlockPin}
           />
         );
       })}
     </div>
   );
-}
+});
+
+const EMPTY_TRANSLATIONS = new Map<string, TranslationResult>();
+
+const PairedPageRow = React.memo(function PairedPageRow({
+  number,
+  height,
+  document,
+  scale,
+  renderPdf,
+  renderTranslation,
+  page,
+  translations,
+  status,
+  failure,
+  attempt,
+  highlightedBlock,
+  pinnedBlockId,
+  translationScrollTop,
+  translationPlaceholder,
+  onHeightChange,
+  onTranslationScroll,
+  onRetryPage,
+  onRequestPage,
+  onCopyFailure,
+  onBlockPreview,
+  onBlockPin,
+}: {
+  number: number;
+  height: number;
+  document: PDFDocumentProxy | null;
+  scale: number;
+  renderPdf: boolean;
+  renderTranslation: boolean;
+  page?: DocumentModel['pages'][number];
+  translations: ReadonlyMap<string, TranslationResult>;
+  status: TranslationPageStatus;
+  failure?: TranslationFailure;
+  attempt?: number;
+  highlightedBlock?: DocumentModel['pages'][number]['blocks'][number];
+  pinnedBlockId?: string | null;
+  translationScrollTop: number;
+  translationPlaceholder?: React.ReactNode;
+  onHeightChange(page: number, height: number): void;
+  onTranslationScroll(page: number, scrollTop: number): void;
+  onRetryPage(page: number): void;
+  onRequestPage(page: number): void;
+  onCopyFailure(failure: TranslationFailure): void;
+  onBlockPreview(blockId: string | null): void;
+  onBlockPin(blockId: string): void;
+}) {
+  return <PagePair
+    number={number}
+    height={height}
+    pdf={document && renderPdf
+      ? <PdfPageCanvas document={document} pageNumber={number} scale={scale} onHeightChange={onHeightChange} highlightedBlock={highlightedBlock} />
+      : <div className="pdf-page-placeholder" aria-hidden="true" />}
+    translation={page
+      ? <TranslationPage
+        page={page}
+        number={number}
+        height={height}
+        translations={translations}
+        status={status}
+        failure={failure}
+        attempt={attempt}
+        pinnedBlockId={pinnedBlockId}
+        renderBody={renderTranslation}
+        initialScrollTop={translationScrollTop}
+        onScrollTopChange={(scrollTop) => onTranslationScroll(number, scrollTop)}
+        onBlockPreview={onBlockPreview}
+        onBlockPin={onBlockPin}
+        onRequest={() => onRequestPage(number)}
+        onRetry={() => onRetryPage(number)}
+        onCopyFailure={onCopyFailure}
+      />
+      : <div className="translation-page translation-page-placeholder" style={{ height }}>{translationPlaceholder ?? '等待 MinerU 解析'}</div>}
+  />;
+});

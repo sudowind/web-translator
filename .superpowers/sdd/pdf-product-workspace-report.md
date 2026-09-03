@@ -4,7 +4,7 @@
 
 ### 范围
 
-本批次完成正式 PDF runtime 接管、PDF.js 左栏、逐页译文右栏、当前页优先调度、双栏同步、后台 Provider/缓存接线和 Popup 最小正式启停入口。
+本批次完成正式 PDF runtime 接管、PDF.js 左栏、逐页译文右栏、翻译调度、双栏同步、后台 Provider/缓存接线和 Popup 最小正式启停入口。后续迭代已把调度改为从第 1 页按页码顺序派发。
 
 本批次按控制器收窄范围，不实现智能体、任务恢复或认证 PDF 的第三方上传同意编排。认证 PDF 可在左栏阅读，但明确提示上传同意能力属于后续批次；没有绕过同意门禁调用上传端点。
 
@@ -15,7 +15,7 @@
 - 新增 PDF 源读取：先无凭据读取，失败后才带凭据重试，并根据真实读取结果保守分类为公共或认证源；校验 PDF 签名并生成 SHA-256。
 - PDF.js 使用后台取得的字节加载。页面先创建占位，仅渲染当前页与相邻页；活动页变化时更新小窗口。卸载时销毁 loading task、取消 render task、断开 observer，并提供可选择文本层。
 - 双栏分别输出 `data-pdf-page="N"`、`data-translation-page="N"` 和译文 `data-status`。同步使用页锚点和页内相对进度，并用程序滚动锁防反馈环，用户滚动可重新接管。
-- `PageScheduler` 去重、并发上限 2、当前页优先并按页距排序；支持当前页和失败页重试。
+- `PageScheduler` 去重、并发上限 2；后续迭代已改为从第 1 页按页码顺序派发，并继续支持当前页和失败页重试。
 - `translatePage` 只发送可翻译块，复用 OpenAI 严格 ID 往返校验；401/403 不重试，429/5xx 最多三次指数退避，退避期间取消立即生效。
 - 后台 `PdfWorkspaceService` 持有 MinerU/OpenAI 凭据，负责公共 URL 解析、文档持久化、逐页缓存翻译、取消和单篇缓存清理。内容脚本消息、DOM 和错误响应不包含 Token/API Key 或 Provider 原始正文。
 - Popup 对可识别 PDF 显示“翻译此 PDF/关闭 PDF 工作台”，与普通网页翻译入口互斥；探针继续作为开发诊断保留。
@@ -133,7 +133,7 @@
 
 - 新增本地双页 PDF fixture、本地 MinerU URL/ZIP/批量上传 mock 和本地 OpenAI 翻译/问答 mock；没有真实外部请求或真实凭据。
 - 临时扩展副本只提升 HTTP/HTTPS 可选 host 权限，用于“已授权后”技术链路；不冒充 action Popup、`activeTab` 用户手势或原生权限门禁，也不执行 `file://`。
-- 公开通用 URL 场景覆盖：URL/query/fragment 不变、PDF.js 左栏、单 URL 任务与 ZIP 解析、第 2 页优先翻译、整篇问答 `[p:2]`、引用双栏定位、智能体收起/展开、关闭/恢复/刷新语义。
+- 公开通用 URL 场景覆盖：URL/query/fragment 不变、PDF.js 左栏、单 URL 任务与 ZIP 解析、逐页顺序翻译、整篇问答 `[p:2]`、引用双栏定位、智能体收起/展开、关闭/恢复/刷新语义。
 - 认证场景覆盖：无 Cookie 的 200 HTML、带 Cookie 的真实 PDF、同意信息、点击前零上传、点击后单次批量初始化与单次上传。
 - MinerU 失败且左栏保持可读使用 reducer/service 定向单测证据；报告明确没有将其写成浏览器场景。
 
@@ -153,3 +153,57 @@
 ### 最终状态
 
 HTTP/HTTPS PDF 产品工作台自动化验收为 `GO`。`file://` 继续延期；真实 action Popup、`activeTab` 与原生权限弹窗仍以既有人工门禁证据为准。
+
+## 2026-07-23 大文件源字节生命周期修复
+
+### 实现摘要
+
+- 消息层拆分 `PdfSourceDescriptor` 与 `PdfSourceTransfer`。`pdf:parse-start` 现在只包含 URL、hash、标题、大小和来源类型，精确消息校验拒绝 `bytes`、`bytesBase64` 和其他未知字段。
+- 唯一保留的后台到内容脚本字节传输从 `number[]` 改为 Base64。源读取提供分块编码和校验解码；解码同时验证预期长度与 `%PDF-` 签名。
+- 内容脚本收到源数据后立即保存 `Uint8Array` 和无字节描述信息，不长期保留数组或 Base64 字符串，也不再把完整 PDF 发回后台。
+- 后台按 `tabId` 短暂缓存源数据。认证上传与公共 URL 失败回退复用临时数据；Service Worker 重启或记录缺失时按原 URL 重取，并在 SHA-256 不一致时返回 `PDF_SOURCE_CHANGED`，禁止上传变化后的文件。
+- 源租约只释放当前解析实际使用的记录，避免旧请求清理同标签页的新源。解析结束、显式取消、关闭工作台、标签页关闭和导航都会释放记录。
+- Popup、README 和本报告中的旧“当前页优先”文案已改为从第 1 页按页码顺序翻译；7 份已有提交和验收证据的 PDF 实施计划已回填完成状态。
+- 构建不再同时配置 OXC 与 esbuild transform。最终 bundle 阶段显式转义 Unicode noncharacter，并新增 `verify:output`，把 noncharacter、静态 host 权限和静态 content script 检查纳入 `npm run check`。
+
+### TDD 与验证
+
+- RED：消息测试证明无字节描述信息被旧协议拒绝、带字节解析消息仍被接受；服务测试证明旧上传路径直接读取解析消息中的字节；Base64 源测试证明旧传输没有编码字段。
+- GREEN：消息、源读取与服务核心测试 3 个文件、40 个测试通过；全部 PDF、接管与在线报告相关定向测试 24 个文件、118 个测试通过。
+- `npm run check`：通过；TypeScript 通过，55 个 Vitest 文件、320 个测试全部通过，WXT Chrome MV3 生产构建约 `7.16 MB`。
+- `verify:output`：通过；Unicode noncharacter 为 0，生产 manifest 的静态 host 权限为 0，静态 content script 为 0。
+- `npm run test:e2e -- pdf-workspace.spec.ts`：3/3 通过；公开 PDF、失败诊断和认证同意上传场景全部通过。
+
+### 保留边界
+
+- 当前字节传输仍是一次性完整 Base64 消息，不是分块流或增量 PDF.js 加载；本次已消除 `number[]` 放大、第二次完整回传和长期重复状态。极端超大 PDF 的分块传输可作为后续独立性能迭代。
+- 自动 E2E 仍属于已授权测试路径，不冒充真实 action Popup、`activeTab` 或原生权限弹窗验收。
+- 本次未运行真实 MinerU/LLM 在线 arXiv 全链路，未使用真实凭据或产生外部费用。
+
+## 2026-07-23 PDF 工作台现代化与易用性收口
+
+### 实现摘要
+
+- 工具栏固定为 60px 单行布局，高频操作热区统一为至少 44×44px。新增上一页、下一页、直接跳页和缩放百分比；极窄屏隐藏可见缩放组，但在“更多”菜单保留缩放入口。
+- “更多”从原生 `details` 改为受控菜单，使用 `aria-haspopup="menu"`、`aria-expanded` 和 `role="menu"`，支持外部点击、Escape 和执行操作后关闭。
+- 论文智能体使用视口稳定高度，消息区伸展、输入区贴底。空会话显示能力说明和三个建议问题，点击建议只填入输入框。
+- 899px 以下智能体从共享的 60px 工具栏高度开始覆盖剩余视口；375px 与 800px 均保持单行工具栏、无覆盖和无横向溢出。
+- 初次读取增加轻量状态反馈；上传同意、失败重试、详情与复制诊断使用统一按钮、悬停和焦点样式。
+- 译文、智能体消息、公式、代码和表格继续保留滚动能力，同时使用可见的细滚动条降低视觉噪声。
+- PDF 标题优先读取 `Content-Disposition`，其次使用路径名或安全查询标识；通用 `download?id=public` 现在显示为 `public.pdf`。
+- 设计仍沿用浅色“编辑型极简”，本轮没有引入远程字体、组件库、装饰性动效或深色模式。
+
+### TDD、视觉与门禁证据
+
+- RED：4 个定向测试文件出现 5 个预期失败，分别覆盖工具栏导航/菜单、智能体空状态、样式契约和响应头标题。
+- GREEN：上述 4 个文件、12 个测试通过；全部 PDF 相关定向测试 23 个文件、115 个测试通过。
+- `npm run typecheck`：通过。
+- `npm run build`：通过，WXT Chrome MV3 生产构建约 `7.17 MB`。
+- `npm run test:e2e -- pdf-workspace.spec.ts`：3/3 通过，命令总计 `15.2s`。公开 PDF 场景同时验证跳页、建议问题、菜单 Escape、1440px 桌面布局，以及 800px/375px 智能体覆盖布局。
+- 新增 `responsive-agent-800-win32.png` 与 `responsive-agent-375-win32.png` 视觉基线；桌面阅读、富文本和智能体快照同步更新。
+- 第一次 `npm run check` 在进入全量 Vitest 后无失败用例或堆栈地异常退出；随后只重跑失效阶段，`npm run test` 为 55 个文件、322 个测试全部通过。该命令前的 TypeScript 阶段已通过，当前源代码的生产构建已通过，`npm run verify:output` 也通过：Unicode noncharacter 为 0、静态 host 权限为 0、静态 content script 为 0。
+
+### 保留边界
+
+- 深色模式、缩略图侧栏、全文搜索、打印与下载不在本轮范围。
+- 自动 E2E 仍是已授权测试路径，不替代真实 action Popup、`activeTab` 和原生权限弹窗人工验收。

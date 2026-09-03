@@ -1,5 +1,7 @@
 # PDF 现代编辑型极简界面实施计划
 
+状态：已完成（2026-07-14，2026-07-23 回填）
+
 > **面向执行智能体：** 必须使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` 逐任务执行本计划；本项目基于共享工作树和既有协作约定，默认采用后者进行同会话批量执行。步骤使用复选框跟踪，并遵循测试驱动开发的红—绿—重构循环。
 
 **目标：** 在不改变 PDF 翻译业务流程的前提下，把 PDF 工作台改造成使用“学术靛蓝”主题、适度紧凑译文、极简工具栏和非遮挡式 Agent 侧栏的现代论文阅读界面。
@@ -57,7 +59,7 @@
 - 产出：关闭状态的 `AgentPanel` 返回 `null`。
 - 保持：缩放、重试、取消、清缓存、设置和关闭工作台的现有回调语义不变。
 
-- [ ] **步骤 1：写入工具栏和 Agent 关闭状态的失败测试**
+- [x] **步骤 1：写入工具栏和 Agent 关闭状态的失败测试**
 
 新建 `workspace-toolbar.test.tsx`，使用 `renderToStaticMarkup` 固定以下契约：
 
@@ -129,7 +131,7 @@ it('关闭时完全不渲染占位栏，展开时保留标题、消息和输入�
 });
 ```
 
-- [ ] **步骤 2：只运行两个新测试并确认红灯原因**
+- [x] **步骤 2：只运行两个新测试并确认红灯原因**
 
 在 `web-translate-plugin` 目录运行：
 
@@ -139,7 +141,7 @@ npx vitest run tests/unit/pdf/workspace-toolbar.test.tsx tests/unit/pdf/agent-pa
 
 预期：失败原因是 `WorkspaceToolbar` 尚不存在、Agent 关闭时仍渲染 `.collapsed`；不得因测试夹具缺少必填回调而失败。
 
-- [ ] **步骤 3：实现工具栏纯展示组件**
+- [x] **步骤 3：实现工具栏纯展示组件**
 
 在 `WorkspaceToolbar.tsx` 定义完整公开接口：
 
@@ -211,7 +213,7 @@ export interface WorkspaceToolbarProps {
 
 不在组件内部持有业务状态，也不引入菜单库。
 
-- [ ] **步骤 4：接入工作台并删除关闭态占位栏**
+- [x] **步骤 4：接入工作台并删除关闭态占位栏**
 
 在 `PdfWorkspace.tsx`：
 
@@ -279,7 +281,7 @@ if (!open) return null;
 
 这一步只移动现有 JSX，不创建新的数据转换函数；流式消息、Markdown 和页码引用逻辑保持原样。同步让 `agent-panel.test.tsx` 断言 `.agent-panel-header`、`.agent-panel-body` 和 `.agent-composer` 都存在。
 
-- [ ] **步骤 5：运行同一组定向测试并确认绿灯**
+- [x] **步骤 5：运行同一组定向测试并确认绿灯**
 
 ```powershell
 npx vitest run tests/unit/pdf/workspace-toolbar.test.tsx tests/unit/pdf/agent-panel.test.tsx
@@ -287,7 +289,7 @@ npx vitest run tests/unit/pdf/workspace-toolbar.test.tsx tests/unit/pdf/agent-pa
 
 预期：两个文件全部通过；不运行 typecheck、完整 Vitest 或构建。
 
-- [ ] **步骤 6：提交结构里程碑**
+- [x] **步骤 6：提交结构里程碑**
 
 ```powershell
 git add src/pdf/WorkspaceToolbar.tsx src/pdf/PdfWorkspace.tsx src/agent/AgentPanel.tsx tests/unit/pdf/workspace-toolbar.test.tsx tests/unit/pdf/agent-panel.test.tsx
@@ -311,7 +313,7 @@ git commit -m "feat: simplify PDF workspace controls"
 - 产出：`.workspace-content.agent-closed` 与 `.workspace-content.agent-open` 响应式网格。
 - 保持：`.translation-page-body` 的内部纵向滚动、`.pdf-text-layer` 的文本框选和 `.pdf-block-highlight-layer` 的 `pointer-events: none`。
 
-- [ ] **步骤 1：把样式测试改成新版视觉契约并确认红灯**
+- [x] **步骤 1：把样式测试改成新版视觉契约并确认红灯**
 
 在 `pdf-styles.test.ts` 保留文本层、公式和 reduced-motion 断言，替换旧“已固定”伪元素断言并增加：
 
@@ -345,7 +347,7 @@ npx vitest run tests/unit/pdf/pdf-styles.test.ts tests/unit/pdf/workspace-compon
 
 预期：样式测试因旧颜色、卡片边框、虚线媒体卡和 180px 收起列失败；组件与页对回归仍可通过。
 
-- [ ] **步骤 2：集中替换颜色和基础层级**
+- [x] **步骤 2：集中替换颜色和基础层级**
 
 在 `style.css` 顶部定义：
 
@@ -369,7 +371,7 @@ npx vitest run tests/unit/pdf/pdf-styles.test.ts tests/unit/pdf/workspace-compon
 
 删除旧 `--pdf-border`、黄色/琥珀色高亮和散落的蓝色硬编码；普通文本、背景、分隔线和主题状态全部引用上述 token。错误仍引用 `--pdf-error`。
 
-- [ ] **步骤 3：完成工具栏、无框页对和紧凑译文样式**
+- [x] **步骤 3：完成工具栏、无框页对和紧凑译文样式**
 
 按以下硬约束重写对应规则：
 
@@ -399,7 +401,7 @@ npx vitest run tests/unit/pdf/pdf-styles.test.ts tests/unit/pdf/workspace-compon
 
 页码、标题层级和失败详情保留现有语义；标题上下间距整体缩小约 25%，不降低正文字号。
 
-- [ ] **步骤 4：完成靛蓝联动、媒体信息行和 Agent 连续侧栏**
+- [x] **步骤 4：完成靛蓝联动、媒体信息行和 Agent 连续侧栏**
 
 ```css
 .pdf-block-highlight { border: 1px solid rgb(79 70 229 / 72%); border-radius: 3px; background: rgb(79 70 229 / 14%); box-shadow: none; }
@@ -433,7 +435,7 @@ npx vitest run tests/unit/pdf/pdf-styles.test.ts tests/unit/pdf/workspace-compon
 
 不得为 Agent 网格宽度或页对高度添加动画；只保留背景色、透明度和现有高亮淡入过渡，并在 reduced-motion 下关闭。
 
-- [ ] **步骤 5：运行一次合并后的定向回归和里程碑类型检查**
+- [x] **步骤 5：运行一次合并后的定向回归和里程碑类型检查**
 
 ```powershell
 npx vitest run tests/unit/pdf/pdf-styles.test.ts tests/unit/pdf/workspace-components.test.tsx tests/unit/pdf/paired-page-viewer.test.tsx tests/unit/pdf/workspace-toolbar.test.tsx tests/unit/pdf/agent-panel.test.tsx
@@ -442,7 +444,7 @@ npm run typecheck
 
 预期：五个测试文件和 TypeScript 全部通过；不运行完整 Vitest、构建或 E2E。该 typecheck 同时覆盖任务 1 和任务 2，不在两个任务内分别重复。
 
-- [ ] **步骤 6：提交视觉里程碑**
+- [x] **步骤 6：提交视觉里程碑**
 
 ```powershell
 git add entrypoints/pdf-workspace.content/style.css tests/unit/pdf/pdf-styles.test.ts tests/unit/pdf/workspace-components.test.tsx
@@ -469,7 +471,7 @@ git commit -m "feat: modernize PDF reading workspace"
 - 消费：任务 2 的学术靛蓝、无框阅读流、紧凑译文和响应式样式。
 - 产出：默认关闭、非遮挡 Agent、更多菜单和完整视觉基线的浏览器证据。
 
-- [ ] **步骤 1：更新 E2E 交互契约，不运行完整 E2E**
+- [x] **步骤 1：更新 E2E 交互契约，不运行完整 E2E**
 
 在 `enableWorkspace` 后增加：
 
@@ -506,7 +508,7 @@ await pdfPage.getByLabel('更多操作').click();
 await pdfPage.getByRole('button', { name: '关闭工作台' }).click();
 ```
 
-- [ ] **步骤 2：增加工作台级视觉快照**
+- [x] **步骤 2：增加工作台级视觉快照**
 
 翻译完成并回到页面顶部后增加关闭态视口快照：
 
@@ -527,7 +529,7 @@ await expect(pdfPage).toHaveScreenshot('editorial-workspace-agent-open.png', {
 
 保留现有译文和 Agent 局部快照，避免用一个超长全页截图代替格式细节验证。
 
-- [ ] **步骤 3：只构建一次并集中更新全部 PDF 快照**
+- [x] **步骤 3：只构建一次并集中更新全部 PDF 快照**
 
 ```powershell
 npm run build
@@ -536,7 +538,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts --update-snapshots
 
 预期：PDF 工作台 3/3 用例通过并一次性更新六张相关快照。若因生产代码错误失败，先记录唯一根因并进入单一修复波次；不得在没有代码或断言变化时重复命令。
 
-- [ ] **步骤 4：逐张检查快照并执行一次集中只读复核**
+- [x] **步骤 4：逐张检查快照并执行一次集中只读复核**
 
 使用图像查看工具检查六张快照：
 
@@ -549,7 +551,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts --update-snapshots
 
 随后只读检查任务 1–2 的提交差异，重点核对回调接线、`aria-expanded`、原生更多菜单、窄屏全屏 Agent 和既有滚动规则。把所有 Critical/Important 问题合并为一次修复；修复时只运行任务 1 或任务 2 的定向测试。只有修复改变生产代码或 E2E 断言时，才重新执行本任务的构建和 E2E 更新命令。
 
-- [ ] **步骤 5：运行唯一一次完整发布门禁**
+- [x] **步骤 5：运行唯一一次完整发布门禁**
 
 确认集中复核已关闭所有 Critical/Important 问题后运行：
 
@@ -565,7 +567,7 @@ npm run check
 npx playwright test tests/e2e/pdf-workspace.spec.ts
 ```
 
-- [ ] **步骤 6：提交浏览器验收并检查交付状态**
+- [x] **步骤 6：提交浏览器验收并检查交付状态**
 
 ```powershell
 git add tests/e2e/pdf-workspace.spec.ts tests/e2e/pdf-workspace.spec.ts-snapshots

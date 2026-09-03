@@ -5,11 +5,20 @@ import type { AgentMessage } from '../agent/context-builder';
 import { appendAgentDelta, failAgentAnswer, finalizeAgentAnswer, stopAgentAnswer } from '../agent/stream-state';
 import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
+import { defaultTranslationMode } from '../translation/document-policy';
 import { classifyTranslationFailure, formatTranslationFailure, type TranslationFailure } from '../translation/failure';
-import { PageScheduler } from '../translation/page-scheduler';
-import { isPdfAgentProgress, isPdfTranslationProgress, type PdfMessage, type PdfMessageResponse, type PdfSourceTransfer } from './messages';
+import { PageScheduler, type ReadingDirection, type TranslationMode } from '../translation/page-scheduler';
+import {
+  isPdfAgentProgress,
+  isPdfTranslationProgress,
+  type PdfMessage,
+  type PdfMessageResponse,
+  type PdfSourceDescriptor,
+  type PdfTranslationSnapshot,
+} from './messages';
 import { OperationEpoch } from './operation-epoch';
 import { PairedPageViewer } from './PairedPageViewer';
+import { loadPdfSource } from './pdf-source';
 import { initialPageFromUrl } from './source-page';
 import type { TranslationPageStatus } from './TranslationPane';
 import { WorkspaceToolbar, workspaceFeedbackPlacement } from './WorkspaceToolbar';
@@ -17,15 +26,19 @@ import { initialLifecycleState, lifecycleReducer } from './workspace-reducer';
 
 export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [lifecycle, dispatch] = React.useReducer(lifecycleReducer, initialLifecycleState);
-  const [source, setSource] = React.useState<PdfSourceTransfer | null>(null);
+  const [source, setSource] = React.useState<PdfSourceDescriptor | null>(null);
+  const [pdfBytes, setPdfBytes] = React.useState<Uint8Array | null>(null);
   const [model, setModel] = React.useState<DocumentModel | null>(null);
-  const [translations, setTranslations] = React.useState(new Map<string, TranslationResult>());
+  const [translationsByPage, setTranslationsByPage] = React.useState(
+    new Map<number, ReadonlyMap<string, TranslationResult>>(),
+  );
   const [pageStatus, setPageStatus] = React.useState(new Map<number, TranslationPageStatus>());
   const [pageFailures, setPageFailures] = React.useState(new Map<number, TranslationFailure>());
   const [pageAttempts, setPageAttempts] = React.useState(new Map<number, number>());
   const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl));
   const [navigationPage, setNavigationPage] = React.useState(() => initialPageFromUrl(sourceUrl));
   const [scale, setScale] = React.useState(1.1);
+  const [translationMode, setTranslationMode] = React.useState<TranslationMode>('full-document');
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
   const [agentOpen, setAgentOpen] = React.useState(false);
@@ -42,10 +55,9 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const activeAgentRequestId = React.useRef<string | null>(null);
   const pendingAgentDelta = React.useRef('');
   const agentFlushTimer = React.useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
-  const pdfBytes = React.useMemo(
-    () => source ? Uint8Array.from(source.bytes) : null,
-    [source],
-  );
+  const activePageRef = React.useRef(activePage);
+  const readingDirectionRef = React.useRef<ReadingDirection>(0);
+  activePageRef.current = activePage;
   const highlightedBlockId = previewBlockId ?? pinnedBlockId;
   const pageCount = model?.pageCount ?? documentPageCount;
   const feedbackPlacement = workspaceFeedbackPlacement(lifecycle.phase);
@@ -92,12 +104,16 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
 
   React.useEffect(() => {
     dispatch({ type: 'load-started' });
+    setSource(null);
+    setPdfBytes(null);
     let cancelled = false;
-    void sendPdfMessage({ type: 'pdf:source', url: sourceUrl }).then((value) => {
-      if (cancelled || !isSource(value)) return;
-      setSource(value);
+    const controller = new AbortController();
+    void loadPdfSource(sourceUrl, globalThis.fetch, controller.signal).then(({ descriptor, bytes }) => {
+      if (cancelled) return;
+      setSource(descriptor);
+      setPdfBytes(bytes);
       setFeedback('PDF.js 正在准备页面；左栏无需等待解析');
-    }, () => {
+    }).catch(() => {
       if (!cancelled) {
         dispatch({ type: 'parse-failed', error: 'PDF_SOURCE_FAILED' });
         setFeedback('PDF 字节读取失败');
@@ -105,6 +121,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     });
     return () => {
       cancelled = true;
+      controller.abort();
       void sendPdfMessage({ type: 'pdf:cancel' }).catch(() => undefined);
     };
   }, [sourceUrl]);
@@ -126,7 +143,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       setModel(value);
       dispatch({ type: 'parse-done' });
       setFeedback('解析完成，正在从第 1 页开始翻译');
-    }, () => {
+    }).catch(() => {
       if (!operationEpoch.current.isCurrent(epoch)) return;
       parseStarted.current = false;
       dispatch({ type: 'parse-failed', error: 'MINERU_PARSE_FAILED' });
@@ -147,9 +164,11 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
 
   React.useEffect(() => {
     if (!model) return;
-    const scheduler = new PageScheduler(model.pageCount, 2);
+    const initialMode = defaultTranslationMode(model);
+    const scheduler = new PageScheduler(model.pageCount, 2, initialMode);
     const epoch = operationEpoch.current.current();
     schedulerRef.current = scheduler;
+    setTranslationMode(initialMode);
     let disposed = false;
 
     const pump = () => {
@@ -161,9 +180,9 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         setPageStatus((statuses) => new Map(statuses).set(current, 'translating'));
         void sendPdfMessage({ type: 'pdf:translate-page', hash: model.hash, page: current }).then((value) => {
           if (disposed || !operationEpoch.current.isCurrent(epoch) || !isTranslations(value)) return;
-          setTranslations((existing) => {
+          setTranslationsByPage((existing) => {
             const next = new Map(existing);
-            for (const translation of value) next.set(translation.id, translation);
+            next.set(current, translationMap(value));
             return next;
           });
           setPageStatus((statuses) => new Map(statuses).set(current, 'done'));
@@ -185,13 +204,38 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       }
     };
     pumpRef.current = pump;
-    pump();
+    void sendPdfMessage({ type: 'pdf:translation-snapshot', hash: model.hash }).then((value) => {
+      if (disposed || !operationEpoch.current.isCurrent(epoch) || !isTranslationSnapshot(value)) return;
+      const cachedPages = value.pages.map(({ page }) => page);
+      scheduler.hydrateDone(cachedPages);
+      setTranslationsByPage(new Map(value.pages.map(({ page, blocks }) => [page, translationMap(blocks)])));
+      setPageStatus(new Map(cachedPages.map((page) => [page, 'done' as const])));
+    }).catch(() => undefined).finally(() => {
+      if (disposed || !operationEpoch.current.isCurrent(epoch)) return;
+      if (initialMode === 'on-demand') {
+        const requested = scheduler.requestWindow(activePageRef.current, readingDirectionRef.current);
+        setPageStatus((statuses) => markRequestedPages(statuses, requested));
+      }
+      pump();
+    });
     return () => {
       disposed = true;
       schedulerRef.current = null;
       pumpRef.current = () => undefined;
     };
   }, [model]);
+
+  React.useEffect(() => {
+    if (!model || translationMode !== 'on-demand') return;
+    const timer = globalThis.setTimeout(() => {
+      const scheduler = schedulerRef.current;
+      if (!scheduler || scheduler.getMode() !== 'on-demand') return;
+      const requested = scheduler.requestWindow(activePage, readingDirectionRef.current);
+      setPageStatus((statuses) => markRequestedPages(statuses, requested));
+      pumpRef.current();
+    }, 350);
+    return () => globalThis.clearTimeout(timer);
+  }, [activePage, model, translationMode]);
 
   React.useEffect(() => {
     if (!model) return;
@@ -204,10 +248,22 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       else if (status === 'translating' || status === 'retrying') translating += 1;
       else if (status === 'failed') failed += 1;
     }
-    setFeedback(`已完成 ${done}/${model.pageCount} 页 · 翻译中 ${translating} 页 · 失败 ${failed} 页`);
-  }, [model, pageStatus]);
+    if (translationMode === 'on-demand') {
+      const current = pageStatus.get(activePage) ?? 'unrequested';
+      const currentLabel = current === 'done' ? '当前页已完成'
+        : current === 'failed' ? '当前页失败'
+          : current === 'translating' || current === 'retrying' ? '当前页翻译中'
+            : '当前页等待翻译';
+      setFeedback(`${currentLabel} · 已缓存 ${done}/${model.pageCount} 页 · 正在预取 ${Math.max(0, translating - (current === 'translating' || current === 'retrying' ? 1 : 0))} 页`);
+    } else {
+      setFeedback(`已完成 ${done}/${model.pageCount} 页 · 翻译中 ${translating} 页 · 失败 ${failed} 页`);
+    }
+  }, [activePage, model, pageStatus, translationMode]);
 
   const onPageVisible = React.useCallback((page: number) => {
+    const previous = activePageRef.current;
+    readingDirectionRef.current = page === previous ? readingDirectionRef.current : page > previous ? 1 : -1;
+    activePageRef.current = page;
     setActivePage(page);
   }, []);
 
@@ -215,20 +271,52 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     const pageCount = model?.pageCount ?? documentPageCount;
     if (pageCount < 1) return;
     const target = Math.min(Math.max(page, 1), pageCount);
+    const previous = activePageRef.current;
+    readingDirectionRef.current = target === previous ? readingDirectionRef.current : target > previous ? 1 : -1;
+    activePageRef.current = target;
     setActivePage(target);
     setNavigationPage(target);
+    const scheduler = schedulerRef.current;
+    if (scheduler?.getMode() === 'on-demand') {
+      const requested = scheduler.requestWindow(target, readingDirectionRef.current);
+      setPageStatus((statuses) => markRequestedPages(statuses, requested));
+      pumpRef.current();
+    } else if (scheduler) {
+      scheduler.requestPage(target, -1);
+      pumpRef.current();
+    }
   }, [documentPageCount, model?.pageCount]);
 
-  function retryCurrent() {
-    retryPage(activePage);
-  }
+  const requestPage = React.useCallback((page: number) => {
+    const scheduler = schedulerRef.current;
+    if (!scheduler?.requestPage(page, -1)) return;
+    setPageStatus((statuses) => new Map(statuses).set(page, 'pending'));
+    pumpRef.current();
+  }, []);
 
-  function retryPage(page: number) {
+  const retryPage = React.useCallback((page: number) => {
     if (schedulerRef.current?.retry(page) !== true) return;
     setPageFailures((failures) => withoutPage(failures, page));
     setPageStatus((statuses) => new Map(statuses).set(page, 'retrying'));
     pumpRef.current();
-  }
+  }, []);
+
+  const retryCurrent = React.useCallback(() => {
+    if (pageStatus.get(activePage) === 'failed') retryPage(activePage);
+    else requestPage(activePage);
+  }, [activePage, pageStatus, requestPage, retryPage]);
+
+  const changeTranslationMode = React.useCallback((mode: TranslationMode) => {
+    const scheduler = schedulerRef.current;
+    if (!scheduler || scheduler.getMode() === mode) return;
+    scheduler.setMode(mode);
+    setTranslationMode(mode);
+    if (mode === 'on-demand') {
+      const requested = scheduler.requestWindow(activePageRef.current, readingDirectionRef.current);
+      setPageStatus((statuses) => markRequestedPages(statuses, requested));
+    }
+    pumpRef.current();
+  }, []);
 
   function retryFailed() {
     const retried: number[] = [];
@@ -255,7 +343,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     operationEpoch.current.advance();
     await sendPdfMessage({ type: 'pdf:cache-clear', hash: source.hash });
     setModel(null);
-    setTranslations(new Map());
+    setTranslationsByPage(new Map());
     setPageStatus(new Map());
     setPageFailures(new Map());
     setPageAttempts(new Map());
@@ -322,16 +410,28 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     setAgentError('已停止当前请求');
   }
 
+  const copyFailure = React.useCallback((failure: TranslationFailure) => {
+    void navigator.clipboard.writeText(formatTranslationFailure(failure));
+  }, []);
+
+  const pinBlock = React.useCallback((blockId: string) => {
+    setPinnedBlockId((current) => current === blockId ? null : blockId);
+  }, []);
+
   return (
     <main className="pdf-workspace" data-renderer="pdfjs" data-pdf-render-page={activePage}>
       <WorkspaceToolbar
         title={source?.title ?? 'PDF 翻译工作台'}
         activePage={activePage}
         pageCount={pageCount}
+        scale={scale}
         progressLabel={feedback}
         agentOpen={agentOpen}
         canRetryFailed={hasFailedPages}
         canStopAgent={agentBusy}
+        translationMode={translationMode}
+        onNavigatePage={navigateToPage}
+        onChangeTranslationMode={changeTranslationMode}
         onZoomOut={() => setScale((value) => Math.max(0.5, value - 0.1))}
         onZoomIn={() => setScale((value) => Math.min(3, value + 0.1))}
         onToggleAgent={() => setAgentOpen((open) => !open)}
@@ -353,7 +453,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               <h2>确认发送到第三方解析服务</h2>
               <dl><dt>目标服务</dt><dd>MinerU</dd><dt>文件名</dt><dd>{source.title}</dd><dt>大小</dt><dd>{formatBytes(source.size)}</dd></dl>
               <p>此 PDF 需要认证。点击同意后，文件字节将发送到第三方 MinerU 解析服务。</p>
-              <button type="button" disabled={documentPageCount < 1} onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
+              <button className="upload-consent-action" type="button" disabled={documentPageCount < 1} onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
             </div>}
           {source && pdfBytes
             ? <PairedPageViewer
@@ -362,7 +462,8 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               activePage={activePage}
               navigationPage={navigationPage}
               model={model}
-              translations={translations}
+              translationsByPage={translationsByPage}
+              translationMode={translationMode}
               pageStatus={pageStatus}
               pageFailures={pageFailures}
               pageAttempts={pageAttempts}
@@ -371,11 +472,18 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               onDocumentReady={onDocumentReady}
               onPageVisible={onPageVisible}
               onRetryPage={retryPage}
-              onCopyFailure={(failure) => void navigator.clipboard.writeText(formatTranslationFailure(failure))}
+              onRequestPage={requestPage}
+              onCopyFailure={copyFailure}
               onBlockPreview={setPreviewBlockId}
-              onBlockPin={(blockId) => setPinnedBlockId((current) => current === blockId ? null : blockId)}
+              onBlockPin={pinBlock}
             />
-            : <p role="status">正在读取 PDF…</p>}
+            : <div className="pdf-loading-state" role="status">
+                <span className="pdf-loading-indicator" aria-hidden="true" />
+                <div>
+                  <strong>正在读取 PDF</strong>
+                  <span>正在准备原文、译文和页面结构…</span>
+                </div>
+              </div>}
         </section>
         <AgentPanel
           open={agentOpen}
@@ -414,16 +522,35 @@ function withoutPage<T>(values: ReadonlyMap<number, T>, page: number): Map<numbe
   return next;
 }
 
-function isSource(value: unknown): value is PdfSourceTransfer {
-  return typeof value === 'object' && value !== null && 'bytes' in value && Array.isArray((value as PdfSourceTransfer).bytes);
-}
-
 function isDocument(value: unknown): value is DocumentModel {
   return typeof value === 'object' && value !== null && 'pages' in value && Array.isArray((value as DocumentModel).pages);
 }
 
 function isTranslations(value: unknown): value is TranslationResult[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'object' && item !== null && 'id' in item && 'text' in item);
+}
+
+function isTranslationSnapshot(value: unknown): value is PdfTranslationSnapshot {
+  return typeof value === 'object' && value !== null && 'pages' in value &&
+    Array.isArray((value as PdfTranslationSnapshot).pages) &&
+    (value as PdfTranslationSnapshot).pages.every((entry) => Number.isInteger(entry.page) && isTranslations(entry.blocks));
+}
+
+function translationMap(values: TranslationResult[]): ReadonlyMap<string, TranslationResult> {
+  return new Map(values.map((translation) => [translation.id, translation]));
+}
+
+function markRequestedPages(
+  statuses: ReadonlyMap<number, TranslationPageStatus>,
+  pages: readonly number[],
+): Map<number, TranslationPageStatus> {
+  let next: Map<number, TranslationPageStatus> | undefined;
+  for (const page of pages) {
+    if (statuses.has(page)) continue;
+    next ??= new Map(statuses);
+    next.set(page, 'pending');
+  }
+  return next ?? (statuses instanceof Map ? statuses : new Map(statuses));
 }
 
 function isAgentAnswer(value: unknown): value is { answer: string; mode: 'full' | 'compressed'; notice?: string } {

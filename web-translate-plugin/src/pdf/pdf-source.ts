@@ -1,4 +1,9 @@
-import type { PdfSourceTransfer } from './messages';
+import type { PdfSourceDescriptor } from './messages';
+
+export interface LoadedPdfSource {
+  descriptor: PdfSourceDescriptor;
+  bytes: Uint8Array<ArrayBuffer>;
+}
 
 export class PdfSourceError extends Error {
   readonly name = 'PdfSourceError';
@@ -12,7 +17,7 @@ export async function loadPdfSource(
   rawUrl: string,
   fetcher: typeof fetch = globalThis.fetch,
   signal?: AbortSignal,
-): Promise<PdfSourceTransfer> {
+): Promise<LoadedPdfSource> {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -25,37 +30,81 @@ export async function loadPdfSource(
 
   const publicResponse = await safeFetch(fetcher, rawUrl, 'omit', signal);
   const publicBytes = publicResponse?.ok ? await readBytes(publicResponse) : null;
-  let kind: PdfSourceTransfer['kind'] = 'remote';
+  let kind: PdfSourceDescriptor['kind'] = 'remote';
   let bytes = publicBytes;
+  let sourceResponse = publicResponse;
   if (!bytes || !hasPdfSignature(bytes)) {
     kind = 'authenticated';
     const authenticated = await safeFetch(fetcher, rawUrl, 'include', signal);
     bytes = authenticated?.ok ? await readBytes(authenticated) : null;
+    sourceResponse = authenticated;
   }
   if (!bytes) throw new PdfSourceError('PDF_FETCH_FAILED');
   if (!hasPdfSignature(bytes)) throw new PdfSourceError('PDF_SIGNATURE_INVALID');
-  const digestBytes = Uint8Array.from(bytes);
-  const digest = await crypto.subtle.digest('SHA-256', digestBytes.buffer);
+  const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
   const hash = Array.from(new Uint8Array(digest), (value) =>
     value.toString(16).padStart(2, '0')).join('');
-  const title = decodeURIComponent(url.pathname.split('/').pop() || 'document.pdf');
+  const title = resolvePdfTitle(url, sourceResponse);
   return {
-    url: rawUrl,
-    hash: `sha256:${hash}`,
-    title,
-    size: bytes.byteLength,
-    kind,
-    bytes: Array.from(bytes),
+    descriptor: {
+      url: rawUrl,
+      hash: `sha256:${hash}`,
+      title,
+      size: bytes.byteLength,
+      kind,
+    },
+    bytes,
   };
 }
 
-async function readBytes(response: Response): Promise<Uint8Array> {
+export function resolvePdfTitle(url: URL, response?: Response | null): string {
+  const disposition = response?.headers?.get('content-disposition') ?? '';
+  const encodedName = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(disposition)?.[1];
+  const plainMatch = /filename\s*=\s*(?:"([^"]+)"|([^;]+))/i.exec(disposition);
+  const headerName = encodedName
+    ? safeDecode(encodedName.trim().replace(/^"|"$/g, ''))
+    : plainMatch?.[1] ?? plainMatch?.[2]?.trim();
+  const safeHeaderName = sanitizePdfTitle(headerName);
+  if (safeHeaderName) return ensurePdfExtension(safeHeaderName);
+
+  const pathName = sanitizePdfTitle(safeDecode(url.pathname.split('/').pop() || ''));
+  if (pathName && !/^(?:download|document|pdf)$/i.test(pathName)) {
+    return ensurePdfExtension(pathName);
+  }
+
+  for (const key of ['filename', 'file', 'id', 'paper', 'document']) {
+    const candidate = url.searchParams.get(key);
+    if (!candidate || !/^[\p{L}\p{N}._-]{1,80}$/u.test(candidate)) continue;
+    const safeCandidate = sanitizePdfTitle(candidate);
+    if (safeCandidate) return ensurePdfExtension(safeCandidate);
+  }
+  return pathName ? ensurePdfExtension(pathName) : 'document.pdf';
+}
+
+async function readBytes(response: Response): Promise<Uint8Array<ArrayBuffer>> {
   try { return new Uint8Array(await response.arrayBuffer()); }
   catch { throw new PdfSourceError('PDF_READ_FAILED'); }
 }
 
 function hasPdfSignature(bytes: Uint8Array): boolean {
   return bytes.length >= 5 && new TextDecoder().decode(bytes.subarray(0, 5)) === '%PDF-';
+}
+
+function safeDecode(value: string): string {
+  try { return decodeURIComponent(value); }
+  catch { return value; }
+}
+
+function sanitizePdfTitle(value?: string): string {
+  return (value ?? '')
+    .split(/[\\/]/).pop()!
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, 160);
+}
+
+function ensurePdfExtension(value: string): string {
+  return /\.pdf$/i.test(value) ? value : `${value}.pdf`;
 }
 
 async function safeFetch(

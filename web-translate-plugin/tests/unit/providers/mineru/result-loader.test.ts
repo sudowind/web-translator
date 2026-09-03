@@ -1,7 +1,7 @@
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 
-import { loadMineruResult } from '../../../../src/providers/mineru/result-loader';
+import { isMineruContentListEntry, loadMineruResult } from '../../../../src/providers/mineru/result-loader';
 
 const metadata = {
   sourceUrl: 'https://example.test/p.pdf',
@@ -12,6 +12,12 @@ const metadata = {
 const resultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/result.zip';
 
 describe('MinerU Zip 结果加载', () => {
+  it('解压过滤器只接受内容列表并跳过图片等无关文件', () => {
+    expect(isMineruContentListEntry('nested/paper_content_list.json')).toBe(true);
+    expect(isMineruContentListEntry('images/page-1.png')).toBe(false);
+    expect(isMineruContentListEntry('paper.md')).toBe(false);
+  });
+
   it('允许目录前缀并生成文档模型', async () => {
     const zip = zipSync({
       'nested/paper_content_list.json': strToU8(JSON.stringify([{ page_idx: 0, type: 'text', text: 'Hello' }])),

@@ -1,5 +1,7 @@
 # PDF 翻译失败诊断与滚动渲染稳定性实施计划
 
+状态：已完成（2026-07-12，2026-07-23 回填）
+
 > **供智能体执行者使用：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，按任务逐项实施并使用复选框跟踪。
 
 **目标：** 为每个 PDF 翻译失败页提供脱敏、可复制的结构化诊断，修复有限自动重试，并消除滚动时 PDF Canvas 反复卸载造成的闪烁。
@@ -73,7 +75,7 @@ export function classifyTranslationFailure(
 export function formatTranslationFailure(failure: TranslationFailure): string;
 ```
 
-- [ ] **步骤 1：先写错误分类失败测试**
+- [x] **步骤 1：先写错误分类失败测试**
 
 ```ts
 expect(classifyTranslationFailure(
@@ -89,16 +91,16 @@ expect(classifyTranslationFailure(
 expect(formatTranslationFailure(failure)).not.toContain('sk-');
 ```
 
-- [ ] **步骤 2：运行红灯测试**
+- [x] **步骤 2：运行红灯测试**
 
 运行：`npm test -- tests/unit/translation/failure.test.ts`  
 预期：模块不存在，测试失败。
 
-- [ ] **步骤 3：实现脱敏错误分类**
+- [x] **步骤 3：实现脱敏错误分类**
 
 从 `error.code` 或安全的 `error.message` 读取 `TRANSLATION_*` 稳定码；用正则 `^TRANSLATION_HTTP_(\d{3})$` 提取状态。摘要只由代码映射表生成，不拼接原始异常正文。`formatTranslationFailure` 只序列化接口定义中的白名单字段。
 
-- [ ] **步骤 4：先写重试失败测试**
+- [x] **步骤 4：先写重试失败测试**
 
 ```ts
 const client = { translate: vi.fn()
@@ -112,12 +114,12 @@ expect(client.translate).toHaveBeenCalledTimes(3);
 
 再分别断言 `TRANSLATION_NETWORK` 重试，`TRANSLATION_TIMEOUT`、`TRANSLATION_JSON_INVALID` 和 `TRANSLATION_ID_MISSING` 只调用一次，并在最终异常的 `failure` 中保留具体错误码。
 
-- [ ] **步骤 5：运行重试红灯测试**
+- [x] **步骤 5：运行重试红灯测试**
 
 运行：`npm test -- tests/unit/translation/translate-page.test.ts`  
 预期：现有实现把稳定码折叠为 `TRANSLATION_FAILED`，429/503 不重试。
 
-- [ ] **步骤 6：实现类型化最终异常**
+- [x] **步骤 6：实现类型化最终异常**
 
 ```ts
 export class PageTranslationError extends Error {
@@ -131,11 +133,11 @@ export class PageTranslationError extends Error {
 
 `translatePage` 记录 `startedAt` 和 `attempts`；只有 429、500–599 与 `TRANSLATION_NETWORK` 进入下一次循环。最终调用 `classifyTranslationFailure`，不能再次覆盖具体错误码。
 
-- [ ] **步骤 7：修复 Provider 错误边界**
+- [x] **步骤 7：修复 Provider 错误边界**
 
 `OpenAiTranslationClient` 只把 `LlmProviderError` 映射为 `TranslationProviderError`；`parseTranslationResponse` 抛出的 `TRANSLATION_JSON_INVALID`、Schema 和 ID 错误直接向上传递。增加测试证明 `TRANSLATION_JSON_INVALID` 不被转换为网络错误。
 
-- [ ] **步骤 8：运行任务 1 绿灯测试并提交**
+- [x] **步骤 8：运行任务 1 绿灯测试并提交**
 
 运行：`npm test -- tests/unit/translation/failure.test.ts tests/unit/translation/translate-page.test.ts tests/unit/providers/openai/client.test.ts`  
 预期：全部通过。
@@ -181,7 +183,7 @@ export class PdfMessageError extends Error {
 
 工作台保留现有 `pageStatus`，另加 `pageFailures: Map<number, TranslationFailure>`，避免一次重构所有状态消费者。
 
-- [ ] **步骤 1：先写消息与组件失败测试**
+- [x] **步骤 1：先写消息与组件失败测试**
 
 消息测试断言含 `failure` 的响应只能包含 `TranslationFailure` 白名单字段。组件测试传入失败对象并断言：
 
@@ -192,16 +194,16 @@ expect(html).not.toContain('<details open=""');
 expect(html).toContain('复制诊断信息');
 ```
 
-- [ ] **步骤 2：运行红灯测试**
+- [x] **步骤 2：运行红灯测试**
 
 运行：`npm test -- tests/unit/pdf/messages.test.ts tests/unit/pdf/workspace-components.test.tsx`  
 预期：响应类型、失败属性和详情 UI 尚不存在。
 
-- [ ] **步骤 3：实现安全消息传递**
+- [x] **步骤 3：实现安全消息传递**
 
 `background.ts` 遇到 `PageTranslationError` 时返回 `{ ok: false, error: failure.code, failure }`；其他 PDF 错误继续使用 `safePdfError`。`sendPdfMessage` 收到失败响应后抛出 `PdfMessageError`，不得把任意原始错误对象传进页面。
 
-- [ ] **步骤 4：实现页面诊断状态**
+- [x] **步骤 4：实现页面诊断状态**
 
 请求失败时从 `PdfMessageError.failure` 写入 `pageFailures`；缺少结构化对象时使用 `classifyTranslationFailure` 生成 `TRANSLATION_FAILED` 安全兜底。开始翻译、手动重试、成功和清缓存时删除对应旧诊断。
 
@@ -209,7 +211,7 @@ expect(html).toContain('复制诊断信息');
 
 顶部反馈改为 `已完成 X 页 · 翻译中 Y 页 · 失败 Z 页`，不再显示旧文案“正在按当前页优先翻译”。
 
-- [ ] **步骤 5：实现默认收起的详情 UI**
+- [x] **步骤 5：实现默认收起的详情 UI**
 
 ```tsx
 {failure && (
@@ -227,7 +229,7 @@ expect(html).toContain('复制诊断信息');
 
 字段由 `TranslationFailure` 直接渲染；复制内容只调用 `formatTranslationFailure`。失败详情放在 `.translation-page-body` 内，继续使用页内滚动。
 
-- [ ] **步骤 6：运行任务 2 绿灯测试并提交**
+- [x] **步骤 6：运行任务 2 绿灯测试并提交**
 
 运行：`npm test -- tests/unit/pdf/messages.test.ts tests/unit/pdf/workspace-components.test.tsx tests/unit/translation/failure.test.ts`  
 预期：全部通过。
@@ -262,7 +264,7 @@ export function selectDominantPage(
 export function visiblePageWindow(activePage: number, pageCount: number, radius?: number): Set<number>;
 ```
 
-- [ ] **步骤 1：先写主要可见页失败测试**
+- [x] **步骤 1：先写主要可见页失败测试**
 
 ```ts
 expect(selectDominantPage([
@@ -277,28 +279,28 @@ expect(selectDominantPage([
 
 组件测试把默认渲染窗口期望改为活动页前后各 2 页，例如活动页 5 返回 `{3,4,5,6,7}`。
 
-- [ ] **步骤 2：运行红灯测试**
+- [x] **步骤 2：运行红灯测试**
 
 运行：`npm test -- tests/unit/pdf/visible-page.test.ts tests/unit/pdf/workspace-components.test.tsx`  
 预期：选择函数不存在，旧窗口只有前后各 1 页。
 
-- [ ] **步骤 3：实现稳定选择函数**
+- [x] **步骤 3：实现稳定选择函数**
 
 过滤非法页码和非正交叉率；按 `intersectionRatio` 降序选择。最大值并列且包含 `currentPage` 时返回当前页，否则返回页码较小者，保证确定性。
 
-- [ ] **步骤 4：每次观察器回调只上报一个页面**
+- [x] **步骤 4：每次观察器回调只上报一个页面**
 
 `PdfViewer` 和 `TranslationPane` 的观察器先把所有相交 entry 转成 candidate，再调用 `selectDominantPage` 一次。使用 ref 保存最近上报页，只有页码变化时才调用 `onPageVisible`。
 
-- [ ] **步骤 5：隔离阅读页与 PDF 渲染焦点**
+- [x] **步骤 5：隔离阅读页与 PDF 渲染焦点**
 
 `PdfWorkspace` 增加 `pdfRenderPage`。只有 `pane === 'pdf'` 的可见页事件和 `navigateToPage` 更新它；右侧译文事件只更新工具栏阅读页并执行获准的同步，不修改 `pdfRenderPage`。`PdfViewer.activePage` 改为传入 `pdfRenderPage`。
 
-- [ ] **步骤 6：扩大稳定窗口并保持 key**
+- [x] **步骤 6：扩大稳定窗口并保持 key**
 
 `visiblePageWindow` 默认半径改为 `2`。页面 section 的 key 继续固定为页码，窗口内已有 `PdfPageCanvas` 不因相邻页切换重建。新窗口页先显示同尺寸槽位；离开半径 2 后才卸载 Canvas。
 
-- [ ] **步骤 7：运行任务 3 绿灯测试并提交**
+- [x] **步骤 7：运行任务 3 绿灯测试并提交**
 
 运行：`npm test -- tests/unit/pdf/visible-page.test.ts tests/unit/pdf/workspace-components.test.tsx tests/unit/pdf/sync-controller.test.ts`  
 预期：全部通过。
@@ -316,22 +318,22 @@ git commit -m "fix: stabilize PDF canvas rendering while scrolling"
 
 - 修改：`web-translate-plugin/tests/e2e/pdf-workspace.spec.ts`
 
-- [ ] **步骤 1：先写失败诊断 E2E 红灯断言**
+- [x] **步骤 1：先写失败诊断 E2E 红灯断言**
 
 测试服务根据页面返回 `429`、延迟超时或非法 JSON。至少覆盖一个 429 自动重试后最终失败页面和一个非法 JSON 页面，断言简短原因、详情默认收起、展开字段和复制按钮存在。
 
 诊断复制通过点击按钮后读取 `navigator.clipboard.readText()` 或注入剪贴板替身，断言不包含 `sk-`、PDF 原文和请求 Prompt。
 
-- [ ] **步骤 2：加入 Canvas 稳定性断言**
+- [x] **步骤 2：加入 Canvas 稳定性断言**
 
 记录活动页及相邻页 Canvas 节点的测试 ID；连续滚动一个页面后断言仍是同一 DOM 节点，并断言右侧译文回填不会改变 `data-pdf-render-page`。保留 URL 不变、PDF.js 渲染和关闭恢复断言。
 
-- [ ] **步骤 3：在旧构建上运行红灯 E2E**
+- [x] **步骤 3：在旧构建上运行红灯 E2E**
 
 运行：`npx playwright test tests/e2e/pdf-workspace.spec.ts --grep "失败诊断|Canvas 稳定"`  
 预期：旧构建没有详情 UI，且相邻 Canvas 稳定性断言失败。
 
-- [ ] **步骤 4：构建并运行完整 PDF E2E**
+- [x] **步骤 4：构建并运行完整 PDF E2E**
 
 运行：`npm run build`  
 预期：生产构建成功。
@@ -339,12 +341,12 @@ git commit -m "fix: stabilize PDF canvas rendering while scrolling"
 运行：`npx playwright test tests/e2e/pdf-workspace.spec.ts`  
 预期：公开 PDF、认证 PDF、失败诊断和 Canvas 稳定性测试全部通过。
 
-- [ ] **步骤 5：运行最终完整门禁**
+- [x] **步骤 5：运行最终完整门禁**
 
 运行：`npm run check`  
 预期：类型检查、全部 Vitest 和生产构建退出码均为 `0`。
 
-- [ ] **步骤 6：复核并提交**
+- [x] **步骤 6：复核并提交**
 
 运行：`git diff --check`、`git status --short`，确认没有测试产物和敏感信息。
 

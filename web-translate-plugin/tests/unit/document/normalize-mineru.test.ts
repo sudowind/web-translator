@@ -28,6 +28,58 @@ describe('MinerU 文档规范化', () => {
     ]);
   });
 
+  it('过滤 MinerU 明确标记的页眉、页脚、页码和侧边辅助文本，但保留语义脚注', () => {
+    const model = normalizeMineru([
+      { page_idx: 0, type: 'header', text: 'Legacy header' },
+      { page_idx: 0, type: 'page_header', content: { ignored: true } },
+      { page_idx: 0, type: 'footer', text: 'Legacy footer' },
+      { page_idx: 0, type: 'page_footer', content: { ignored: true } },
+      { page_idx: 0, type: 'page_number', text: '1' },
+      { page_idx: 0, type: 'aside_text', text: 'Legacy aside' },
+      { page_idx: 0, type: 'page_aside_text', content: { ignored: true } },
+      { page_idx: 0, type: 'page_footnote', text: '作者贡献说明' },
+      { page_idx: 0, type: 'text', text: '正文' },
+    ], { ...metadata, pageCount: 1 });
+
+    expect(model.pages[0].blocks).toMatchObject([
+      { kind: 'footnote', text: '作者贡献说明' },
+      { kind: 'paragraph', text: '正文' },
+    ]);
+  });
+
+  it('用跨页重复位置兜底过滤被误标为正文的页眉页脚和页码', () => {
+    const blocks = Array.from({ length: 24 }, (_, page_idx) => [
+      ...(page_idx > 0
+        ? [
+            { page_idx, type: 'text', text: 'OmniGUI', bbox: [220, 112, 281, 124] },
+            { page_idx, type: 'text', text: 'arXiv Preprint', bbox: [697, 112, 785, 124] },
+          ]
+        : []),
+      ...(page_idx === 0
+        ? [{ page_idx, type: 'title', text: '仅首页论文标题', bbox: [100, 80, 900, 130] }]
+        : []),
+      { page_idx, type: 'text', text: `第 ${page_idx + 1} 页正文`, bbox: [100, 180, 900, 700] },
+      { page_idx, type: 'text', text: '跨页重复但位于正文区域', bbox: [100, 400, 900, 440] },
+      { page_idx, type: 'footnote', text: '需要保留的语义脚注', bbox: [220, 900, 700, 920] },
+      { page_idx, type: 'text', text: 'XPeng Motors', bbox: [220, 869, 311, 881] },
+      { page_idx, type: 'text', text: String(page_idx + 1), bbox: [770, 869, 785, 881] },
+    ]).flat();
+
+    const model = normalizeMineru(blocks, { ...metadata, pageCount: 24 });
+
+    for (const page of model.pages) {
+      const texts = page.blocks.map((block) => block.text);
+      expect(texts).not.toContain('OmniGUI');
+      expect(texts).not.toContain('arXiv Preprint');
+      expect(texts).not.toContain('XPeng Motors');
+      expect(texts).not.toContain(String(page.index + 1));
+      expect(texts).toContain(`第 ${page.index + 1} 页正文`);
+      expect(texts).toContain('跨页重复但位于正文区域');
+      expect(texts).toContain('需要保留的语义脚注');
+    }
+    expect(model.pages[0].blocks.map((block) => block.text)).toContain('仅首页论文标题');
+  });
+
   it('去除独立公式的显示定界符但保留原始文本和公式编号', () => {
     const source = '$$\n\\operatorname{Attention}(Q,K,V)=QK^T\\tag{1}\n$$';
     const bracketed = '\\[ x^2 + y^2 \\]';
@@ -64,7 +116,7 @@ describe('MinerU 文档规范化', () => {
       { page_idx: 0, type: 'image', img_path: 'images/no-title.png' },
     ], { ...metadata, pageCount: 1 });
 
-    expect(model.schemaVersion).toBe(3);
+    expect(model.schemaVersion).toBe(DOCUMENT_SCHEMA_VERSION);
     expect(model.pages[0].blocks).toMatchObject([
       { kind: 'table', text: 'table OCR must stay separate', caption: 'Table one\ncontinued' },
       { kind: 'figure', text: 'image OCR must stay separate', caption: 'Figure one' },

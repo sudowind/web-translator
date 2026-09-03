@@ -9,6 +9,12 @@
 
 ## 当前规格记录
 
+- PDF 长文档按需翻译与性能优化：`docs/superpowers/specs/2026-09-03-pdf-long-document-on-demand-performance-design.md`
+- PDF 长文档按需翻译与性能优化实施计划：`docs/superpowers/plans/2026-09-03-pdf-long-document-on-demand-performance-plan.md`
+- PDF 工作台现代化与易用性收口：`docs/superpowers/specs/2026-07-23-pdf-ui-polish-design.md`
+- PDF 工作台现代化与易用性收口实施计划：`docs/superpowers/plans/2026-07-23-pdf-ui-polish-plan.md`
+- PDF 大文件源字节生命周期：`docs/superpowers/specs/2026-07-23-pdf-large-source-lifecycle-design.md`
+- PDF 大文件源字节生命周期实施计划：`docs/superpowers/plans/2026-07-23-pdf-large-source-lifecycle-plan.md`
 - PDF 现代编辑型极简界面：`docs/superpowers/specs/2026-07-14-pdf-modern-editorial-ui-design.md`
 - PDF 现代编辑型极简界面实施计划：`docs/superpowers/plans/2026-07-14-pdf-modern-editorial-ui-plan.md`
 - PDF 表格与图片标题翻译及占位渲染：`docs/superpowers/specs/2026-07-13-pdf-media-caption-placeholder-design.md`

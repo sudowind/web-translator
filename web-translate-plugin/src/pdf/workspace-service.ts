@@ -17,8 +17,14 @@ import {
   type TranslationKey,
 } from '../storage/repositories';
 import { translatePage, translationBlocksForPage } from '../translation/translate-page';
-import { loadPdfSource } from './pdf-source';
-import type { PdfAgentProgress, PdfMessage, PdfMessageValue, PdfSourceTransfer, PdfTranslationProgress } from './messages';
+import { loadPdfSource, type LoadedPdfSource } from './pdf-source';
+import type {
+  PdfAgentProgress,
+  PdfMessage,
+  PdfMessageValue,
+  PdfSourceDescriptor,
+  PdfTranslationProgress,
+} from './messages';
 
 export class PdfWorkspaceServiceError extends Error {
   readonly name = 'PdfWorkspaceServiceError';
@@ -46,11 +52,12 @@ interface MineruPort {
 }
 
 interface Dependencies {
-  loadSource(url: string, signal?: AbortSignal): Promise<PdfSourceTransfer>;
+  loadSource(url: string, signal?: AbortSignal): Promise<LoadedPdfSource>;
   getDocument(hash: string): Promise<DocumentModel | undefined>;
   putDocument(model: DocumentModel): Promise<void>;
   clearCache(hash: string): Promise<void>;
   getTranslation(key: TranslationKey): Promise<StoredTranslation | undefined>;
+  listTranslations?(hash: string): Promise<StoredTranslation[]>;
   putTranslation(key: TranslationKey, blocks: unknown): Promise<void>;
   putTask(task: StoredTask): Promise<void>;
   listTasks?(status: StoredTask['status']): Promise<StoredTask[]>;
@@ -69,6 +76,7 @@ const defaults: Dependencies = {
   putDocument: (model) => documentRepository.put(model),
   clearCache: (hash) => clearDocumentCache(hash),
   getTranslation: (key) => translationRepository.get(key),
+  listTranslations: (hash) => translationRepository.listByHash(hash),
   putTranslation: (key, blocks) => translationRepository.put(key, blocks),
   putTask: (task) => taskRepository.put(task),
   listTasks: (status) => taskRepository.listByStatus(status),
@@ -91,12 +99,13 @@ export class PdfWorkspaceService {
   private readonly resuming = new Set<string>();
   private readonly mutationTails = new Map<string, Promise<unknown>>();
   private readonly generations = new Map<string, number>();
+  private readonly documents = new Map<string, DocumentModel>();
 
   constructor(private readonly dependencies: Dependencies = defaults) {}
 
   async handle(message: PdfMessage, tabId: number): Promise<PdfMessageValue> {
     if (message.type === 'pdf:cancel') {
-      this.cancel(tabId);
+      this.dispose(tabId);
       return { cancelled: true };
     }
     if (message.type === 'pdf:agent-cancel') {
@@ -107,6 +116,7 @@ export class PdfWorkspaceService {
     if (message.type === 'pdf:cache-clear') {
       this.cancel(tabId);
       this.invalidate(message.hash);
+      this.documents.delete(message.hash);
       await this.enqueueForced(message.hash, () => this.dependencies.clearCache(message.hash));
       return { cleared: true };
     }
@@ -119,11 +129,11 @@ export class PdfWorkspaceService {
       });
     }
     const signal = this.session(tabId).signal;
-    if (message.type === 'pdf:source') {
-      return this.dependencies.loadSource(message.url, signal);
-    }
     if (message.type === 'pdf:document-get') {
-      return (await this.dependencies.getDocument(message.hash)) ?? null;
+      return (await this.getDocument(message.hash)) ?? null;
+    }
+    if (message.type === 'pdf:translation-snapshot') {
+      return this.translationSnapshot(message.hash);
     }
     if (message.type === 'pdf:parse-start') {
       return this.parse(message.source, message.pageCount, message.consent, signal);
@@ -136,6 +146,10 @@ export class PdfWorkspaceService {
     this.sessions.delete(tabId);
     this.agentSessions.get(tabId)?.abort();
     this.agentSessions.delete(tabId);
+  }
+
+  dispose(tabId: number): void {
+    this.cancel(tabId);
   }
 
   async resumePending(): Promise<void> {
@@ -152,13 +166,13 @@ export class PdfWorkspaceService {
   }
 
   private async parse(
-    source: PdfSourceTransfer,
+    source: PdfSourceDescriptor,
     pageCount: number,
     consent: boolean,
     signal: AbortSignal,
   ): Promise<DocumentModel> {
     const generation = this.generation(source.hash);
-    const cached = await this.dependencies.getDocument(source.hash);
+    const cached = await this.getDocument(source.hash);
     if (cached?.schemaVersion === DOCUMENT_SCHEMA_VERSION) return cached;
     if (source.kind === 'authenticated' && !consent) {
       throw new PdfWorkspaceServiceError('PDF_AUTH_UPLOAD_REQUIRES_CONSENT');
@@ -169,14 +183,14 @@ export class PdfWorkspaceService {
     let providerTask: MineruTaskRef;
     let usedUpload = source.kind === 'authenticated';
     if (source.kind === 'authenticated') {
-      providerTask = await this.createUpload(client, source, signal);
+      providerTask = await this.createUpload(client, source, consent, signal);
     } else {
       try {
         providerTask = await client.createUrlTask(source.url, signal);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') throw error;
         usedUpload = true;
-        providerTask = await this.createUpload(client, source, signal);
+        providerTask = await this.createUpload(client, source, consent, signal);
       }
     }
     let task = await this.createTask(source, pageCount, providerTask, generation);
@@ -195,7 +209,12 @@ export class PdfWorkspaceService {
       await this.putTask(source.hash, generation, { ...task, status: 'failed', errorCode: safeTaskError(result), updatedAt: Date.now() });
       try {
         usedUpload = true;
-        task = await this.createTask(source, pageCount, await this.createUpload(client, source, signal), generation);
+        task = await this.createTask(
+          source,
+          pageCount,
+          await this.createUpload(client, source, consent, signal),
+          generation,
+        );
         result = await client.waitForResult(task.providerTask, signal);
       } catch (error) {
         if (signal.aborted) throw signal.reason;
@@ -217,6 +236,7 @@ export class PdfWorkspaceService {
     });
     signal.throwIfAborted();
     await this.enqueueMutation(source.hash, generation, () => this.dependencies.putDocument(model));
+    this.rememberDocument(model);
     await this.putTask(source.hash, generation, { ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
     return model;
   }
@@ -226,7 +246,7 @@ export class PdfWorkspaceService {
   }
 
   private async createTask(
-    source: PdfSourceTransfer,
+    source: PdfSourceDescriptor,
     pageCount: number,
     providerTask: MineruTaskRef,
     generation: number,
@@ -248,15 +268,32 @@ export class PdfWorkspaceService {
 
   private async createUpload(
     client: MineruPort,
-    source: PdfSourceTransfer,
+    descriptor: PdfSourceDescriptor,
+    consent: boolean,
     signal: AbortSignal,
   ): Promise<MineruTaskRef> {
     if (!client.createUploadTask) throw new PdfWorkspaceServiceError('MINERU_UPLOAD_UNAVAILABLE');
+    const source = await this.sourceForUpload(descriptor, signal);
+    if (source.descriptor.kind === 'authenticated' && !consent) {
+      throw new PdfWorkspaceServiceError('PDF_AUTH_UPLOAD_REQUIRES_CONSENT');
+    }
     return client.createUploadTask(
-      source.title,
-      Uint8Array.from(source.bytes).buffer,
+      source.descriptor.title,
+      source.bytes.buffer,
       signal,
     );
+  }
+
+  private async sourceForUpload(
+    descriptor: PdfSourceDescriptor,
+    signal: AbortSignal,
+  ): Promise<LoadedPdfSource> {
+    const loaded = await this.dependencies.loadSource(descriptor.url, signal);
+    signal.throwIfAborted();
+    if (loaded.descriptor.hash !== descriptor.hash) {
+      throw new PdfWorkspaceServiceError('PDF_SOURCE_CHANGED');
+    }
+    return loaded;
   }
 
   private async resumeTask(task: StoredTask): Promise<void> {
@@ -278,6 +315,7 @@ export class PdfWorkspaceService {
         pageCount: task.pageCount,
       });
       await this.enqueueMutation(task.hash, generation, () => this.dependencies.putDocument(model));
+      this.rememberDocument(model);
       await this.putTask(task.hash, generation, { ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
     } catch {
       await this.putTask(task.hash, generation, { ...task, status: 'failed', errorCode: 'MINERU_RESUME_FAILED', updatedAt: Date.now() });
@@ -293,7 +331,7 @@ export class PdfWorkspaceService {
     tabId: number,
   ): Promise<TranslationResult[]> {
     const generation = this.generation(hash);
-    const model = await this.dependencies.getDocument(hash);
+    const model = await this.getDocument(hash);
     const page = model?.pages[pageNumber - 1];
     if (!model || !page) throw new PdfWorkspaceServiceError('PDF_PAGE_MISSING');
     const settings = await this.dependencies.getSettings();
@@ -363,12 +401,57 @@ export class PdfWorkspaceService {
     return next;
   }
 
+  private async translationSnapshot(hash: string): Promise<{
+    pages: Array<{ page: number; blocks: TranslationResult[] }>;
+  }> {
+    const model = await this.getDocument(hash);
+    if (!model) return { pages: [] };
+    const settings = await this.dependencies.getSettings();
+    const records = await this.dependencies.listTranslations?.(hash) ?? [];
+    const pages: Array<{ page: number; blocks: TranslationResult[] }> = [];
+    for (const record of records) {
+      const page = model.pages[record.page - 1];
+      if (!page || record.hash !== hash || record.source !== settings.sourceLanguage ||
+        record.target !== settings.targetLanguage || record.provider !== 'openai' ||
+        record.model !== settings.openAi.defaultModel || record.schema !== translationCacheSchemaForPage(page)) {
+        continue;
+      }
+      const expectedIds = translationBlocksForPage(page).map((block) => block.id);
+      if (!isTranslationsForIds(record.blocks, expectedIds)) continue;
+      pages.push({ page: record.page, blocks: record.blocks });
+    }
+    pages.sort((left, right) => left.page - right.page);
+    return { pages };
+  }
+
+  private async getDocument(hash: string): Promise<DocumentModel | undefined> {
+    const cached = this.documents.get(hash);
+    if (cached) {
+      this.documents.delete(hash);
+      this.documents.set(hash, cached);
+      return cached;
+    }
+    const model = await this.dependencies.getDocument(hash);
+    if (model) this.rememberDocument(model);
+    return model;
+  }
+
+  private rememberDocument(model: DocumentModel): void {
+    this.documents.delete(model.hash);
+    this.documents.set(model.hash, model);
+    while (this.documents.size > 3) {
+      const oldest = this.documents.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.documents.delete(oldest);
+    }
+  }
+
   private async ask(
     message: Extract<PdfMessage, { type: 'pdf:agent-ask' }>,
     signal: AbortSignal,
     tabId: number,
   ): Promise<{ answer: string; mode: 'full' | 'compressed'; notice?: string }> {
-    const model = await this.dependencies.getDocument(message.hash);
+    const model = await this.getDocument(message.hash);
     if (!model) throw new PdfWorkspaceServiceError('PDF_DOCUMENT_MISSING');
     const context = buildAgentContext({
       model,

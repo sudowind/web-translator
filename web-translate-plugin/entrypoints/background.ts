@@ -126,7 +126,7 @@ export default defineBackground(() => {
       if (!eligible) throw new Error('PDF_NOT_ELIGIBLE');
       if (!mounted) await pdfTakeover.mount(tab.id);
     } else if (message.type === 'pdf-workspace:disable' && mounted) {
-      pdfWorkspace.cancel(tab.id);
+      pdfWorkspace.dispose(tab.id);
       await pdfTakeover.restore(tab.id);
     }
     const enabled = message.type === 'pdf-workspace:disable' ? false : await pdfTakeover.status(tab.id);
@@ -134,12 +134,12 @@ export default defineBackground(() => {
   }
 
   browser.tabs.onRemoved.addListener((tabId) => {
-    pdfWorkspace.cancel(tabId);
+    pdfWorkspace.dispose(tabId);
     enabledPdfTabs.delete(tabId);
   });
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (!changeInfo.url) return;
-    pdfWorkspace.cancel(tabId);
+    pdfWorkspace.dispose(tabId);
     enabledPdfTabs.delete(tabId);
   });
 
@@ -203,9 +203,6 @@ export default defineBackground(() => {
 });
 
 function messageMatchesSender(message: PdfMessage, senderUrl: string): boolean {
-  if (message.type === 'pdf:source') {
-    return message.url === senderUrl;
-  }
   if (message.type === 'pdf:parse-start') {
     return message.source.url === senderUrl;
   }

@@ -1,4 +1,4 @@
-export const DOCUMENT_SCHEMA_VERSION = 3;
+export const DOCUMENT_SCHEMA_VERSION = 4;
 
 export type BlockKind =
   | 'heading'

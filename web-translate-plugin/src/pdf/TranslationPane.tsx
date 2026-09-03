@@ -8,6 +8,7 @@ import type { TranslationFailure } from '../translation/failure';
 import { mineruPolygonToPercentRect } from './block-highlight';
 
 export type TranslationPageStatus =
+  | 'unrequested'
   | 'pending'
   | 'parsing'
   | 'translating'
@@ -24,13 +25,17 @@ export interface TranslationPageProps {
   failure?: TranslationFailure;
   attempt?: number;
   pinnedBlockId?: string | null;
+  renderBody?: boolean;
+  initialScrollTop?: number;
   onBlockPreview?(blockId: string | null): void;
   onBlockPin?(blockId: string): void;
+  onRequest?(): void;
+  onScrollTopChange?(scrollTop: number): void;
   onRetry(): void;
   onCopyFailure(failure: TranslationFailure): void;
 }
 
-export function TranslationPage({
+export const TranslationPage = React.memo(function TranslationPage({
   page,
   number,
   height,
@@ -39,11 +44,20 @@ export function TranslationPage({
   failure,
   attempt,
   pinnedBlockId,
+  renderBody = true,
+  initialScrollTop = 0,
   onBlockPreview = () => undefined,
   onBlockPin = () => undefined,
+  onRequest = () => undefined,
+  onScrollTopChange = () => undefined,
   onRetry,
   onCopyFailure,
 }: TranslationPageProps) {
+  const bodyRef = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    if (renderBody && bodyRef.current) bodyRef.current.scrollTop = initialScrollTop;
+  }, [initialScrollTop, renderBody]);
+
   return (
     <section
       className="translation-page"
@@ -60,11 +74,23 @@ export function TranslationPage({
             : statusLabel(status)}
         </span>
       </header>
-      <div className="translation-page-body" tabIndex={0}>
+      {renderBody ? <div
+        ref={bodyRef}
+        className="translation-page-body"
+        tabIndex={0}
+        data-translation-body="full"
+        onScroll={(event) => onScrollTopChange(event.currentTarget.scrollTop)}
+      >
+        {status === 'unrequested' && (
+          <div className="translation-page-unrequested">
+            <p>滚动到本页后自动翻译</p>
+            <button type="button" className="translation-request-button" onClick={onRequest}>翻译本页</button>
+          </div>
+        )}
         {failure && (
           <div className="translation-failure">
             <p role="alert">失败：{failure.summary}</p>
-            <button type="button" onClick={onRetry}>重试本页</button>
+            <button className="translation-retry-button" type="button" onClick={onRetry}>重试本页</button>
             <details>
               <summary>查看详情</summary>
               <dl>
@@ -77,11 +103,11 @@ export function TranslationPage({
                 <dt>发生时间</dt><dd>{new Date(failure.occurredAt).toLocaleString()}</dd>
                 <dt>可重试</dt><dd>{failure.retryable ? '是' : '否'}</dd>
               </dl>
-              <button type="button" onClick={() => onCopyFailure(failure)}>复制诊断信息</button>
+              <button className="translation-copy-button" type="button" onClick={() => onCopyFailure(failure)}>复制诊断信息</button>
             </details>
           </div>
         )}
-        {page.blocks.map((block) => (
+        {status !== 'unrequested' && page.blocks.map((block) => (
           <TranslationBlock
             key={block.id}
             block={block}
@@ -92,10 +118,12 @@ export function TranslationPage({
             onPin={onBlockPin}
           />
         ))}
-      </div>
+      </div> : <div className="translation-page-deferred" data-translation-body="deferred" aria-hidden="true">
+        {status === 'done' ? '译文已缓存' : status === 'unrequested' ? '按需翻译' : statusLabel(status)}
+      </div>}
     </section>
   );
-}
+});
 
 function TranslationBlock({
   block,
@@ -195,6 +223,7 @@ function headingTagForLevel(level = 1): 'h3' | 'h4' | 'h5' | 'h6' {
 
 function statusLabel(status: TranslationPageStatus): string {
   return {
+    unrequested: '按需',
     pending: '等待',
     parsing: '解析中',
     translating: '翻译中',

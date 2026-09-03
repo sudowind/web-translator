@@ -17,6 +17,17 @@ describe('PDF 富文本与覆盖层样式契约', () => {
     expect(css).toMatch(/\.workspace-content\.agent-closed[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
     expect(css).not.toContain('grid-template-columns: minmax(0, 1fr) 180px');
     expect(css).toContain('@media (max-width: 899px)');
+    expect(css).toContain('--pdf-toolbar-height: 60px');
+    expect(css).toMatch(/\.workspace-toolbar\s*\{[^}]*height:\s*var\(--pdf-toolbar-height\)/s);
+    expect(css).toMatch(/\.workspace-toolbar button[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/\.agent-panel\s*\{[^}]*height:\s*calc\(100dvh - 84px\)/s);
+    expect(css).toMatch(/\.agent-panel-header button[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/@media \(max-width: 899px\)[\s\S]*\.agent-panel\s*\{[^}]*inset:\s*var\(--pdf-toolbar-height\) 0 0/s);
+    expect(css).not.toMatch(/@media \(max-width: 899px\)[\s\S]*\.workspace-page-controls\s*\{[^}]*order:\s*3/s);
+    expect(css).toContain('.agent-empty-state');
+    expect(css).toContain('.pdf-loading-state');
+    expect(css).toContain('.upload-consent-action');
+    expect(css).toContain('.translation-retry-button');
   });
 
   it('高亮不拦截指针、TextLayer 可选择且富文本格式保持完整', async () => {
@@ -37,5 +48,6 @@ describe('PDF 富文本与覆盖层样式契约', () => {
     expect(css).toContain('[data-media-state]');
     expect(css).toMatch(/\.translation-page-body[^}]*overflow-x:\s*hidden/s);
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css).toContain('scrollbar-width: thin');
   });
 });

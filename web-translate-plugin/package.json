@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "test:e2e:authorized": "playwright test pdf-takeover.spec.ts",
     "test:live:arxiv": "vitest run --config vitest.live.config.ts",
-    "check": "npm run typecheck && npm run test && npm run build",
+    "verify:output": "node scripts/verify-extension-output.mjs",
+    "check": "npm run typecheck && npm run test && npm run build && npm run verify:output",
     "postinstall": "wxt prepare"
   },
   "dependencies": {

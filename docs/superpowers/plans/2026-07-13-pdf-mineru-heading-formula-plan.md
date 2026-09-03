@@ -1,5 +1,7 @@
 # PDF MinerU 标题层级与独立公式修复实施计划
 
+状态：已完成（2026-07-13，2026-07-23 回填）
+
 > **面向执行智能体：** 必须使用 `superpowers:executing-plans` 按任务逐项执行；每个任务遵循 `superpowers:test-driven-development` 的红—绿—重构循环。当前项目按既有约定在当前会话内串行执行，不启用共享工作树中的并行实现。
 
 **目标：** 保留 MinerU `text_level` 标题语义，正确渲染带显示定界符的独立公式，并通过文档结构版本自动淘汰旧解析缓存、复用既有翻译。
@@ -54,7 +56,7 @@
 - 产出：`DocumentBlock.headingLevel?: number`，只保存 MinerU 的正整数标题级别。
 - 保持：`DocumentBlock.text` 保存 MinerU 原始文本；`DocumentBlock.latex` 保存可直接传给 KaTeX 的内部公式。
 
-- [ ] **步骤 1：写入 MinerU 官方形态的失败测试**
+- [x] **步骤 1：写入 MinerU 官方形态的失败测试**
 
 在 `normalize-mineru.test.ts` 增加以下用例；先不修改生产代码：
 
@@ -105,7 +107,7 @@ it.each([-1, 1.5, '1', Number.MAX_SAFE_INTEGER + 1])(
 
 同时从 `model.ts` 导入 `DOCUMENT_SCHEMA_VERSION`。测试必须使用 `type: "text" + text_level`，不再把 `type: "title"` 当作唯一正常路径。
 
-- [ ] **步骤 2：运行定向测试并确认红灯原因正确**
+- [x] **步骤 2：运行定向测试并确认红灯原因正确**
 
 运行：
 
@@ -115,7 +117,7 @@ npx vitest run tests/unit/document/normalize-mineru.test.ts
 
 预期：失败信息表明 `schemaVersion`、`headingLevel` 缺失，`text_level` 标题仍是 `paragraph`，且 `latex` 仍包含 `$$` 或 `\[ ... \]`；不能是语法错误或测试夹具错误。
 
-- [ ] **步骤 3：实现文档结构与 MinerU 规范化**
+- [x] **步骤 3：实现文档结构与 MinerU 规范化**
 
 在 `model.ts` 增加明确的结构版本和字段：
 
@@ -207,7 +209,7 @@ return {
 
 给四个显式 `DocumentModel` 测试夹具增加 `schemaVersion: DOCUMENT_SCHEMA_VERSION` 并导入常量，不在生产类型上把该字段改成可选来绕过测试。
 
-- [ ] **步骤 4：运行规范化测试和类型检查并确认绿灯**
+- [x] **步骤 4：运行规范化测试和类型检查并确认绿灯**
 
 运行：
 
@@ -218,7 +220,7 @@ npm run typecheck
 
 预期：五个测试文件全部通过，TypeScript 无缺失 `schemaVersion` 或字段类型错误。
 
-- [ ] **步骤 5：提交 MinerU 语义规范化**
+- [x] **步骤 5：提交 MinerU 语义规范化**
 
 ```powershell
 git add src/document/model.ts src/document/normalize-mineru.ts tests/unit/document/normalize-mineru.test.ts tests/unit/agent/context-builder.test.ts tests/unit/pdf/workspace-components.test.tsx tests/unit/pdf/workspace-service.test.ts tests/unit/storage/repositories.test.ts
@@ -242,7 +244,7 @@ git commit -m "fix: preserve MinerU headings and formulas"
 - 产出：`headingTagForLevel(level?: number): 'h3' | 'h4' | 'h5' | 'h6'`，保持为 `TranslationPane.tsx` 内部纯函数。
 - 保持：公式容器类名 `.translation-formula`，不改变区块 ID、高亮事件或 Markdown 安全边界。
 
-- [ ] **步骤 1：写入标题元素、公式成功输出和 CSS 契约失败测试**
+- [x] **步骤 1：写入标题元素、公式成功输出和 CSS 契约失败测试**
 
 把 `workspace-components.test.tsx` 的第一页夹具扩展为四个标题层级，并使用已规范化的编号公式：
 
@@ -277,7 +279,7 @@ expect(css).toMatch(/\.translation-formula[^}]*overflow-x:\s*auto/s);
 expect(css).toContain('.translation-formula .katex-display');
 ```
 
-- [ ] **步骤 2：运行组件与样式测试并确认红灯原因正确**
+- [x] **步骤 2：运行组件与样式测试并确认红灯原因正确**
 
 运行：
 
@@ -287,7 +289,7 @@ npx vitest run tests/unit/pdf/workspace-components.test.tsx tests/unit/pdf/pdf-s
 
 预期：当前所有标题仍输出 `h3`，且新增标题层级 CSS 选择器不存在；公式不应因测试输入语法错误而失败。
 
-- [ ] **步骤 3：实现动态标题元素和稳定公式布局**
+- [x] **步骤 3：实现动态标题元素和稳定公式布局**
 
 在 `TranslationPane.tsx` 增加内部映射函数：
 
@@ -342,7 +344,7 @@ if (block.kind === 'formula') {
 
 不要修改 `.pdf-text-layer ::selection`，也不要加入自绘选区。
 
-- [ ] **步骤 4：运行组件、样式和类型检查并确认绿灯**
+- [x] **步骤 4：运行组件、样式和类型检查并确认绿灯**
 
 运行：
 
@@ -353,7 +355,7 @@ npm run typecheck
 
 预期：标题分别生成 `h3`–`h6`，合法编号公式没有 `katex-error`，CSS 契约与 TypeScript 全部通过。
 
-- [ ] **步骤 5：提交译文语义渲染**
+- [x] **步骤 5：提交译文语义渲染**
 
 ```powershell
 git add src/pdf/TranslationPane.tsx entrypoints/pdf-workspace.content/style.css tests/unit/pdf/workspace-components.test.tsx tests/unit/pdf/pdf-styles.test.ts
@@ -375,7 +377,7 @@ git commit -m "fix: render PDF heading levels and display math"
 - 保持：`TranslationKey.schema` 仍为 `1`，`getTranslation` 和 `putTranslation` 接口不变。
 - 行为：只有 `cached.schemaVersion === DOCUMENT_SCHEMA_VERSION` 才提前返回文档缓存。
 
-- [ ] **步骤 1：写入当前缓存命中、旧缓存重解析与翻译复用失败测试**
+- [x] **步骤 1：写入当前缓存命中、旧缓存重解析与翻译复用失败测试**
 
 在 `workspace-service.test.ts` 增加三个行为断言。当前版本命中用例：
 
@@ -449,7 +451,7 @@ it('旧文档重解析后继续复用相同区块 ID 的翻译缓存', async () 
 
 从 `model.ts` 导入 `DOCUMENT_SCHEMA_VERSION`。
 
-- [ ] **步骤 2：运行工作台服务测试并确认红灯原因正确**
+- [x] **步骤 2：运行工作台服务测试并确认红灯原因正确**
 
 运行：
 
@@ -459,7 +461,7 @@ npx vitest run tests/unit/pdf/workspace-service.test.ts
 
 预期：旧版本用例失败，因为当前服务对任意 `cached` 都直接返回；当前版本命中用例保持通过。
 
-- [ ] **步骤 3：实现最小缓存版本判断**
+- [x] **步骤 3：实现最小缓存版本判断**
 
 在 `workspace-service.ts` 导入版本常量：
 
@@ -476,7 +478,7 @@ if (cached?.schemaVersion === DOCUMENT_SCHEMA_VERSION) return cached;
 
 不要调用 `clearCache`，因为它会一并删除可复用的翻译；新模型由现有 `putDocument(model)` 覆盖旧记录。
 
-- [ ] **步骤 4：运行服务测试、相关存储测试与类型检查并确认绿灯**
+- [x] **步骤 4：运行服务测试、相关存储测试与类型检查并确认绿灯**
 
 运行：
 
@@ -487,7 +489,7 @@ npm run typecheck
 
 预期：当前版本直接命中，旧版本只重新解析一次，翻译缓存被复用，所有测试和类型检查通过。
 
-- [ ] **步骤 5：提交缓存升级**
+- [x] **步骤 5：提交缓存升级**
 
 ```powershell
 git add src/pdf/workspace-service.ts tests/unit/pdf/workspace-service.test.ts
@@ -511,7 +513,7 @@ git commit -m "fix: refresh stale PDF document cache"
 - 产出：固定 MinerU 官方结构的端到端回归与 Windows 视觉基线。
 - 保持：Agent 流式、区块高亮、PDF 文本选择、失败诊断和认证上传断言全部保留。
 
-- [ ] **步骤 1：先把 E2E 固定数据改为真实 MinerU 形态并加入失败断言**
+- [x] **步骤 1：先把 E2E 固定数据改为真实 MinerU 形态并加入失败断言**
 
 把第一页固定数据中的标题和公式改为：
 
@@ -537,7 +539,7 @@ await expect(pageOne.locator('[data-block-kind="formula"]')).toContainText('(1)'
 
 为了区分两个标题的译文，服务夹具按输入文本返回：论文标题返回 `**论文标题**`，`3.2.1` 标题返回 `**3.2.1 缩放点积注意力**`。不要使用位置选择器替代稳定的 `data-block-kind` 和标题元素。
 
-- [ ] **步骤 2：运行 E2E 并确认旧实现或旧快照产生红灯**
+- [x] **步骤 2：运行 E2E 并确认旧实现或旧快照产生红灯**
 
 运行：
 
@@ -547,7 +549,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts
 
 预期：在生产实现尚未完整时语义或公式断言失败；任务 1–3 已完成时，至少两个富文本视觉快照因标题字号和公式排版变化而失败。失败不能来自扩展未构建或服务器端口冲突。
 
-- [ ] **步骤 3：更新视觉快照并逐张人工检查**
+- [x] **步骤 3：更新视觉快照并逐张人工检查**
 
 运行：
 
@@ -564,7 +566,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts --update-snapshots
 
 如视觉检查不合格，先调整 `style.css`，只运行本任务 E2E 并再次更新快照，直至满足上述四项。
 
-- [ ] **步骤 4：运行一次无更新 E2E 与一次完整发布门禁**
+- [x] **步骤 4：运行一次无更新 E2E 与一次完整发布门禁**
 
 运行：
 
@@ -575,7 +577,7 @@ npm run check
 
 预期：E2E 3/3 通过；`npm run check` 中 TypeScript、全部 Vitest 和 WXT Chrome MV3 构建均通过。不得在没有代码变化时重复运行同一完整命令。
 
-- [ ] **步骤 5：登记计划并提交最终验证变更**
+- [x] **步骤 5：登记计划并提交最终验证变更**
 
 确认 `AGENTS.md` 的“当前规格记录”同时包含本计划：
 
@@ -590,7 +592,7 @@ git add tests/e2e/pdf-workspace.spec.ts tests/e2e/pdf-workspace.spec.ts-snapshot
 git commit -m "test: verify MinerU heading and formula rendering"
 ```
 
-- [ ] **步骤 6：检查交付状态**
+- [x] **步骤 6：检查交付状态**
 
 运行：
 

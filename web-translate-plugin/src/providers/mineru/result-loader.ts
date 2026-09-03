@@ -23,7 +23,9 @@ export async function loadMineruResult(
 
   let files: Record<string, Uint8Array>;
   try {
-    files = unzipSync(new Uint8Array(await response.arrayBuffer()));
+    files = unzipSync(new Uint8Array(await response.arrayBuffer()), {
+      filter: (file) => isMineruContentListEntry(file.name),
+    });
   } catch {
     throw new MineruError('MINERU_ZIP_INVALID');
   }
@@ -41,4 +43,8 @@ export async function loadMineruResult(
   }
   if (!Array.isArray(blocks)) throw new MineruError('MINERU_CONTENT_LIST_INVALID');
   return normalizeMineru(blocks, metadata);
+}
+
+export function isMineruContentListEntry(name: string): boolean {
+  return name.endsWith('_content_list.json');
 }

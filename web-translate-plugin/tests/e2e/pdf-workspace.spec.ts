@@ -86,6 +86,8 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   const authenticatedPdf = createTwoPagePdf('Authenticated');
   const archive = Buffer.from(zipSync({
     'nested/paper_content_list.json': strToU8(JSON.stringify([
+      { page_idx: 0, type: 'header', text: 'OmniGUI arXiv Preprint', bbox: [220, 112, 785, 124] },
+      { page_idx: 0, type: 'aside_text', text: 'arXiv:fixture', bbox: [10, 100, 60, 800] },
       { page_idx: 0, type: 'text', text: 'Paper title', text_level: 1, bbox: [100, 80, 900, 150] },
       { page_idx: 0, type: 'text', text: 'Introduction with x squared', bbox: [100, 200, 900, 400] },
       { page_idx: 0, type: 'text', text: 'Scaled Dot-Product Attention', text_level: 3, bbox: [100, 405, 900, 455] },
@@ -107,10 +109,15 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         table_body: '<table><tr><td>secret table cell</td></tr></table>',
         bbox: [100, 700, 900, 900],
       },
+      { page_idx: 0, type: 'footer', text: 'XPeng Motors', bbox: [220, 869, 311, 881] },
+      { page_idx: 0, type: 'page_number', text: '1', bbox: [770, 869, 785, 881] },
+      { page_idx: 1, type: 'header', text: 'OmniGUI arXiv Preprint', bbox: [220, 112, 785, 124] },
       { page_idx: 1, type: 'text', text: 'Results', text_level: 2, bbox: [100, 80, 900, 150] },
       { page_idx: 1, type: 'text', text: 'Main contribution', bbox: [100, 200, 900, 400] },
       { page_idx: 1, type: 'table', table_body: '<table><tr><td>no title</td></tr></table>' },
       { page_idx: 1, type: 'image', img_path: 'images/no-title.png' },
+      { page_idx: 1, type: 'footer', text: 'XPeng Motors', bbox: [220, 869, 311, 881] },
+      { page_idx: 1, type: 'page_number', text: '2', bbox: [770, 869, 785, 881] },
     ])),
   }));
   const observed = {
@@ -344,13 +351,14 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     expect(response.value.enabled).toBe(true);
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toBeVisible({ timeout: 30_000 });
     await expect(pdfPage.locator('.workspace-content')).toHaveCSS('display', 'grid');
-    await expect(pdfPage.locator('.workspace-toolbar button').first()).toHaveCSS('min-height', '36px');
+    await expect(pdfPage.locator('.workspace-toolbar button').first()).toHaveCSS('min-height', '44px');
     await expect(pdfPage.locator('.agent-panel')).toHaveCount(0);
     await expect(pdfPage.getByRole('button', { name: '论文智能体' })).toHaveAttribute('aria-expanded', 'false');
     await expect(pdfPage.locator('.workspace-content')).toHaveClass(/agent-closed/);
   }
 
   test('公开 PDF 保持通用 URL，并完成解析、翻译、智能体、联动与恢复', async () => {
+    test.setTimeout(120_000);
     translationFailureMode = 'none';
     observed.urlTasks.length = 0;
     observed.translationPages.length = 0;
@@ -361,6 +369,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await enableWorkspace(pdfPage);
 
     await expect(pdfPage).toHaveURL(sourceUrl);
+    await expect(pdfPage.locator('.workspace-title')).toHaveText('public.pdf');
     await expect(pdfPage.locator('[data-pdf-page="1"]')).toBeVisible();
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'translating', { timeout: 30_000 });
     const scrollTopBeforeTranslation = await pdfPage.evaluate(() => window.scrollY);
@@ -378,6 +387,9 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     expect(serializedBlocks).not.toContain('secret-figure.png');
     expect(serializedBlocks).not.toContain('table OCR must not be translated');
     expect(serializedBlocks).not.toContain('image OCR must not be translated');
+    expect(serializedBlocks).not.toContain('OmniGUI arXiv Preprint');
+    expect(serializedBlocks).not.toContain('XPeng Motors');
+    expect(serializedBlocks).not.toContain('arXiv:fixture');
 
     const pageOne = pdfPage.locator('[data-translation-page="1"]');
     await expect(pageOne.locator('[data-block-kind="heading"] h3 strong')).toHaveText('论文标题');
@@ -391,6 +403,14 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pageOne.locator('[data-block-kind="formula"] .katex-display')).toBeVisible();
     await expect(pageOne.locator('[data-block-kind="formula"] .katex-error')).toHaveCount(0);
     await expect(pageOne.locator('[data-block-kind="formula"]')).toContainText('(1)');
+    const pageInput = pdfPage.getByLabel('跳转页码');
+    await pageInput.fill('2');
+    await pageInput.press('Enter');
+    await expect(pdfPage.locator('[data-page-pair="2"]')).toBeInViewport();
+    await pageInput.fill('1');
+    await pageInput.press('Enter');
+    await expect(pdfPage.locator('[data-page-pair="1"]')).toBeInViewport();
+    await pageInput.blur();
     await pdfPage.evaluate(() => window.scrollTo(0, 0));
     await expect(pdfPage).toHaveScreenshot('editorial-workspace-agent-closed.png', {
       animations: 'disabled',
@@ -467,6 +487,8 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage).toHaveScreenshot('editorial-workspace-agent-open.png', {
       animations: 'disabled',
     });
+    await pdfPage.getByRole('button', { name: '概括论文的主要贡献' }).click();
+    await expect(pdfPage.getByLabel('向论文提问')).toHaveValue('概括论文的主要贡献');
     await pdfPage.getByLabel('向论文提问').fill('这篇论文的主要贡献是什么？');
     await pdfPage.getByRole('button', { name: '发送' }).click();
     const streamedAnswer = pdfPage.locator('.agent-messages [data-role="assistant"]').last();
@@ -489,9 +511,35 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await agentToggle.click();
     await expect(pdfPage.getByLabel('向论文提问')).toBeVisible();
 
+    for (const viewport of [{ width: 800, height: 800 }, { width: 375, height: 760 }]) {
+      await pdfPage.setViewportSize(viewport);
+      const responsiveLayout = await pdfPage.evaluate(() => {
+        const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect();
+        const agent = document.querySelector('.agent-panel')!.getBoundingClientRect();
+        return {
+          toolbarHeight: toolbar.height,
+          overlap: Math.max(0, toolbar.bottom - agent.top),
+          agentBottomGap: Math.abs(innerHeight - agent.bottom),
+          horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
+        };
+      });
+      expect(responsiveLayout.toolbarHeight).toBe(60);
+      expect(responsiveLayout.overlap).toBe(0);
+      expect(responsiveLayout.agentBottomGap).toBeLessThanOrEqual(1);
+      expect(responsiveLayout.horizontalOverflow).toBeLessThanOrEqual(1);
+      await expect(pdfPage).toHaveScreenshot(`responsive-agent-${viewport.width}.png`, {
+        animations: 'disabled',
+      });
+    }
+    await pdfPage.setViewportSize({ width: 1440, height: 1000 });
+
     const restoredPageLoaded = pdfPage.waitForEvent('load');
     await pdfPage.getByLabel('更多操作').click();
-    await pdfPage.getByRole('button', { name: '关闭工作台' }).click();
+    await expect(pdfPage.getByRole('menu')).toBeVisible();
+    await pdfPage.keyboard.press('Escape');
+    await expect(pdfPage.getByRole('menu')).toHaveCount(0);
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitem', { name: '关闭工作台' }).click();
     await restoredPageLoaded;
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0, { timeout: 30_000 });
     await expect(pdfPage).toHaveURL(sourceUrl);

@@ -52,6 +52,9 @@ describe('PDF IndexedDB 仓储', () => {
 
     await expect(documentRepository.get(model.hash)).resolves.toEqual(model);
     await expect(translationRepository.get(key)).resolves.toMatchObject({ blocks: [{ text: '译文' }] });
+    await expect(translationRepository.listByHash(model.hash)).resolves.toMatchObject([
+      { hash: model.hash, blocks: [{ text: '译文' }] },
+    ]);
     await expect(taskRepository.listByStatus('parsing')).resolves.toMatchObject([
       { providerTask: { kind: 'batch', id: 'batch-1', dataId: 'data-1' } },
     ]);

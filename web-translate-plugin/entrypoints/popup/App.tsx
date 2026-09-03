@@ -120,7 +120,7 @@ export default function App() {
         <p className="eyebrow">页面工具</p>
         {pdfStatus?.eligible ? <>
           <h2 id="webpage-heading">PDF 翻译工作台</h2>
-          <p className="description">PDF.js 左栏独立阅读，解析完成后按当前页优先生成译文。</p>
+          <p className="description">PDF.js 左栏独立阅读，解析完成后从第 1 页按顺序生成译文。</p>
           <button className="primary" type="button" disabled={pdfBusy} onClick={() => void togglePdfWorkspace()}>
             {pdfBusy ? '处理中…' : pdfStatus.enabled ? '关闭 PDF 工作台' : '翻译此 PDF'}
           </button>

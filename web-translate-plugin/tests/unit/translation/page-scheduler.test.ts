@@ -25,4 +25,35 @@ describe('逐页翻译调度器', () => {
     scheduler.markDone(1);
     expect(scheduler.take()).toBe(3);
   });
+
+  it('按需模式只派发当前阅读窗口并按方向排序', () => {
+    const scheduler = new PageScheduler(76, 2, 'on-demand');
+    expect(scheduler.requestWindow(40, 1)).toEqual([40, 41, 42, 39]);
+    expect([scheduler.take(), scheduler.take(), scheduler.take()]).toEqual([40, 41, null]);
+    scheduler.markDone(40);
+    expect(scheduler.take()).toBe(42);
+    scheduler.markDone(41);
+    expect(scheduler.take()).toBe(39);
+  });
+
+  it('按需窗口裁剪边界、去重并跳过缓存页', () => {
+    const scheduler = new PageScheduler(3, 2, 'on-demand');
+    scheduler.hydrateDone([1, 2]);
+    expect(scheduler.requestWindow(1, 0)).toEqual([1, 2, 3]);
+    expect(scheduler.take()).toBe(3);
+    expect(scheduler.take()).toBeNull();
+  });
+
+  it('模式切换不取消进行中页面且全文模式继续顺序派发', () => {
+    const scheduler = new PageScheduler(5, 1, 'on-demand');
+    scheduler.requestPage(4);
+    expect(scheduler.take()).toBe(4);
+    scheduler.setMode('full-document');
+    expect(scheduler.take()).toBeNull();
+    scheduler.markDone(4);
+    expect(scheduler.take()).toBe(1);
+    scheduler.setMode('on-demand');
+    scheduler.markDone(1);
+    expect(scheduler.take()).toBeNull();
+  });
 });

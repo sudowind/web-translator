@@ -2,8 +2,10 @@ import { blockId, pageId } from './ids';
 import {
   DOCUMENT_SCHEMA_VERSION,
   type BlockKind,
+  type DocumentBlock,
   type DocumentMetadata,
   type DocumentModel,
+  type DocumentPage,
 } from './model';
 
 export class MineruDataError extends Error {
@@ -25,7 +27,18 @@ const kinds: Record<string, BlockKind> = {
   image_caption: 'caption',
   table_caption: 'caption',
   footnote: 'footnote',
+  page_footnote: 'footnote',
 };
+
+const pageAuxiliaryTypes = new Set([
+  'header',
+  'page_header',
+  'footer',
+  'page_footer',
+  'page_number',
+  'aside_text',
+  'page_aside_text',
+]);
 
 export function normalizeMineru(
   input: unknown,
@@ -50,6 +63,7 @@ export function normalizeMineru(
       throw new MineruDataError('MINERU_PAGE_OUT_OF_RANGE');
     }
     const type = requiredString(value.type);
+    if (pageAuxiliaryTypes.has(type.toLowerCase())) continue;
     const text = optionalString(value.text);
     const imagePath = optionalString(value.img_path);
     const html = optionalString(value.table_body);
@@ -88,11 +102,103 @@ export function normalizeMineru(
     });
   }
 
+  removeRepeatedPageDecorations(pages, normalizedMetadata.hash);
+
   return {
     schemaVersion: DOCUMENT_SCHEMA_VERSION,
     id: normalizedMetadata.hash,
     ...normalizedMetadata,
     pages,
+  };
+}
+
+function removeRepeatedPageDecorations(pages: DocumentPage[], hash: string): void {
+  const occurrences = new Map<string, Set<number>>();
+  for (const page of pages) {
+    for (const block of page.blocks) {
+      const signature = decorationSignature(block);
+      if (!signature) continue;
+      const pageIndexes = occurrences.get(signature) ?? new Set<number>();
+      pageIndexes.add(page.index);
+      occurrences.set(signature, pageIndexes);
+    }
+  }
+
+  const repeatedThreshold = Math.max(3, Math.ceil(pages.length / 2));
+  const repeated = new Set(
+    [...occurrences.entries()]
+      .filter(([, pageIndexes]) => pageIndexes.size >= repeatedThreshold)
+      .map(([signature]) => signature),
+  );
+
+  for (const page of pages) {
+    const retained = page.blocks.filter((block) => {
+      const signature = decorationSignature(block);
+      return !signature || !repeated.has(signature);
+    });
+    page.blocks = retained.map((block, order) => ({
+      ...block,
+      id: blockId(hash, page.index, order),
+      order,
+    }));
+  }
+}
+
+function decorationSignature(block: DocumentBlock): string | undefined {
+  if (block.kind !== 'paragraph' && block.kind !== 'heading' && block.kind !== 'other') {
+    return undefined;
+  }
+  const bounds = verticalBounds(block.polygon);
+  if (!bounds) return undefined;
+  const zone = bounds.bottom <= 140
+    ? 'top'
+    : bounds.top >= 860
+      ? 'bottom'
+      : undefined;
+  if (!zone) return undefined;
+
+  const text = normalizeDecorationText(block.text);
+  if (!text || text.length > 160) return undefined;
+  const horizontalCenter = Math.round(bounds.horizontalCenter / 50);
+  const verticalCenter = Math.round(((bounds.top + bounds.bottom) / 2) / 25);
+  return `${zone}:${horizontalCenter}:${verticalCenter}:${text}`;
+}
+
+function normalizeDecorationText(text: string): string {
+  return text
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/\d+/g, '<number>')
+    .replace(/\s+/g, ' ');
+}
+
+function verticalBounds(polygon: number[] | undefined): {
+  top: number;
+  bottom: number;
+  horizontalCenter: number;
+} | undefined {
+  if (!polygon || (polygon.length !== 4 && (polygon.length < 8 || polygon.length % 2 !== 0))) {
+    return undefined;
+  }
+  if (polygon.some((coordinate) => coordinate < 0 || coordinate > 1_000)) {
+    return undefined;
+  }
+  if (polygon.length === 4) {
+    const [left, top, right, bottom] = polygon;
+    if (right < left || bottom < top) return undefined;
+    return { top, bottom, horizontalCenter: (left + right) / 2 };
+  }
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let index = 0; index < polygon.length; index += 2) {
+    xs.push(polygon[index]);
+    ys.push(polygon[index + 1]);
+  }
+  return {
+    top: Math.min(...ys),
+    bottom: Math.max(...ys),
+    horizontalCenter: (Math.min(...xs) + Math.max(...xs)) / 2,
   };
 }
 

@@ -27,9 +27,9 @@ test('arXiv 1706.03762 在线全链路', async () => {
   try {
     const totalStartedAt = Date.now();
     const pdfStartedAt = Date.now();
-    const source = await loadPdfSource(SOURCE_URL, fetch, controller.signal);
+    const { descriptor: source, bytes } = await loadPdfSource(SOURCE_URL, fetch, controller.signal);
     const loadingTask = getDocument({
-      data: Uint8Array.from(source.bytes),
+      data: bytes,
       useWorkerFetch: false,
     });
     const pdf = await loadingTask.promise;

@@ -4,9 +4,9 @@ import { isPdfAgentProgress, isPdfMessage } from '../../../src/pdf/messages';
 
 describe('PDF 工作台消息', () => {
   it.each([
-    { type: 'pdf:source', url: 'https://example.test/p.pdf' },
-    { type: 'pdf:parse-start', source: { url: 'https://example.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 12, kind: 'remote', bytes: [1, 2] }, pageCount: 2, consent: false },
+    { type: 'pdf:parse-start', source: { url: 'https://example.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 12, kind: 'remote' }, pageCount: 2, consent: false },
     { type: 'pdf:document-get', hash: 'sha256:x' },
+    { type: 'pdf:translation-snapshot', hash: 'sha256:x' },
     { type: 'pdf:translate-page', hash: 'sha256:x', page: 1 },
     { type: 'pdf:agent-ask', hash: 'sha256:x', requestId: 'agent-1', activePage: 1, selection: '', recentMessages: [], question: '贡献？', maxCharacters: 1000 },
     { type: 'pdf:agent-cancel' },
@@ -32,5 +32,24 @@ describe('PDF 工作台消息', () => {
     expect(isPdfMessage({ type: 'pdf:unknown' })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:cancel', apiKey: 'secret' })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:parse-start', source: {}, consent: false })).toBe(false);
+  });
+
+  it.each([
+    { bytes: [37, 80, 68, 70, 45] },
+    { bytesBase64: 'JVBERi0=' },
+  ])('拒绝在 parse-start 中回传完整 PDF 字节：$bytesBase64', (payload) => {
+    expect(isPdfMessage({
+      type: 'pdf:parse-start',
+      source: {
+        url: 'https://example.test/p.pdf',
+        hash: 'sha256:x',
+        title: 'p.pdf',
+        size: 12,
+        kind: 'remote',
+        ...payload,
+      },
+      pageCount: 2,
+      consent: false,
+    })).toBe(false);
   });
 });

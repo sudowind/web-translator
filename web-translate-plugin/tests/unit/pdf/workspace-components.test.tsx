@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
+import { visibleTranslationPageWindow } from '../../../src/pdf/PairedPageViewer';
 import { visiblePageWindow } from '../../../src/pdf/PdfViewer';
 import { TranslationPage } from '../../../src/pdf/TranslationPane';
 
@@ -29,6 +30,40 @@ describe('PDF 逐页配对组件契约', () => {
   it('只把当前页与邻近页放入立即渲染窗口', () => {
     expect(visiblePageWindow(5, 10)).toEqual(new Set([3, 4, 5, 6, 7]));
     expect(visiblePageWindow(1, 10)).toEqual(new Set([1, 2, 3]));
+    expect(visibleTranslationPageWindow(10, 76)).toEqual(new Set([8, 9, 10, 11, 12]));
+  });
+
+  it('离屏译文只保留轻量页面壳且未请求页面不遍历区块', () => {
+    const deferred = renderToStaticMarkup(
+      <TranslationPage
+        page={model.pages[0]}
+        number={1}
+        height={640}
+        translations={new Map()}
+        status="done"
+        renderBody={false}
+        onRetry={() => undefined}
+        onCopyFailure={() => undefined}
+      />,
+    );
+    expect(deferred).toContain('data-translation-body="deferred"');
+    expect(deferred).toContain('译文已缓存');
+    expect(deferred).not.toContain('data-block-id');
+
+    const unrequested = renderToStaticMarkup(
+      <TranslationPage
+        page={model.pages[0]}
+        number={1}
+        height={640}
+        translations={new Map()}
+        status="unrequested"
+        onRetry={() => undefined}
+        onCopyFailure={() => undefined}
+      />,
+    );
+    expect(unrequested).toContain('滚动到本页后自动翻译');
+    expect(unrequested).toContain('翻译本页');
+    expect(unrequested).not.toContain('data-block-id');
   });
 
   it('单页译文固定为配对高度且不再创建整列滚动容器', () => {

@@ -2,12 +2,18 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { fitPageHeight, PagePair } from '../../../src/pdf/PairedPageViewer';
+import { fitPageHeight, mapsNearlyEqual, PagePair } from '../../../src/pdf/PairedPageViewer';
 
 describe('PDF 与译文逐页配对', () => {
   it('按可用栏宽预计算页面高度，避免延迟渲染时改变文档流', () => {
     expect(fitPageHeight(600, 800, 300)).toBe(400);
     expect(fitPageHeight(600, 800, 900)).toBe(800);
+  });
+
+  it('仅在页面高度发生可见变化时发布新映射', () => {
+    expect(mapsNearlyEqual(new Map([[1, 800]]), new Map([[1, 800.4]]))).toBe(true);
+    expect(mapsNearlyEqual(new Map([[1, 800]]), new Map([[1, 801]]))).toBe(false);
+    expect(mapsNearlyEqual(new Map([[1, 800]]), new Map([[2, 800]]))).toBe(false);
   });
 
   it('在同一语义页组中以相同高度呈现原文和译文', () => {

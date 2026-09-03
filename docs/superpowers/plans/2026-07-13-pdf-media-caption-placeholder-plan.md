@@ -1,5 +1,7 @@
 # PDF 表格与图片标题翻译及占位渲染实施计划
 
+状态：已完成（2026-07-13，2026-07-23 回填）
+
 > **面向执行智能体：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans` 逐任务执行本计划；使用复选框跟踪每个步骤，并严格遵循测试驱动开发的红—绿—重构循环。
 
 **目标：** 表格和图片本体不进入 LLM、不在译文区渲染，只翻译 MinerU caption，并修复不完整旧缓存导致媒体区块永久显示“翻译中”的问题。
@@ -50,7 +52,7 @@
 - 产出：`DocumentBlock.caption?: string`。
 - 保持：`DocumentBlock.text`、`html`、`resourceUrl`、`polygon` 与 ID 生成规则不变。
 
-- [ ] **步骤 1：写入 caption 规范化失败测试**
+- [x] **步骤 1：写入 caption 规范化失败测试**
 
 在 `normalize-mineru.test.ts` 增加：
 
@@ -89,7 +91,7 @@ it('把 MinerU 表格与图片标题写入独立 caption 并忽略全空白标�
 
 把现有 schema 断言改为 `DOCUMENT_SCHEMA_VERSION`，并继续保留非法 caption 数组的安全错误测试。
 
-- [ ] **步骤 2：运行规范化测试并确认红灯原因**
+- [x] **步骤 2：运行规范化测试并确认红灯原因**
 
 运行：
 
@@ -99,7 +101,7 @@ npx vitest run tests/unit/document/normalize-mineru.test.ts
 
 预期：失败信息显示 schema 仍为 `2` 且媒体区块没有 `caption`；不得因测试语法或 metadata 无效而失败。
 
-- [ ] **步骤 3：实现最小文档模型与 caption 归一化**
+- [x] **步骤 3：实现最小文档模型与 caption 归一化**
 
 在 `model.ts` 修改：
 
@@ -152,7 +154,7 @@ page.blocks.push({
 
 所有显式 `DocumentModel` 测试夹具继续引用 `DOCUMENT_SCHEMA_VERSION`，不硬编码旧版本。
 
-- [ ] **步骤 4：运行受影响测试与类型检查并确认绿灯**
+- [x] **步骤 4：运行受影响测试与类型检查并确认绿灯**
 
 运行：
 
@@ -163,7 +165,7 @@ npm run typecheck
 
 预期：五个测试文件全部通过，TypeScript 不报告缺失字段或 schema 错误。
 
-- [ ] **步骤 5：提交文档模型里程碑**
+- [x] **步骤 5：提交文档模型里程碑**
 
 ```powershell
 git add web-translate-plugin/src/document/model.ts web-translate-plugin/src/document/normalize-mineru.ts web-translate-plugin/tests/unit/document/normalize-mineru.test.ts web-translate-plugin/tests/unit/agent/context-builder.test.ts web-translate-plugin/tests/unit/pdf/workspace-components.test.tsx web-translate-plugin/tests/unit/pdf/workspace-service.test.ts web-translate-plugin/tests/unit/storage/repositories.test.ts
@@ -189,7 +191,7 @@ git commit -m "fix: preserve MinerU media captions"
 - 产出：`translationCacheSchemaForPage(page: DocumentPage): 1 | 2`，保持在工作台服务内部。
 - 产出：缓存只有与 `translationBlocksForPage` 的 ID 集合精确一致时才命中。
 
-- [ ] **步骤 1：写入媒体请求边界失败测试**
+- [x] **步骤 1：写入媒体请求边界失败测试**
 
 把 `translate-page.test.ts` 页面夹具扩展为有标题和无标题媒体，并断言：
 
@@ -225,7 +227,7 @@ expect(translate).toHaveBeenCalledWith({
 
 同时断言序列化请求不包含 `secret`、`table OCR`、`image OCR`、图片路径和无标题媒体 ID。
 
-- [ ] **步骤 2：写入不完整缓存失败测试**
+- [x] **步骤 2：写入不完整缓存失败测试**
 
 在 `workspace-service.test.ts` 创建含正文、表格 caption 和图片 caption 的 `mediaModel`，增加：
 
@@ -259,7 +261,7 @@ it('缺少媒体标题 ID 的旧缓存会重新翻译并覆盖媒体页面缓存
 
 再增加两项：完整媒体缓存不创建 LLM 客户端；纯文本页仍查询 schema `1`。缓存包含重复或额外 ID 时必须视为失效。
 
-- [ ] **步骤 3：运行定向测试并确认红灯原因**
+- [x] **步骤 3：运行定向测试并确认红灯原因**
 
 运行：
 
@@ -269,7 +271,7 @@ npx vitest run tests/unit/translation/translate-page.test.ts tests/unit/pdf/work
 
 预期：当前实现仍发送表格 HTML、不发送图片 caption，并错误复用不完整缓存；失败不得来自 mock 配置或类型错误。
 
-- [ ] **步骤 4：实现共享翻译区块生成函数**
+- [x] **步骤 4：实现共享翻译区块生成函数**
 
 在 `translate-page.ts` 导出并使用：
 
@@ -300,7 +302,7 @@ const blocks = translationBlocksForPage(page);
 'For table and figure blocks, the input text is caption only. Translate it as plain Markdown; never output a table body or image content.'
 ```
 
-- [ ] **步骤 5：实现精确缓存校验和媒体页面 schema**
+- [x] **步骤 5：实现精确缓存校验和媒体页面 schema**
 
 在 `workspace-service.ts` 导入共享函数，并增加：
 
@@ -344,7 +346,7 @@ if (cached && isTranslationsForIds(cached.blocks, expectedIds)) return cached.bl
 
 删除旧的宽松 `isTranslations`，不清空整篇缓存。
 
-- [ ] **步骤 6：运行请求、缓存、Provider 与类型测试并确认绿灯**
+- [x] **步骤 6：运行请求、缓存、Provider 与类型测试并确认绿灯**
 
 运行：
 
@@ -355,7 +357,7 @@ npm run typecheck
 
 预期：媒体请求只含 caption；完整缓存命中；不完整、重复和额外 ID 缓存重新翻译；schema 选择正确；TypeScript 通过。
 
-- [ ] **步骤 7：提交翻译与缓存里程碑**
+- [x] **步骤 7：提交翻译与缓存里程碑**
 
 ```powershell
 git add web-translate-plugin/src/translation/translate-page.ts web-translate-plugin/src/providers/openai/client.ts web-translate-plugin/src/pdf/workspace-service.ts web-translate-plugin/tests/unit/translation/translate-page.test.ts web-translate-plugin/tests/unit/providers/openai/client.test.ts web-translate-plugin/tests/unit/pdf/workspace-service.test.ts
@@ -379,7 +381,7 @@ git commit -m "fix: translate only media captions"
 - 产出：占位卡片使用 `data-media-kind="table" | "figure"`。
 - 保持：外层 `.translation-block` 的 ID、交互事件和高亮逻辑不变。
 
-- [ ] **步骤 1：写入占位卡片和状态失败测试**
+- [x] **步骤 1：写入占位卡片和状态失败测试**
 
 在 `workspace-components.test.tsx` 的页面夹具增加：
 
@@ -414,7 +416,7 @@ expect(html).not.toContain('翻译中');
 
 在 `pdf-styles.test.ts` 断言 `.translation-media-placeholder`、标签、状态和 `prefers-reduced-motion` 规则存在。
 
-- [ ] **步骤 2：运行组件测试并确认红灯原因**
+- [x] **步骤 2：运行组件测试并确认红灯原因**
 
 运行：
 
@@ -424,7 +426,7 @@ npx vitest run tests/unit/pdf/workspace-components.test.tsx tests/unit/pdf/pdf-s
 
 预期：当前表格仍渲染 Markdown table，图片仍显示源文本，且没有媒体占位样式。
 
-- [ ] **步骤 3：实现媒体占位组件**
+- [x] **步骤 3：实现媒体占位组件**
 
 在 `TranslationPane.tsx` 增加：
 
@@ -464,7 +466,7 @@ function MediaPlaceholder({
 
 让 `TranslationBlock` 接收 `status`。表格或图片在通用 `content` 计算前直接返回 `MediaPlaceholder`；删除现有表格 Markdown 分支，禁止读取 `html`、`resourceUrl` 或媒体 `text` 作为右侧内容。
 
-- [ ] **步骤 4：增加媒体占位样式**
+- [x] **步骤 4：增加媒体占位样式**
 
 在 `style.css` 增加：
 
@@ -477,7 +479,7 @@ function MediaPlaceholder({
 
 保留现有 `.translation-block` 悬停、聚焦、固定和 reduced-motion 行为。
 
-- [ ] **步骤 5：运行组件、样式和类型测试并确认绿灯**
+- [x] **步骤 5：运行组件、样式和类型测试并确认绿灯**
 
 运行：
 
@@ -488,7 +490,7 @@ npm run typecheck
 
 预期：媒体本体不在译文 HTML 中；四种标题状态正确；Markdown 安全边界、样式契约和类型检查通过。
 
-- [ ] **步骤 6：提交媒体占位里程碑**
+- [x] **步骤 6：提交媒体占位里程碑**
 
 ```powershell
 git add web-translate-plugin/src/pdf/TranslationPane.tsx web-translate-plugin/entrypoints/pdf-workspace.content/style.css web-translate-plugin/tests/unit/pdf/workspace-components.test.tsx web-translate-plugin/tests/unit/pdf/pdf-styles.test.ts
@@ -511,7 +513,7 @@ git commit -m "fix: render media caption placeholders"
 - 消费：任务 1 的 `caption`、任务 2 的严格请求/缓存、任务 3 的媒体占位 DOM。
 - 产出：Windows Chromium 的媒体标题请求、占位、高亮和视觉回归证据。
 
-- [ ] **步骤 1：把 E2E MinerU 夹具改成媒体 caption 真实形态**
+- [x] **步骤 1：把 E2E MinerU 夹具改成媒体 caption 真实形态**
 
 在压缩包内容中加入：
 
@@ -538,7 +540,7 @@ git commit -m "fix: render media caption placeholders"
 
 让本地 LLM 服务记录每次请求的 `blocks`，媒体 caption 分别返回“注意力结果”和“注意力架构”。
 
-- [ ] **步骤 2：增加请求边界与占位失败断言**
+- [x] **步骤 2：增加请求边界与占位失败断言**
 
 在公开 PDF 用例中断言：
 
@@ -560,7 +562,7 @@ await expect(pdfPage.locator('[data-translation-page="2"] [data-media-state]')).
 
 悬停媒体占位卡片，继续断言左侧 `.pdf-block-highlight` 可见。
 
-- [ ] **步骤 3：构建并运行 E2E，确认旧实现红灯**
+- [x] **步骤 3：构建并运行 E2E，确认旧实现红灯**
 
 运行：
 
@@ -571,7 +573,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts
 
 预期：媒体请求边界、占位 DOM 或旧视觉快照失败；不得因扩展未构建、端口冲突或 Provider 凭证失败。
 
-- [ ] **步骤 4：更新视觉快照并逐张人工检查**
+- [x] **步骤 4：更新视觉快照并逐张人工检查**
 
 运行：
 
@@ -586,7 +588,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts --update-snapshots
 - 占位卡片没有制造整页横向滚动或新的纵向滚动容器。
 - 既有标题、公式、列表、Agent 面板和高亮视觉未退化。
 
-- [ ] **步骤 5：无更新复跑 E2E 与完整发布门禁**
+- [x] **步骤 5：无更新复跑 E2E 与完整发布门禁**
 
 运行：
 
@@ -597,7 +599,7 @@ npm run check
 
 预期：E2E 3/3 通过；TypeScript、53 个 Vitest 文件、全部测试和 WXT Chrome MV3 构建通过。若测试总数因本计划新增用例增加，以零失败为准。
 
-- [ ] **步骤 6：登记实施计划并提交验收改动**
+- [x] **步骤 6：登记实施计划并提交验收改动**
 
 确认 `AGENTS.md` 包含：
 
@@ -612,7 +614,7 @@ git add AGENTS.md web-translate-plugin/tests/e2e/pdf-workspace.spec.ts web-trans
 git commit -m "test: verify media caption translation flow"
 ```
 
-- [ ] **步骤 7：检查交付状态**
+- [x] **步骤 7：检查交付状态**
 
 运行：
 
@@ -622,4 +624,3 @@ git log -7 --oneline
 ```
 
 预期：工作树为空，最近提交包含 caption 模型、翻译与缓存、媒体占位和浏览器验收四个里程碑。
-

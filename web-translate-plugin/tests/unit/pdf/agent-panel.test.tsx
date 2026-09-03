@@ -29,4 +29,15 @@ describe('论文智能体侧栏', () => {
     expect(open).toContain('class="agent-composer"');
     expect(open).not.toContain('展开论文智能体');
   });
+
+  it('空会话显示能力说明和可点击的建议问题', () => {
+    const open = renderToStaticMarkup(<AgentPanel {...props} open messages={[]} />);
+
+    expect(open).toContain('class="agent-empty-state"');
+    expect(open).toContain('基于当前论文提问');
+    expect(open).toContain('概括论文的主要贡献');
+    expect(open).toContain('总结实验结论');
+    expect(open).toContain('解释论文的关键方法');
+    expect(open).toContain('class="agent-suggestion"');
+  });
 });

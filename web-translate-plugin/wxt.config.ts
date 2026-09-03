@@ -6,9 +6,18 @@ export default defineConfig({
     build: {
       minify: 'esbuild',
     },
-    esbuild: {
-      charset: 'ascii',
-    },
+    plugins: [{
+      name: 'escape-unicode-noncharacters',
+      generateBundle(_options, bundle) {
+        for (const output of Object.values(bundle)) {
+          if (output.type !== 'chunk') continue;
+          output.code = output.code.replace(
+            /[\uFDD0-\uFDEF\uFFFE\uFFFF]/gu,
+            (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
+          );
+        }
+      },
+    }],
   }),
   manifest: {
     name: 'Web Translate Probe',

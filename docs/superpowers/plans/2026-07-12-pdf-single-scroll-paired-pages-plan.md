@@ -1,5 +1,7 @@
 # PDF 单主滚动与逐页配对布局实施计划
 
+状态：已完成（2026-07-12，2026-07-23 回填）
+
 > **供智能体执行：** 必须逐项使用 `superpowers:executing-plans` 执行；每个任务严格遵循测试先行，并使用复选框跟踪进度。
 
 **目标：** 把 PDF 与译文重构为浏览器单主滚动的逐页配对流，同时保留单页译文溢出滚动、智能体侧栏和 PDF Canvas 可见窗口渲染。
@@ -31,7 +33,7 @@
 - 产生：`TranslationPage`，接收单个 `DocumentPage`、页码、高度、译文状态和失败操作。
 - 删除：`TranslationPane` 的整篇列表、IntersectionObserver、`onPageVisible` 和 `onPageBoundary`。
 
-- [ ] **步骤 1：把组件测试改为期望单页接口和稳定外层高度**
+- [x] **步骤 1：把组件测试改为期望单页接口和稳定外层高度**
 
 ```tsx
 const html = renderToStaticMarkup(
@@ -51,13 +53,13 @@ expect(html).toContain('class="translation-page-body"');
 expect(html).not.toContain('class="translation-pages"');
 ```
 
-- [ ] **步骤 2：运行测试并确认因 `TranslationPage` 尚未导出而失败**
+- [x] **步骤 2：运行测试并确认因 `TranslationPage` 尚未导出而失败**
 
 运行：`npx vitest run tests/unit/pdf/workspace-components.test.tsx`
 
 预期：失败，提示缺少 `TranslationPage` 导出或接口不匹配。
 
-- [ ] **步骤 3：实现单页组件**
+- [x] **步骤 3：实现单页组件**
 
 ```tsx
 export function TranslationPage({
@@ -88,19 +90,19 @@ export function TranslationPage({
 
 保留 KaTeX、表格、失败详情默认收起、重试和复制诊断；删除 wheel/touch/key 边界跳页事件。
 
-- [ ] **步骤 4：运行组件测试并确认通过**
+- [x] **步骤 4：运行组件测试并确认通过**
 
 运行：`npx vitest run tests/unit/pdf/workspace-components.test.tsx`
 
 预期：译文安全转义、公式、失败详情、尝试次数和固定高度测试全部通过。
 
-- [ ] **步骤 5：删除不再使用的页内边界跳页模块并运行相关测试发现**
+- [x] **步骤 5：删除不再使用的页内边界跳页模块并运行相关测试发现**
 
 运行：`rg -n "pageWheelAction|onPageBoundary" web-translate-plugin/src web-translate-plugin/tests`
 
 预期：没有匹配。
 
-- [ ] **步骤 6：提交单页译文组件**
+- [x] **步骤 6：提交单页译文组件**
 
 ```powershell
 git add web-translate-plugin/src/pdf/TranslationPane.tsx web-translate-plugin/tests/unit/pdf/workspace-components.test.tsx
@@ -123,7 +125,7 @@ git commit -m "refactor: isolate PDF translation pages"
 - 复用：`visiblePageWindow(activePage, pageCount, 2)` 和导出的 `PdfPageCanvas`。
 - 产生：`PairedPageViewer`，统一渲染 `.page-pair[data-page-pair]`。
 
-- [ ] **步骤 1：编写页对结构与等高失败测试**
+- [x] **步骤 1：编写页对结构与等高失败测试**
 
 ```tsx
 const html = renderToStaticMarkup(
@@ -140,13 +142,13 @@ expect(html).toContain('class="page-pair-pdf"');
 expect(html).toContain('class="page-pair-translation"');
 ```
 
-- [ ] **步骤 2：运行新测试并确认模块不存在**
+- [x] **步骤 2：运行新测试并确认模块不存在**
 
 运行：`npx vitest run tests/unit/pdf/paired-page-viewer.test.tsx`
 
 预期：失败，提示无法解析 `PairedPageViewer`。
 
-- [ ] **步骤 3：实现 `PagePair` 和 `PairedPageViewer`**
+- [x] **步骤 3：实现 `PagePair` 和 `PairedPageViewer`**
 
 `PairedPageViewer` 加载一次 PDF 文档，获得页数后按页码生成：
 
@@ -163,11 +165,11 @@ expect(html).toContain('class="page-pair-translation"');
 
 每个页对通过 ResizeObserver 测量 PDF 槽位，将高度写入内部 Map；译文接收相同高度。
 
-- [ ] **步骤 4：在浏览器视口上观察页对**
+- [x] **步骤 4：在浏览器视口上观察页对**
 
 IntersectionObserver 使用 `{ root: null, threshold: [0.25, 0.6] }`，观察 `[data-page-pair]`，调用 `selectDominantPage` 后触发 `onPageVisible(page)`。当前页变化驱动 `visiblePageWindow`，不由译文内部滚动驱动。
 
-- [ ] **步骤 5：实现初始页和外部导航**
+- [x] **步骤 5：实现初始页和外部导航**
 
 组件接收 `navigationPage`；首次文档就绪以及导航值明确变化时，查找页对并调用：
 
@@ -177,7 +179,7 @@ target.scrollIntoView({ block: 'start' });
 
 CSS 使用 `scroll-margin-top` 避让 sticky 工具栏。
 
-- [ ] **步骤 6：通过页对、可见窗口和当前页测试**
+- [x] **步骤 6：通过页对、可见窗口和当前页测试**
 
 运行：
 
@@ -185,7 +187,7 @@ CSS 使用 `scroll-margin-top` 避让 sticky 工具栏。
 
 预期：页对结构、共享高度、Canvas 窗口和 dominant page 选择全部通过。
 
-- [ ] **步骤 7：提交配对阅读流**
+- [x] **步骤 7：提交配对阅读流**
 
 ```powershell
 git add web-translate-plugin/src/pdf/PairedPageViewer.tsx web-translate-plugin/src/pdf/PdfViewer.tsx web-translate-plugin/tests/unit/pdf/paired-page-viewer.test.tsx web-translate-plugin/tests/unit/pdf/workspace-components.test.tsx
@@ -209,7 +211,7 @@ git commit -m "feat: render paired PDF translation pages"
 - 删除：`leftRef`、`rightRef`、`SyncController`、滚动意图计时器、页高恢复和双栏事件处理。
 - 保持：翻译调度、缓存、失败重试、智能体和工具栏回调。
 
-- [ ] **步骤 1：先更新 E2E 断言表达单主滚动契约**
+- [x] **步骤 1：先更新 E2E 断言表达单主滚动契约**
 
 新增或替换断言：
 
@@ -223,13 +225,13 @@ expect(await pdfPage.locator('.reading-stream').evaluate((el) => getComputedStyl
 
 比较每页 `.page-pair-pdf` 与 `.translation-page` 高度相等；验证第一页长译文正文 `scrollHeight > clientHeight` 且可修改 `scrollTop`；滚动页面后第二页进入视口。
 
-- [ ] **步骤 2：运行 E2E 并确认旧布局失败**
+- [x] **步骤 2：运行 E2E 并确认旧布局失败**
 
 运行：`npx playwright test tests/e2e/pdf-workspace.spec.ts --grep "公共 PDF"`
 
 预期：失败，因为旧 DOM 仍包含独立列和两个列表滚动。
 
-- [ ] **步骤 3：重构 `PdfWorkspace` 接入配对流**
+- [x] **步骤 3：重构 `PdfWorkspace` 接入配对流**
 
 工作区改为：
 
@@ -246,7 +248,7 @@ expect(await pdfPage.locator('.reading-stream').evaluate((el) => getComputedStyl
 
 `navigateToPage` 只更新 `navigationPage` 和当前页，不调用同步控制器。删除 `PdfPane` 与所有双栏滚动事件。
 
-- [ ] **步骤 4：重写布局 CSS**
+- [x] **步骤 4：重写布局 CSS**
 
 关键规则：
 
@@ -263,7 +265,7 @@ body { margin: 0; overflow-y: auto; }
 
 窄屏页对改为单列；不得产生横向页面滚动。
 
-- [ ] **步骤 5：删除同步模块并运行定向单元测试**
+- [x] **步骤 5：删除同步模块并运行定向单元测试**
 
 运行：
 
@@ -271,19 +273,19 @@ body { margin: 0; overflow-y: auto; }
 
 预期：全部通过。运行 `rg -n "SyncController|workspace-columns|pdf-column|translation-column" web-translate-plugin/src`，预期无旧同步逻辑匹配。
 
-- [ ] **步骤 6：运行 PDF 工作台 E2E**
+- [x] **步骤 6：运行 PDF 工作台 E2E**
 
 运行：`npx playwright test tests/e2e/pdf-workspace.spec.ts`
 
 预期：公共 PDF、失败诊断、Canvas 稳定和认证上传用例全部通过。
 
-- [ ] **步骤 7：运行最终门禁**
+- [x] **步骤 7：运行最终门禁**
 
 运行：`npm run check`
 
 预期：类型检查、普通单元测试和 Chrome MV3 构建通过；在线 arXiv 验收不会被重复执行。
 
-- [ ] **步骤 8：提交工作台集成**
+- [x] **步骤 8：提交工作台集成**
 
 ```powershell
 git add web-translate-plugin/src/pdf/PdfWorkspace.tsx web-translate-plugin/entrypoints/pdf-workspace.content/style.css web-translate-plugin/tests/e2e/pdf-workspace.spec.ts web-translate-plugin/tests/unit/pdf/workspace-components.test.tsx
@@ -291,7 +293,7 @@ git add -u web-translate-plugin/src/pdf/sync-controller.ts web-translate-plugin/
 git commit -m "feat: use a single-scroll PDF reading stream"
 ```
 
-- [ ] **步骤 9：核对工作树与凭据隔离**
+- [x] **步骤 9：核对工作树与凭据隔离**
 
 运行：`git status --short` 和 `git status --ignored --short web-translate-plugin/.llm-experiment.local.json web-translate-plugin/.mineru-experiment.local.json`。
 

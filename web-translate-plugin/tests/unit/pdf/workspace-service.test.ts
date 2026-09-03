@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
 import { PdfWorkspaceService } from '../../../src/pdf/workspace-service';
 
-const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 7, kind: 'remote' as const, bytes: [37, 80, 68, 70, 45, 49, 10] };
+const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 7, kind: 'remote' as const };
+const sourceBytes = new TextEncoder().encode('%PDF-1\n');
+const loadedSource = { descriptor: source, bytes: sourceBytes };
 const model: DocumentModel = { schemaVersion: DOCUMENT_SCHEMA_VERSION, id: source.hash, sourceUrl: source.url, hash: source.hash, title: source.title, pageCount: 1, pages: [{ id: 'p1', index: 0, blocks: [{ id: 'b1', pageId: 'p1', order: 0, kind: 'paragraph', text: 'Hello' }] }] };
 const mediaModel: DocumentModel = {
   ...model,
@@ -28,6 +30,72 @@ const openAiSettings = {
 };
 
 describe('后台 PDF 工作台服务', () => {
+  it('parse-start 不回传字节，公共 URL 失败后才由后台读取一次上传字节', async () => {
+    const loadSource = vi.fn().mockResolvedValue(loadedSource);
+    const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
+    const service = makeService({
+      createUrlTask: vi.fn().mockRejectedValue(new Error('url create')),
+      createUploadTask,
+      waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }),
+    }, { loadSource });
+
+    await expect(service.handle({
+      type: 'pdf:parse-start',
+      source,
+      pageCount: 1,
+      consent: false,
+    }, 7)).resolves.toEqual(model);
+
+    expect(loadSource).toHaveBeenCalledOnce();
+    expect(createUploadTask).toHaveBeenCalledWith(
+      source.title,
+      expect.objectContaining({ byteLength: source.size }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('后台重取后 hash 变化则拒绝上传', async () => {
+    const changed = { ...loadedSource, descriptor: { ...source, hash: 'sha256:changed' } };
+    const createUploadTask = vi.fn();
+    const service = makeService({
+      createUrlTask: vi.fn(),
+      createUploadTask,
+      waitForResult: vi.fn(),
+    }, { loadSource: vi.fn().mockResolvedValue(changed) });
+
+    await expect(service.handle({
+      type: 'pdf:parse-start',
+      source: { ...source, kind: 'authenticated' },
+      pageCount: 1,
+      consent: true,
+    }, 7)).rejects.toMatchObject({ code: 'PDF_SOURCE_CHANGED' });
+    expect(createUploadTask).not.toHaveBeenCalled();
+  });
+
+  it('认证 PDF 未同意前后台不读取，同意后才读取一次', async () => {
+    const loadSource = vi.fn().mockResolvedValue({ ...loadedSource, descriptor: { ...source, kind: 'authenticated' } });
+    const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
+    const service = makeService({
+      createUrlTask: vi.fn(),
+      createUploadTask,
+      waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }),
+    }, { loadSource });
+
+    await expect(service.handle({
+      type: 'pdf:parse-start', source: { ...source, kind: 'authenticated' }, pageCount: 1, consent: false,
+    }, 7)).rejects.toMatchObject({ code: 'PDF_AUTH_UPLOAD_REQUIRES_CONSENT' });
+    expect(loadSource).not.toHaveBeenCalled();
+    await service.handle({
+      type: 'pdf:parse-start',
+      source: { ...source, kind: 'authenticated' },
+      pageCount: 1,
+      consent: true,
+    }, 7);
+
+    expect(loadSource).toHaveBeenCalledOnce();
+    expect(createUploadTask).toHaveBeenCalledOnce();
+  });
+
   it('当前版本的文档缓存直接命中，不重新请求 MinerU', async () => {
     const createMineru = vi.fn();
     const service = makeService(undefined, {
@@ -127,6 +195,62 @@ describe('后台 PDF 工作台服务', () => {
     expect(createOpenAi).not.toHaveBeenCalled();
   });
 
+  it('一次快照只返回当前设置下 block ID 完整匹配的页面缓存', async () => {
+    const secondPageModel: DocumentModel = {
+      ...model,
+      pageCount: 2,
+      pages: [
+        model.pages[0],
+        { id: 'p2', index: 1, blocks: [{ id: 'b2', pageId: 'p2', order: 0, kind: 'paragraph', text: 'World' }], },
+      ],
+    };
+    const valid = {
+      id: 'valid', hash: source.hash, page: 1, source: 'en', target: 'zh-CN', provider: 'openai', model: 'm', schema: 1,
+      blocks: [{ id: 'b1', text: '你好' }],
+    };
+    const incomplete = {
+      ...valid, id: 'incomplete', page: 2, blocks: [],
+    };
+    const wrongModel = {
+      ...valid, id: 'wrong-model', page: 2, model: 'other', blocks: [{ id: 'b2', text: '世界' }],
+    };
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(secondPageModel),
+      listTranslations: vi.fn().mockResolvedValue([valid, incomplete, wrongModel]),
+    });
+
+    await expect(service.handle({ type: 'pdf:translation-snapshot', hash: source.hash }, 7)).resolves.toEqual({
+      pages: [{ page: 1, blocks: [{ id: 'b1', text: '你好' }] }],
+    });
+  });
+
+  it('翻译和 Agent 在同一 Service Worker 生命周期复用文档模型', async () => {
+    const getDocument = vi.fn().mockResolvedValue(model);
+    const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
+    const ask = vi.fn().mockResolvedValue('Answer');
+    const service = makeService(undefined, {
+      getDocument,
+      createOpenAi: vi.fn().mockReturnValue({ translate }),
+      createAgent: vi.fn().mockReturnValue({ ask }),
+    });
+
+    await service.handle({ type: 'pdf:translate-page', hash: source.hash, page: 1 }, 7);
+    await service.handle({ type: 'pdf:agent-ask', hash: source.hash, requestId: 'agent-1', activePage: 1, selection: '', recentMessages: [], question: 'What?', maxCharacters: 1000 }, 7);
+    expect(getDocument).toHaveBeenCalledOnce();
+  });
+
+  it('文档模型 LRU 最多保留三份并在清缓存时失效', async () => {
+    const getDocument = vi.fn(async (hash: string) => ({ ...model, id: hash, hash }));
+    const service = makeService(undefined, { getDocument });
+    for (const hash of ['h1', 'h2', 'h3', 'h1', 'h4', 'h2']) {
+      await service.handle({ type: 'pdf:document-get', hash }, 7);
+    }
+    expect(getDocument.mock.calls.map(([hash]) => hash)).toEqual(['h1', 'h2', 'h3', 'h4', 'h2']);
+    await service.handle({ type: 'pdf:cache-clear', hash: 'h1' }, 7);
+    await service.handle({ type: 'pdf:document-get', hash: 'h1' }, 7);
+    expect(getDocument.mock.calls.filter(([hash]) => hash === 'h1')).toHaveLength(2);
+  });
+
   it.each([
     ['重复 ID', [{ id: 'b1', text: '一' }, { id: 'b1', text: '二' }, { id: 't1', text: '表格' }, { id: 'f1', text: '图片' }]],
     ['额外 ID', [{ id: 'b1', text: '正文' }, { id: 't1', text: '表格' }, { id: 'f1', text: '图片' }, { id: 'old-table', text: '旧表格' }]],
@@ -199,7 +323,7 @@ describe('后台 PDF 工作台服务', () => {
     const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
     const putTask = vi.fn();
     const service = new PdfWorkspaceService({
-      loadSource: vi.fn(), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(),
+      loadSource: vi.fn().mockResolvedValue({ ...loadedSource, descriptor: { ...source, kind: 'authenticated' } }), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(),
       getTranslation: vi.fn(), putTranslation: vi.fn(), putTask, listTasks: vi.fn().mockResolvedValue([]),
       getSettings: vi.fn().mockResolvedValue({ openAi: {}, mineru: { baseUrl: 'https://mineru.net', token: 'secret', modelVersion: 'vlm' }, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
       createMineru: vi.fn().mockReturnValue({ createUrlTask: vi.fn(), createUploadTask, waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }) }),
@@ -217,7 +341,7 @@ describe('后台 PDF 工作台服务', () => {
       .mockResolvedValueOnce({ state: 'failed', error: 'MINERU_TASK_FAILED' })
       .mockResolvedValueOnce({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' });
     const service = new PdfWorkspaceService({
-      loadSource: vi.fn(), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn().mockResolvedValue([]),
+      loadSource: vi.fn().mockResolvedValue(loadedSource), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn().mockResolvedValue([]),
       getSettings: vi.fn().mockResolvedValue({ openAi: {}, mineru: { baseUrl: 'https://mineru.net', token: 'secret', modelVersion: 'vlm' }, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
       createMineru: vi.fn().mockReturnValue({ createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }), createUploadTask, waitForResult }),
       loadMineru: vi.fn().mockResolvedValue(model), createOpenAi: vi.fn(), createAgent: vi.fn(),
@@ -230,7 +354,7 @@ describe('后台 PDF 工作台服务', () => {
   it('公共 URL 任务创建失败时也只回退一次字节上传', async () => {
     const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
     const service = new PdfWorkspaceService({
-      loadSource: vi.fn(), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
+      loadSource: vi.fn().mockResolvedValue(loadedSource), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
       getSettings: vi.fn().mockResolvedValue({ openAi: {}, mineru: { baseUrl: 'https://mineru.net', token: 'secret', modelVersion: 'vlm' }, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
       createMineru: vi.fn().mockReturnValue({ createUrlTask: vi.fn().mockRejectedValue(new Error('safe fetch failure')), createUploadTask, waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }) }),
       loadMineru: vi.fn().mockResolvedValue(model), createOpenAi: vi.fn(), createAgent: vi.fn(),
@@ -379,7 +503,7 @@ describe('PDF workspace 生命周期修复波', () => {
 
 function makeService(mineru?: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
   return new PdfWorkspaceService({
-    loadSource: vi.fn(), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
+    loadSource: vi.fn().mockResolvedValue(loadedSource), getDocument: vi.fn(), putDocument: vi.fn(), clearCache: vi.fn(), getTranslation: vi.fn(), listTranslations: vi.fn().mockResolvedValue([]), putTranslation: vi.fn(), putTask: vi.fn(), listTasks: vi.fn(),
     getSettings: vi.fn().mockResolvedValue({ openAi: openAiSettings, mineru: { baseUrl: 'https://mineru.net', token: 'secret', modelVersion: 'vlm' }, sourceLanguage: 'en', targetLanguage: 'zh-CN' }),
     createMineru: vi.fn().mockReturnValue(mineru), loadMineru: vi.fn().mockResolvedValue(model), createOpenAi: vi.fn(), createAgent: vi.fn(),
     ...overrides,

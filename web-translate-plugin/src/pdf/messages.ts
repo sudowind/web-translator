@@ -3,19 +3,27 @@ import type { TranslationResult } from '../providers/openai/contracts';
 import type { AgentMessage } from '../agent/context-builder';
 import type { TranslationFailure } from '../translation/failure';
 
-export interface PdfSourceTransfer {
+export interface PdfSourceDescriptor {
   url: string;
   hash: string;
   title: string;
   size: number;
   kind: 'remote' | 'authenticated';
-  bytes: number[];
+}
+
+export interface PdfTranslationSnapshotPage {
+  page: number;
+  blocks: TranslationResult[];
+}
+
+export interface PdfTranslationSnapshot {
+  pages: PdfTranslationSnapshotPage[];
 }
 
 export type PdfMessage =
-  | { type: 'pdf:source'; url: string }
-  | { type: 'pdf:parse-start'; source: PdfSourceTransfer; pageCount: number; consent: boolean }
+  | { type: 'pdf:parse-start'; source: PdfSourceDescriptor; pageCount: number; consent: boolean }
   | { type: 'pdf:document-get'; hash: string }
+  | { type: 'pdf:translation-snapshot'; hash: string }
   | { type: 'pdf:translate-page'; hash: string; page: number }
   | { type: 'pdf:agent-ask'; hash: string; requestId: string; activePage: number; selection: string; recentMessages: AgentMessage[]; question: string; maxCharacters: number }
   | { type: 'pdf:agent-cancel' }
@@ -23,9 +31,9 @@ export type PdfMessage =
   | { type: 'pdf:cache-clear'; hash: string };
 
 export type PdfMessageValue =
-  | PdfSourceTransfer
   | DocumentModel
   | TranslationResult[]
+  | PdfTranslationSnapshot
   | { answer: string; mode: 'full' | 'compressed'; notice?: string }
   | { cancelled: true }
   | { cleared: true }
@@ -65,13 +73,12 @@ export function isPdfTranslationProgress(value: unknown): value is PdfTranslatio
 export function isPdfMessage(value: unknown): value is PdfMessage {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
   switch (value.type) {
-    case 'pdf:source':
-      return exact(value, ['type', 'url']) && nonEmpty(value.url);
     case 'pdf:parse-start':
       return exact(value, ['type', 'source', 'pageCount', 'consent']) &&
-        isPdfSource(value.source) && positiveInteger(value.pageCount) &&
+        isPdfSourceDescriptor(value.source) && positiveInteger(value.pageCount) &&
         (value.pageCount as number) <= 600 && typeof value.consent === 'boolean';
     case 'pdf:document-get':
+    case 'pdf:translation-snapshot':
     case 'pdf:cache-clear':
       return exact(value, ['type', 'hash']) && nonEmpty(value.hash);
     case 'pdf:translate-page':
@@ -92,13 +99,12 @@ export function isPdfMessage(value: unknown): value is PdfMessage {
   }
 }
 
-function isPdfSource(value: unknown): value is PdfSourceTransfer {
+function isPdfSourceDescriptor(value: unknown): value is PdfSourceDescriptor {
   return isRecord(value) &&
-    exact(value, ['url', 'hash', 'title', 'size', 'kind', 'bytes']) &&
+    exact(value, ['url', 'hash', 'title', 'size', 'kind']) &&
     nonEmpty(value.url) && nonEmpty(value.hash) && nonEmpty(value.title) &&
     Number.isSafeInteger(value.size) && (value.size as number) >= 0 &&
-    (value.kind === 'remote' || value.kind === 'authenticated') &&
-    Array.isArray(value.bytes) && value.bytes.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255);
+    (value.kind === 'remote' || value.kind === 'authenticated');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

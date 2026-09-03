@@ -71,6 +71,9 @@ export const translationRepository = {
       blocks,
     });
   },
+  async listByHash(hash: string): Promise<StoredTranslation[]> {
+    return (await dbPromise).getAllFromIndex('translations', 'by-hash', hash);
+  },
   async deleteByHash(hash: string): Promise<void> {
     const db = await dbPromise;
     const tx = db.transaction('translations', 'readwrite');

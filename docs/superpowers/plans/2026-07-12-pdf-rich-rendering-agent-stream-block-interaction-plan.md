@@ -1,5 +1,7 @@
 # PDF 富文本渲染、Agent 流式回答与区块联动实施计划
 
+状态：已完成（2026-07-12，2026-07-23 回填）
+
 > **供智能体执行者使用：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans` 逐任务执行本计划。所有步骤使用复选框跟踪。
 
 **目标：** 为 PDF 工作台实现 Agent SSE 增量回答、安全 Markdown/公式排版、译文到 PDF 的区块高亮，以及可真实框选的 PDF.js TextLayer，并用固定富文本夹具完成语义与视觉验收。
@@ -74,7 +76,7 @@
 - 产出：`OpenAiPaperAgentClient.ask(context, question, signal?, onDelta?) => Promise<string>`。
 - 保持：翻译 SSE 的完整内容拼接、空闲超时和无内容尾事件行为不变。
 
-- [ ] **步骤 1：先写 Agent 请求开启流式的失败测试**
+- [x] **步骤 1：先写 Agent 请求开启流式的失败测试**
 
 在 `request-builder.test.ts` 增加：
 
@@ -88,7 +90,7 @@ it('Agent 请求开启流式但不要求 JSON Object', () => {
 
 在 `sse.test.ts` 增加断言：两个 SSE delta 按顺序调用 `onDelta`，返回值仍是两段拼接后的完整字符串。
 
-- [ ] **步骤 2：运行定向测试并确认红灯**
+- [x] **步骤 2：运行定向测试并确认红灯**
 
 运行：
 
@@ -98,7 +100,7 @@ npx vitest run tests/unit/providers/openai/request-builder.test.ts tests/unit/pr
 
 预期：Agent body 缺少 `stream`，SSE 读取函数不接受增量回调。
 
-- [ ] **步骤 3：实现最小增量接口**
+- [x] **步骤 3：实现最小增量接口**
 
 接口固定为：
 
@@ -118,11 +120,11 @@ async complete(
 
 `readChatCompletionSse` 只在 `delta` 为非空字符串时执行 `onDelta(delta)`；`onActivity` 仍对合法无内容事件重置空闲超时。`buildChatRequest` 对 `translation` 和 `agent` 设置 `stream: true`，但只对 `translation`设置 `response_format`。
 
-- [ ] **步骤 4：验证回调、超时和既有翻译流全部通过**
+- [x] **步骤 4：验证回调、超时和既有翻译流全部通过**
 
 运行步骤 2 的命令。预期：所有文件通过，并保留“空 choices 尾事件”“流中断”“空闲超时”测试。
 
-- [ ] **步骤 5：提交 Provider 里程碑**
+- [x] **步骤 5：提交 Provider 里程碑**
 
 ```powershell
 git add web-translate-plugin/src/providers/openai web-translate-plugin/src/agent/client.ts web-translate-plugin/tests/unit/providers/openai web-translate-plugin/tests/unit/agent/client.test.ts
@@ -146,7 +148,7 @@ git commit -m "feat: stream paper agent responses"
 - 修改：`pdf:agent-ask` 必须携带非空 `requestId`。
 - 产出：依赖端口 `reportAgentProgress(tabId, progress)`。
 
-- [ ] **步骤 1：写严格消息校验和服务转发失败测试**
+- [x] **步骤 1：写严格消息校验和服务转发失败测试**
 
 测试合法消息：
 
@@ -162,13 +164,13 @@ expect(isPdfAgentProgress(progress)).toBe(true);
 
 同时测试空 `requestId`、空 `delta`、额外字段和错误 type 均返回 `false`。服务测试注入 `reportAgentProgress` spy，让假 Agent 连续调用 `onDelta('甲')`、`onDelta('乙')`，断言转发顺序、tabId、hash、requestId 完全一致。
 
-- [ ] **步骤 2：运行消息与服务测试并确认红灯**
+- [x] **步骤 2：运行消息与服务测试并确认红灯**
 
 ```powershell
 npx vitest run tests/unit/pdf/messages.test.ts tests/unit/pdf/workspace-service.test.ts
 ```
 
-- [ ] **步骤 3：实现协议与后台转发**
+- [x] **步骤 3：实现协议与后台转发**
 
 新增类型：
 
@@ -194,11 +196,11 @@ export interface PdfAgentProgress {
 
 默认实现使用 `browser.tabs.sendMessage(tabId, progress)`，失败只做静默清理，不能使主 Agent 请求失败。
 
-- [ ] **步骤 4：验证取消与新请求替换行为**
+- [x] **步骤 4：验证取消与新请求替换行为**
 
 在服务测试中保留既有同标签页请求互斥测试，并新增：旧 Agent 被取消后产生的回调不会污染新 `requestId`。运行步骤 2 命令，预期全部通过。
 
-- [ ] **步骤 5：提交消息协议里程碑**
+- [x] **步骤 5：提交消息协议里程碑**
 
 ```powershell
 git add web-translate-plugin/src/pdf/messages.ts web-translate-plugin/src/pdf/workspace-service.ts web-translate-plugin/tests/unit/pdf/messages.test.ts web-translate-plugin/tests/unit/pdf/workspace-service.test.ts
@@ -222,7 +224,7 @@ git commit -m "feat: relay agent stream progress"
 - 产出纯函数：`appendAgentDelta(messages, requestId, delta)` 与 `finalizeAgentAnswer(messages, requestId, answer)`，或等价 reducer。
 - `AgentMessage` 增加仅用于 UI 的可选 `requestId` 和 `status: 'streaming' | 'done' | 'stopped' | 'failed'`；发送历史给模型前剥离这些 UI 字段。
 
-- [ ] **步骤 1：为迟到分片、最终校准和停止状态写 reducer 红灯测试**
+- [x] **步骤 1：为迟到分片、最终校准和停止状态写 reducer 红灯测试**
 
 必须覆盖：
 
@@ -233,23 +235,23 @@ expect(reduce(streaming('r1', '临时'), finalFor('r1', '最终')).content).toBe
 expect(reduce(streaming('r1', '部分'), stopFor('r1')).status).toBe('stopped');
 ```
 
-- [ ] **步骤 2：运行 Agent UI 定向测试并确认红灯**
+- [x] **步骤 2：运行 Agent UI 定向测试并确认红灯**
 
 ```powershell
 npx vitest run tests/unit/pdf/agent-stream-state.test.ts tests/unit/agent/panel.test.tsx
 ```
 
-- [ ] **步骤 3：实现 requestId 生命周期和约 50ms 批量刷新**
+- [x] **步骤 3：实现 requestId 生命周期和约 50ms 批量刷新**
 
 `askAgent` 使用 `crypto.randomUUID()` 创建 requestId，立即追加 user 与空 assistant。运行时 listener 只接受当前 `model.hash + requestId`。delta 先进入 ref 缓冲，再用单个 50ms timer 批量 dispatch；最终响应到达前先 flush，随后用最终 answer 校准。
 
 组件卸载、清缓存和新请求开始时必须清除 timer。`stopAgent` 保留部分回答并标记 `stopped`，不能再把通用错误字符串附加为新消息。
 
-- [ ] **步骤 4：验证状态函数与面板状态文案**
+- [x] **步骤 4：验证状态函数与面板状态文案**
 
 运行步骤 2 命令。预期：迟到 delta 被丢弃，停止后保留部分回答，busy 状态仍可被屏幕阅读器获知。
 
-- [ ] **步骤 5：提交 Agent UI 流式里程碑**
+- [x] **步骤 5：提交 Agent UI 流式里程碑**
 
 ```powershell
 git add web-translate-plugin/src/pdf/PdfWorkspace.tsx web-translate-plugin/src/agent web-translate-plugin/tests/unit/agent web-translate-plugin/tests/unit/pdf/agent-stream-state.test.ts
@@ -281,7 +283,7 @@ interface MarkdownContentProps {
 }
 ```
 
-- [ ] **步骤 1：安装 GFM 依赖**
+- [x] **步骤 1：安装 GFM 依赖**
 
 ```powershell
 npm install --cache .\.npm-cache remark-gfm
@@ -289,19 +291,19 @@ npm install --cache .\.npm-cache remark-gfm
 
 预期：只修改 `package.json` 和锁文件，不升级无关依赖。
 
-- [ ] **步骤 2：写富文本、安全链接和页码引用失败测试**
+- [x] **步骤 2：写富文本、安全链接和页码引用失败测试**
 
 用 `renderToStaticMarkup` 验证输入包含：`# 标题`、列表、代码围栏、Markdown 表格、`$x^2$`、`$$E=mc^2$$`、`[p:2]`、`<img onerror=...>`、`[危险](javascript:alert(1))`。
 
 断言输出包含 `h1`、`ul`、`code`、`table`、`katex` 和页码按钮；不包含真实 `img`、`onerror`、`javascript:`。
 
-- [ ] **步骤 3：运行 Markdown 测试并确认红灯**
+- [x] **步骤 3：运行 Markdown 测试并确认红灯**
 
 ```powershell
 npx vitest run tests/unit/rendering/markdown-content.test.tsx tests/unit/agent/panel.test.tsx
 ```
 
-- [ ] **步骤 4：实现 MarkdownContent 并替换 Agent 纯文本渲染**
+- [x] **步骤 4：实现 MarkdownContent 并替换 Agent 纯文本渲染**
 
 使用：
 
@@ -318,11 +320,11 @@ npx vitest run tests/unit/rendering/markdown-content.test.tsx tests/unit/agent/p
 
 内部页码协议必须由自定义 `a` 组件截获，不能传给浏览器导航。不要引入 `rehype-raw`。
 
-- [ ] **步骤 5：验证 Markdown 与 Agent 组件**
+- [x] **步骤 5：验证 Markdown 与 Agent 组件**
 
 运行步骤 3 命令，预期全部通过。
 
-- [ ] **步骤 6：提交统一富文本渲染器**
+- [x] **步骤 6：提交统一富文本渲染器**
 
 ```powershell
 git add web-translate-plugin/package.json web-translate-plugin/package-lock.json web-translate-plugin/src/rendering web-translate-plugin/src/agent/AgentPanel.tsx web-translate-plugin/tests/unit/rendering web-translate-plugin/tests/unit/agent/panel.test.tsx
@@ -348,7 +350,7 @@ git commit -m "feat: render safe markdown and math"
 - `TranslationBlockInput` 增加 `kind: BlockKind`。
 - `TranslationPage` 增加 `onBlockPreview(blockId | null)`、`onBlockPin(blockId)`、`pinnedBlockId`。
 
-- [ ] **步骤 1：写翻译输入和语义输出红灯测试**
+- [x] **步骤 1：写翻译输入和语义输出红灯测试**
 
 构造包含 heading、paragraph、list、table、formula、caption 的页面，断言：
 
@@ -357,13 +359,13 @@ git commit -m "feat: render safe markdown and math"
 - 所有其他可翻译块保持 id、kind 和顺序。
 - 渲染结果包含语义标题、Markdown 列表、`table`、`katex`、`data-block-id`。
 
-- [ ] **步骤 2：运行翻译和工作台组件测试并确认红灯**
+- [x] **步骤 2：运行翻译和工作台组件测试并确认红灯**
 
 ```powershell
 npx vitest run tests/unit/providers/openai/client.test.ts tests/unit/translation/translate-page.test.ts tests/unit/pdf/workspace-components.test.tsx
 ```
 
-- [ ] **步骤 3：收紧翻译提示和区块请求**
+- [x] **步骤 3：收紧翻译提示和区块请求**
 
 系统提示必须明确：
 
@@ -375,7 +377,7 @@ For table blocks, return a Markdown table.
 
 请求 JSON 包含 `id`、`kind`、`text`。响应 schema 保持 `{ translations: [{ id, text }] }`，避免扩大缓存格式。
 
-- [ ] **步骤 4：实现 TranslationBlock 语义渲染和交互事件**
+- [x] **步骤 4：实现 TranslationBlock 语义渲染和交互事件**
 
 公式直接使用 KaTeX；其他已翻译文本进入 `MarkdownContent`。每个块的外层包含：
 
@@ -393,11 +395,11 @@ For table blocks, return a Markdown table.
 
 表格置于局部横向滚动包装，不允许扩大整页宽度。
 
-- [ ] **步骤 5：运行定向测试并验证既有 JSON 兼容**
+- [x] **步骤 5：运行定向测试并验证既有 JSON 兼容**
 
 运行步骤 2 命令。预期：旧 `{blocks:[...]}` Provider 兼容测试仍通过，公式未被翻译，表格结构可见。
 
-- [ ] **步骤 6：提交结构化译文里程碑**
+- [x] **步骤 6：提交结构化译文里程碑**
 
 ```powershell
 git add web-translate-plugin/src/providers/openai web-translate-plugin/src/translation/translate-page.ts web-translate-plugin/src/pdf/TranslationPane.tsx web-translate-plugin/tests/unit/providers/openai web-translate-plugin/tests/unit/translation web-translate-plugin/tests/unit/pdf/workspace-components.test.tsx
@@ -431,7 +433,7 @@ interface HighlightRectPercent {
 function mineruPolygonToPercentRect(values?: number[]): HighlightRectPercent | null;
 ```
 
-- [ ] **步骤 1：写坐标转换红灯测试**
+- [x] **步骤 1：写坐标转换红灯测试**
 
 覆盖：
 
@@ -444,13 +446,13 @@ expect(mineruPolygonToPercentRect([0, 0, 1001, 10])).toBeNull();
 expect(mineruPolygonToPercentRect([10, 10, 10, 20])).toBeNull();
 ```
 
-- [ ] **步骤 2：运行坐标和层组件测试并确认红灯**
+- [x] **步骤 2：运行坐标和层组件测试并确认红灯**
 
 ```powershell
 npx vitest run tests/unit/pdf/block-highlight.test.ts tests/unit/pdf/pdf-layers.test.tsx
 ```
 
-- [ ] **步骤 3：实现纯函数与无指针事件覆盖层**
+- [x] **步骤 3：实现纯函数与无指针事件覆盖层**
 
 `PdfBlockHighlightLayer` 只接收当前 `DocumentBlock | undefined`，合法时输出：
 
@@ -462,7 +464,7 @@ npx vitest run tests/unit/pdf/block-highlight.test.ts tests/unit/pdf/pdf-layers.
 
 覆盖层不得注册 pointer、wheel 或 selection handler。
 
-- [ ] **步骤 4：连接译文预览、点击固定和同页 PDF block**
+- [x] **步骤 4：连接译文预览、点击固定和同页 PDF block**
 
 `PdfWorkspace` 保存：
 
@@ -474,11 +476,11 @@ const highlightedBlockId = previewBlockId ?? pinnedBlockId;
 
 切页、清缓存或 model 变化时清理临时预览；固定块仅在当前文档内有效。`PairedPageViewer` 根据页内 blocks 查找 id，并只把同页块交给 `PdfPageCanvas`。
 
-- [ ] **步骤 5：验证无坐标降级和固定状态**
+- [x] **步骤 5：验证无坐标降级和固定状态**
 
 扩展组件测试：无 polygon 块无 `tabIndex` 和高亮，合法块可聚焦；点击同一块第二次取消固定。运行步骤 2 命令和 `workspace-components.test.tsx`。
 
-- [ ] **步骤 6：提交高亮层里程碑**
+- [x] **步骤 6：提交高亮层里程碑**
 
 ```powershell
 git add web-translate-plugin/src/pdf web-translate-plugin/tests/unit/pdf
@@ -500,7 +502,7 @@ git commit -m "feat: highlight linked PDF blocks"
 - `PdfTextLayer` 接收 `page: PDFPageProxy`、`viewport: PageViewport`。
 - `PdfPageCanvas` 在同一次 `getPage` 中保存 page 与 viewport，canvas、高亮层、TextLayer 共用该 viewport。
 
-- [ ] **步骤 1：写 TextLayer 生命周期红灯测试**
+- [x] **步骤 1：写 TextLayer 生命周期红灯测试**
 
 mock PDF.js `TextLayer`，断言：
 
@@ -510,13 +512,13 @@ mock PDF.js `TextLayer`，断言：
 - 卸载时执行 `cancel()`。
 - DOM 不再包含 `.pdf-text-layer` 的整页 `<p>`。
 
-- [ ] **步骤 2：运行层组件测试并确认红灯**
+- [x] **步骤 2：运行层组件测试并确认红灯**
 
 ```powershell
 npx vitest run tests/unit/pdf/pdf-layers.test.tsx tests/unit/pdf/workspace-components.test.tsx
 ```
 
-- [ ] **步骤 3：实现真实 TextLayer**
+- [x] **步骤 3：实现真实 TextLayer**
 
 使用 PDF.js 6 导出的：
 
@@ -531,18 +533,18 @@ await layer.render();
 
 异步完成前检查取消标记；catch 中忽略已取消实例，只把真实失败上报为非阻塞页面状态。禁止把所有文本再次拼成单一字符串节点。
 
-- [ ] **步骤 4：保证 canvas、高亮与 TextLayer 层级一致**
+- [x] **步骤 4：保证 canvas、高亮与 TextLayer 层级一致**
 
 `pdf-page-canvas-wrap` 内固定顺序：canvas、`PdfBlockHighlightLayer`、`PdfTextLayer`。三者共享可见宽高；TextLayer 的 transform origin、缩放变量和 PDF.js span 样式来自同一 viewport。
 
-- [ ] **步骤 5：运行层测试和 TypeScript 检查**
+- [x] **步骤 5：运行层测试和 TypeScript 检查**
 
 ```powershell
 npx vitest run tests/unit/pdf/pdf-layers.test.tsx tests/unit/pdf/workspace-components.test.tsx
 npm run typecheck
 ```
 
-- [ ] **步骤 6：提交 TextLayer 里程碑**
+- [x] **步骤 6：提交 TextLayer 里程碑**
 
 ```powershell
 git add web-translate-plugin/src/pdf/PdfTextLayer.tsx web-translate-plugin/src/pdf/PdfViewer.tsx web-translate-plugin/tests/unit/pdf
@@ -563,11 +565,11 @@ git commit -m "feat: enable selectable PDF text layer"
 
 - 不增加业务接口；建立 `.markdown-content`、`.translation-block`、`.pdf-block-highlight-layer`、`.pdf-text-layer` 样式契约。
 
-- [ ] **步骤 1：写关键 class 与无布局偏移契约测试**
+- [x] **步骤 1：写关键 class 与无布局偏移契约测试**
 
 静态渲染断言 Markdown 表格有局部包装、固定译文块有 `data-pinned="true"`、高亮层 `aria-hidden`。样式测试检查高亮层使用 absolute/inset 和 `pointer-events: none`。
 
-- [ ] **步骤 2：实现排版和状态样式**
+- [x] **步骤 2：实现排版和状态样式**
 
 必须包含：
 
@@ -579,7 +581,7 @@ git commit -m "feat: enable selectable PDF text layer"
 - 所有新增焦点目标有 `:focus-visible`。
 - 高亮过渡仅 opacity 150ms；reduced-motion 关闭过渡。
 
-- [ ] **步骤 3：运行组件测试并手动检查 CSS 无整页横向滚动规则**
+- [x] **步骤 3：运行组件测试并手动检查 CSS 无整页横向滚动规则**
 
 ```powershell
 npx vitest run tests/unit/rendering/markdown-content.test.tsx tests/unit/pdf/pdf-layers.test.tsx tests/unit/pdf/workspace-components.test.tsx
@@ -587,7 +589,7 @@ npx vitest run tests/unit/rendering/markdown-content.test.tsx tests/unit/pdf/pdf
 
 使用 `rg "overflow-x|pointer-events|prefers-reduced-motion" entrypoints/pdf-workspace.content/style.css` 检查规则作用域。
 
-- [ ] **步骤 4：提交视觉样式里程碑**
+- [x] **步骤 4：提交视觉样式里程碑**
 
 ```powershell
 git add web-translate-plugin/entrypoints/pdf-workspace.content/style.css web-translate-plugin/tests/unit/rendering web-translate-plugin/tests/unit/pdf
@@ -609,7 +611,7 @@ git commit -m "style: polish rich PDF reading states"
 - Agent SSE 至少拆成两个 delta，并在两段之间使用可控 Promise 屏障。
 - MinerU fixture 的第一页至少两个块带确定的 `[x0,y0,x1,y1]` bbox。
 
-- [ ] **步骤 1：先扩展 E2E 夹具与失败断言**
+- [x] **步骤 1：先扩展 E2E 夹具与失败断言**
 
 增加断言：
 
@@ -639,7 +641,7 @@ const selected = await pdfPage.evaluate(() => {
 expect(selected.trim()).not.toBe('');
 ```
 
-- [ ] **步骤 2：构建并运行 E2E 确认新断言红灯**
+- [x] **步骤 2：构建并运行 E2E 确认新断言红灯**
 
 ```powershell
 npm run build
@@ -648,11 +650,11 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts
 
 预期：旧实现不能满足部分回答、Markdown 语义、高亮或多 span 选区中的至少一项。
 
-- [ ] **步骤 3：修正测试桩为真实 Agent SSE 时序**
+- [x] **步骤 3：修正测试桩为真实 Agent SSE 时序**
 
 测试服务器必须发送：第一条 `data:`、等待测试释放屏障、第二条 `data:`、usage 空 choices 尾事件、`[DONE]`。不得用固定长 sleep 判断流式完成；用明确的请求状态或 Promise 屏障。
 
-- [ ] **步骤 4：生成并人工检查视觉基线**
+- [x] **步骤 4：生成并人工检查视觉基线**
 
 固定 viewport 为 `1440x1000`，分别截取：
 
@@ -668,7 +670,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts --update-snapshots
 
 使用本地图片查看工具逐张检查标题、段落、公式、表格、滚动条、裁切和留白；发现问题先修 CSS，再更新一次基线。视觉基线只记录测试数据，不包含真实论文或凭证。
 
-- [ ] **步骤 5：无更新模式复跑 E2E**
+- [x] **步骤 5：无更新模式复跑 E2E**
 
 ```powershell
 npx playwright test tests/e2e/pdf-workspace.spec.ts
@@ -676,7 +678,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts
 
 预期：富文本、流式、高亮、框选、既有解析翻译和认证上传用例全部通过，截图零差异。
 
-- [ ] **步骤 6：提交 E2E 与视觉基线**
+- [x] **步骤 6：提交 E2E 与视觉基线**
 
 ```powershell
 git add web-translate-plugin/tests/e2e/pdf-workspace.spec.ts web-translate-plugin/tests/e2e/pdf-workspace.spec.ts-snapshots web-translate-plugin/entrypoints/pdf-workspace.content/style.css
@@ -692,15 +694,15 @@ git commit -m "test: verify rich PDF reading workflow"
 - 修改（仅发现真实缺陷时）：本计划涉及的源文件与对应定向测试。
 - 不读取：`.llm-experiment.local.json`、`.mineru-experiment.local.json` 的字段值。
 
-- [ ] **步骤 1：按规格逐项自审**
+- [x] **步骤 1：按规格逐项自审**
 
 检查：Agent 增量与最终一致；旧 requestId 隔离；Markdown 无 raw HTML；公式不翻译；表格保持结构；缺坐标降级；高亮不挡选区；TextLayer 多 span；缩放后坐标一致；主滚动无跳动。
 
-- [ ] **步骤 2：只对发现的问题执行一个合并修复波次**
+- [x] **步骤 2：只对发现的问题执行一个合并修复波次**
 
 每个问题先补最小失败测试，再修复；修复波次只运行相关定向测试，不重复全量门禁。
 
-- [ ] **步骤 3：运行一次最终完整门禁**
+- [x] **步骤 3：运行一次最终完整门禁**
 
 ```powershell
 npm run check
@@ -709,7 +711,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts
 
 预期：TypeScript、全部 Vitest、WXT 生产构建、PDF Playwright E2E 和视觉基线全部通过。
 
-- [ ] **步骤 4：提供真实论文人工验收步骤**
+- [x] **步骤 4：提供真实论文人工验收步骤**
 
 让用户重新加载 `web-translate-plugin/.output/chrome-mv3`，打开 `https://arxiv.org/pdf/1706.03762`，依次验证：
 
@@ -719,7 +721,7 @@ npx playwright test tests/e2e/pdf-workspace.spec.ts
 4. PDF 文本可跨行框选、复制，并可作为下一次 Agent 问题的选中文本上下文。
 5. 缩放和滚动后高亮仍对齐，无页面闪烁或滚动跳动。
 
-- [ ] **步骤 5：提交最终必要修复并确认工作树**
+- [x] **步骤 5：提交最终必要修复并确认工作树**
 
 仅当步骤 2 有代码变化时提交：
 

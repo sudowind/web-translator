@@ -164,10 +164,13 @@ export function PdfPageCanvas({
   React.useEffect(() => {
     let cancelled = false;
     let renderTask: RenderTask | undefined;
+    let pageProxy: PDFPageProxy | undefined;
+    let renderSettled: Promise<unknown> = Promise.resolve();
     setTextLayer(null);
     setRenderError(undefined);
     void document.getPage(pageNumber).then(async (page) => {
       if (cancelled || !canvasRef.current) return;
+      pageProxy = page;
       const viewport = page.getViewport({ scale });
       const canvas = canvasRef.current;
       const ratio = globalThis.devicePixelRatio || 1;
@@ -181,7 +184,8 @@ export function PdfPageCanvas({
         viewport,
         transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
       });
-      await renderTask.promise;
+      renderSettled = renderTask.promise;
+      await renderSettled;
     }).catch((error: unknown) => {
       if (!cancelled && !(error instanceof Error && error.name === 'RenderingCancelledException')) {
         setRenderError('PDF 页面渲染失败');
@@ -190,6 +194,16 @@ export function PdfPageCanvas({
     return () => {
       cancelled = true;
       renderTask?.cancel();
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      void renderSettled.catch(() => undefined).then(() => {
+        // React has synchronously unmounted/cancelled the text layer by this point.
+        // PDF.js cleanup is only safe after the page render task settles.
+        pageProxy?.cleanup();
+      });
     };
   }, [document, onHeightChange, pageNumber, scale]);
 

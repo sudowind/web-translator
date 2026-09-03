@@ -1,5 +1,7 @@
 # PDF 逐页等高滚动与顺序翻译实施计划
 
+状态：已完成（2026-07-12，2026-07-23 回填）
+
 > **供智能体执行者使用：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans`，按任务逐项实施并在检查点复核。
 
 **目标：** 让 PDF 与译文按页等高，长译文只在本页内部滚动，左右联动只响应用户意图，同时把整篇翻译改为从第一页开始的固定顺序。
@@ -46,7 +48,7 @@
 - 保留：`take(): number | null`、`markDone(page)`、`markFailed(page)`、`retry(page)`
 - 删除：`setActivePage(page)`；阅读页不再进入调度器。
 
-- [ ] **步骤 1：先写固定顺序的失败测试**
+- [x] **步骤 1：先写固定顺序的失败测试**
 
 ```ts
 it('阅读页变化不参与调度并按页码顺序派发', () => {
@@ -69,12 +71,12 @@ it('失败页不阻塞后续页且只允许失败页重试', () => {
 });
 ```
 
-- [ ] **步骤 2：运行红灯测试**
+- [x] **步骤 2：运行红灯测试**
 
 运行：`npm test -- tests/unit/translation/page-scheduler.test.ts`  
 预期：旧实现仍暴露 `setActivePage` 距离排序，断言中的固定顺序失败。
 
-- [ ] **步骤 3：实现最小固定顺序调度器**
+- [x] **步骤 3：实现最小固定顺序调度器**
 
 ```ts
 export class PageScheduler {
@@ -102,12 +104,12 @@ export class PageScheduler {
 
 保留构造参数校验以及 `markDone`、`markFailed` 对集合的正确清理。在 `PdfWorkspace` 中删除创建调度器和 `activePage` effect 内的两处 `setActivePage` 调用；当前页状态继续供工具栏、同步和智能体使用。
 
-- [ ] **步骤 4：运行绿灯测试**
+- [x] **步骤 4：运行绿灯测试**
 
 运行：`npm test -- tests/unit/translation/page-scheduler.test.ts`  
 预期：该文件全部通过。
 
-- [ ] **步骤 5：提交任务 1**
+- [x] **步骤 5：提交任务 1**
 
 ```powershell
 git add web-translate-plugin/src/translation/page-scheduler.ts web-translate-plugin/src/pdf/PdfWorkspace.tsx web-translate-plugin/tests/unit/translation/page-scheduler.test.ts
@@ -131,7 +133,7 @@ git commit -m "feat: translate PDF pages sequentially"
 - 保留：`onVisible(source, page, progress)`、`navigateToPage(page)`
 - 删除：`suspend`、`release`、`userScroll`、`resync` 的旧集合语义。
 
-- [ ] **步骤 1：先写用户意图边界的失败测试**
+- [x] **步骤 1：先写用户意图边界的失败测试**
 
 ```ts
 it('没有用户意图时忽略内容回填产生的可见页变化', () => {
@@ -155,12 +157,12 @@ it('只允许当前用户驱动栏同步另一栏', () => {
 });
 ```
 
-- [ ] **步骤 2：运行红灯测试**
+- [x] **步骤 2：运行红灯测试**
 
 运行：`npm test -- tests/unit/pdf/sync-controller.test.ts`  
 预期：旧控制器在没有用户意图时仍调用 `navigate`，测试失败。
 
-- [ ] **步骤 3：实现用户驱动栏状态**
+- [x] **步骤 3：实现用户驱动栏状态**
 
 ```ts
 export class SyncController {
@@ -189,12 +191,12 @@ export class SyncController {
 
 在 `PdfWorkspace` 中为左右外层容器增加滚轮、触摸、指针和键盘意图入口；使用一个 `180ms` 的可重置定时器调用 `endUserScroll`。不要在普通 `scroll` 事件中登记用户意图，因为程序化滚动和内容回填也会产生该事件。
 
-- [ ] **步骤 4：运行绿灯测试**
+- [x] **步骤 4：运行绿灯测试**
 
 运行：`npm test -- tests/unit/pdf/sync-controller.test.ts`  
 预期：该文件全部通过。
 
-- [ ] **步骤 5：提交任务 2**
+- [x] **步骤 5：提交任务 2**
 
 ```powershell
 git add web-translate-plugin/src/pdf/sync-controller.ts web-translate-plugin/src/pdf/PdfWorkspace.tsx web-translate-plugin/tests/unit/pdf/sync-controller.test.ts
@@ -221,7 +223,7 @@ git commit -m "fix: sync PDF panes only from user scroll"
 - `TranslationPane` 新增 `pageHeights: ReadonlyMap<number, number>` 与 `onPageBoundary(page: number, direction: -1 | 1): void`
 - 新增 `pageWheelAction(metrics, deltaY): 'inner' | 'previous' | 'next'`
 
-- [ ] **步骤 1：先写页内滚动边界失败测试**
+- [x] **步骤 1：先写页内滚动边界失败测试**
 
 ```ts
 expect(pageWheelAction({ scrollTop: 40, clientHeight: 300, scrollHeight: 900 }, 100)).toBe('inner');
@@ -237,12 +239,12 @@ expect(html).toContain('style="height:640px"');
 expect(html).toContain('class="translation-page-body"');
 ```
 
-- [ ] **步骤 2：运行红灯测试**
+- [x] **步骤 2：运行红灯测试**
 
 运行：`npm test -- tests/unit/pdf/page-wheel.test.ts tests/unit/pdf/workspace-components.test.tsx`  
 预期：`page-wheel` 模块不存在，`TranslationPane` 也没有页高和正文容器。
 
-- [ ] **步骤 3：实现边界判断和译文页结构**
+- [x] **步骤 3：实现边界判断和译文页结构**
 
 ```ts
 export function pageWheelAction(
@@ -270,13 +272,13 @@ export function pageWheelAction(
 
 `translation-page-body` 的指针和触摸起始事件必须停止向右侧外层传播，避免页内阅读被登记成外层联动意图。`ArrowUp`、`ArrowDown`、`PageUp`、`PageDown` 和触摸滑动统一换算为正负滚动方向并复用 `pageWheelAction`；只有到达页内上下边界才调用 `onPageBoundary`，从而满足键盘和触摸设备没有滚动陷阱的要求。
 
-- [ ] **步骤 4：让 PDF 页面上报真实高度**
+- [x] **步骤 4：让 PDF 页面上报真实高度**
 
 在 `PdfViewer` 中用一个 `ResizeObserver` 观察所有 `[data-pdf-page]`，按 `data-pdf-page` 生成 `Map<number, number>`；高度取 `entry.borderBoxSize` 或 `getBoundingClientRect().height`，只有映射变化时才调用 `onPageHeightsChange`。卸载和页数变化时必须 `disconnect()`。
 
 `PdfWorkspace` 保存页高映射。更新映射前记录右侧外层 `scrollTop`，React 提交布局后恢复同一绝对值，避免尺寸校准把用户拉向底部。
 
-- [ ] **步骤 5：加入固定页高和双滚动层 CSS**
+- [x] **步骤 5：加入固定页高和双滚动层 CSS**
 
 ```css
 .translation-page {
@@ -298,12 +300,12 @@ export function pageWheelAction(
 
 移除旧 `.translation-pages > section { min-height: 70vh; ... }` 中依赖内容高度的规则，保留边框、圆角和背景。
 
-- [ ] **步骤 6：运行绿灯测试**
+- [x] **步骤 6：运行绿灯测试**
 
 运行：`npm test -- tests/unit/pdf/page-wheel.test.ts tests/unit/pdf/workspace-components.test.tsx tests/unit/pdf/sync-controller.test.ts`  
 预期：三个文件全部通过。
 
-- [ ] **步骤 7：提交任务 3**
+- [x] **步骤 7：提交任务 3**
 
 ```powershell
 git add web-translate-plugin/src/pdf web-translate-plugin/tests/unit/pdf web-translate-plugin/entrypoints/pdf-workspace.content/style.css
@@ -320,7 +322,7 @@ git commit -m "feat: align PDF pages with scrollable translations"
 
 **接口：** 不新增生产接口；只扩展真实浏览器验收。
 
-- [ ] **步骤 1：先增强 E2E fixture 和失败断言**
+- [x] **步骤 1：先增强 E2E fixture 和失败断言**
 
 让第 1 页返回足够长的译文以产生内部滚动，并记录翻译请求派发页码。新增断言：
 
@@ -338,12 +340,12 @@ expect(await body.evaluate((node) => node.scrollHeight > node.clientHeight)).toB
 
 记录译文外层 `scrollTop`，等待后续页面翻译完成，再断言它没有因为回填跳到底部。把页内正文滚到底后派发向下滚轮，断言左右两栏进入第 2 页。
 
-- [ ] **步骤 2：在旧构建上运行红灯 E2E**
+- [x] **步骤 2：在旧构建上运行红灯 E2E**
 
 运行：`npx playwright test tests/e2e/pdf-workspace.spec.ts --grep "公开 PDF"`  
 预期：旧实现优先翻译 `#page=2`，且译文页不等高、没有页内滚动，至少一个新断言失败。
 
-- [ ] **步骤 3：构建并运行完整 PDF E2E**
+- [x] **步骤 3：构建并运行完整 PDF E2E**
 
 运行：`npm run build`  
 预期：生产扩展构建成功并包含 `pdf-workspace.css`。
@@ -351,12 +353,12 @@ expect(await body.evaluate((node) => node.scrollHeight > node.clientHeight)).toB
 运行：`npx playwright test tests/e2e/pdf-workspace.spec.ts`  
 预期：公开 PDF 与认证 PDF 共 2 条测试通过。
 
-- [ ] **步骤 4：运行最终完整门禁**
+- [x] **步骤 4：运行最终完整门禁**
 
 运行：`npm run check`  
 预期：类型检查、全部 Vitest 和生产构建均以退出码 `0` 完成。
 
-- [ ] **步骤 5：复核与提交**
+- [x] **步骤 5：复核与提交**
 
 检查：`git diff --check`、`git status --short`，确认没有测试产物或无关文件进入提交。
 
