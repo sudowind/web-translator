@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "web-translate-plugin/**"
+      - ".github/workflows/ci.yml"
+  push:
+    branches:
+      - master
+    paths:
+      - "web-translate-plugin/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web-translate-plugin
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web-translate-plugin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run type checks, unit tests, build, and output verification
+        run: npm run check
+
+      - name: Upload Chrome extension build
+        if: github.event_name == 'push' && success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chrome-mv3-${{ github.sha }}
+          path: web-translate-plugin/.output/chrome-mv3
+          if-no-files-found: error
+          retention-days: 7
