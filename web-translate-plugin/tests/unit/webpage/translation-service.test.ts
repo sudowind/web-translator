@@ -34,9 +34,11 @@ const settings = {
 describe('WebpageTranslationService', () => {
   it('只为真实标签页使用后台设置发起翻译', async () => {
     const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
+    const recordHistory = vi.fn().mockResolvedValue(undefined);
     const service = new WebpageTranslationService(
       async () => settings,
       () => ({ translate }) as unknown as OpenAiTranslationClient,
+      recordHistory,
     );
 
     await expect(
@@ -46,7 +48,7 @@ describe('WebpageTranslationService', () => {
           sessionId: 'session-1',
           blocks: [{ id: 'b1', text: 'Hello' }],
         },
-        { tab: { id: 7 } },
+        { tab: { id: 7, url: 'https://article.example.test/story#intro', title: 'Story' } },
       ),
     ).resolves.toEqual([{ id: 'b1', text: '你好' }]);
 
@@ -58,6 +60,25 @@ describe('WebpageTranslationService', () => {
       },
       expect.any(AbortSignal),
     );
+    expect(recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'webpage:https://article.example.test/story', kind: 'webpage',
+      url: 'https://article.example.test/story', title: 'Story',
+      sourceLanguage: 'en', targetLanguage: 'zh-CN',
+    }));
+  });
+
+  it('同一翻译会话只记录一次历史且历史失败不影响译文', async () => {
+    const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
+    const recordHistory = vi.fn().mockRejectedValue(new Error('storage unavailable'));
+    const service = new WebpageTranslationService(
+      async () => settings,
+      () => ({ translate }) as unknown as OpenAiTranslationClient,
+      recordHistory,
+    );
+    const sender = { tab: { id: 7, url: 'https://article.example.test/story', title: '' } };
+    await service.handle({ type: 'translation:blocks', sessionId: 'session-1', blocks: [{ id: 'b1', text: 'Hello' }] }, sender);
+    await service.handle({ type: 'translation:blocks', sessionId: 'session-1', blocks: [{ id: 'b2', text: 'World' }] }, sender);
+    expect(recordHistory).toHaveBeenCalledTimes(1);
   });
 
   it('拒绝非标签页调用与非法请求', async () => {

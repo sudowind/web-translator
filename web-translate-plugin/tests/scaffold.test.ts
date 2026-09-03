@@ -65,6 +65,16 @@ describe('Chrome 扩展探针骨架', () => {
     expect(app).toContain("type: 'pdf-probe:run'");
   });
 
+  it('options 入口声明为独立标签页控制台', async () => {
+    const [html, popup] = await Promise.all([
+      readProjectFile('entrypoints/options/index.html'),
+      readProjectFile('entrypoints/popup/App.tsx'),
+    ]);
+    expect(html).toContain('name="wxt.openInTab" content="true"');
+    expect(html).toContain('Web Translate 阅读控制台');
+    expect(popup).toContain('打开阅读控制台');
+  });
+
   it('runtime content script 使用 pdfjs-dist 真实渲染第一页', async () => {
     const rendererPath = 'entrypoints/pdf-probe-renderer.content.ts';
 

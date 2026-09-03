@@ -26,10 +26,17 @@ import {
 } from '../src/settings/test-provider';
 import { WebpageTranslationService } from '../src/webpage/translation-service';
 import { PageTranslationError } from '../src/translation/translate-page';
+import { dispatchDashboardMessage, isDashboardCandidate } from '../src/dashboard/messages';
+import { clearAllCache, getStorageSummary, historyRepository } from '../src/storage/repositories';
 
 export default defineBackground(() => {
   console.info('PDF takeover probe ready');
-  const webpageTranslation = new WebpageTranslationService(getSettings);
+  const optionsUrl = normalizeExtensionPageUrl(browser.runtime.getURL('/options.html'));
+  const webpageTranslation = new WebpageTranslationService(
+    getSettings,
+    undefined,
+    (entry) => historyRepository.put(entry),
+  );
   const pdfWorkspace = new PdfWorkspaceService();
   const pdfTakeover = new ChromePdfTakeoverAdapter();
   const enabledPdfTabs = new Set<number>();
@@ -159,10 +166,23 @@ export default defineBackground(() => {
         sendResponse({ ok: false, error: 'PDF_MESSAGE_SENDER_INVALID' } satisfies PdfMessageResponse);
         return undefined;
       }
-      void pdfWorkspace.handle(message, tabId).then(
+      void pdfWorkspace.handle(message, tabId, senderUrl).then(
         (value) => sendResponse({ ok: true, value } satisfies PdfMessageResponse),
         (error: unknown) => sendResponse(safePdfMessageError(error)),
       );
+      return true;
+    }
+
+    if (isDashboardCandidate(message)) {
+      void dispatchDashboardMessage(message, _, optionsUrl, {
+        listHistory: () => historyRepository.listRecent(),
+        getHistory: (id) => historyRepository.get(id),
+        deleteHistory: (id) => historyRepository.delete(id),
+        clearHistory: () => historyRepository.clear(),
+        clearCache: clearAllCache,
+        getSummary: getStorageSummary,
+        openUrl: async (url) => { await browser.tabs.create({ url }); },
+      }).then(sendResponse);
       return true;
     }
 
@@ -170,7 +190,7 @@ export default defineBackground(() => {
       void dispatchSettingsTestLlm(
         message,
         _,
-        normalizeExtensionPageUrl(browser.runtime.getURL('/options.html')),
+        optionsUrl,
       ).then(sendResponse);
       return true;
     }

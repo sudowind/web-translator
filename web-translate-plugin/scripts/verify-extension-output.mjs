@@ -22,8 +22,11 @@ if (Array.isArray(manifest.host_permissions) && manifest.host_permissions.length
 if (Array.isArray(manifest.content_scripts) && manifest.content_scripts.length > 0) {
   throw new Error('生产 manifest 不得包含静态 content_scripts');
 }
+if (manifest.options_ui?.page !== 'options.html' || manifest.options_ui?.open_in_tab !== true) {
+  throw new Error('生产 manifest 必须把 options.html 配置为独立标签页');
+}
 
-console.log('生产产物验证通过：Unicode noncharacter=0，静态 host 权限=0，静态 content script=0');
+console.log('生产产物验证通过：Unicode noncharacter=0，静态 host 权限=0，静态 content script=0，options 独立标签页=1');
 
 async function listFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });

@@ -30,6 +30,20 @@ const openAiSettings = {
 };
 
 describe('后台 PDF 工作台服务', () => {
+  it('使用可信发送者 URL 保存 PDF 阅读进度', async () => {
+    const recordHistory = vi.fn().mockResolvedValue(undefined);
+    const service = makeService(undefined, { recordHistory });
+
+    await expect(service.handle({
+      type: 'pdf:history-update', hash: source.hash, title: 'Paper', page: 3, pageCount: 8,
+    }, 7, 'https://example.test/p.pdf#page=3')).resolves.toEqual({ historyUpdated: true });
+
+    expect(recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      id: `pdf:${source.hash}`, url: 'https://example.test/p.pdf',
+      lastPage: 3, pageCount: 8, sourceLanguage: 'en', targetLanguage: 'zh-CN',
+    }));
+  });
+
   it('parse-start 不回传字节，公共 URL 失败后才由后台读取一次上传字节', async () => {
     const loadSource = vi.fn().mockResolvedValue(loadedSource);
     const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });

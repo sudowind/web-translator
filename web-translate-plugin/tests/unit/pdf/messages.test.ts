@@ -8,6 +8,7 @@ describe('PDF 工作台消息', () => {
     { type: 'pdf:document-get', hash: 'sha256:x' },
     { type: 'pdf:translation-snapshot', hash: 'sha256:x' },
     { type: 'pdf:translate-page', hash: 'sha256:x', page: 1 },
+    { type: 'pdf:history-update', hash: 'sha256:x', title: 'Paper', page: 2, pageCount: 10 },
     { type: 'pdf:agent-ask', hash: 'sha256:x', requestId: 'agent-1', activePage: 1, selection: '', recentMessages: [], question: '贡献？', maxCharacters: 1000 },
     { type: 'pdf:agent-cancel' },
     { type: 'pdf:cancel' },
@@ -29,6 +30,7 @@ describe('PDF 工作台消息', () => {
 
   it('拒绝越界页码、未知类型和含凭据字段的消息', () => {
     expect(isPdfMessage({ type: 'pdf:translate-page', hash: 'h', page: 0 })).toBe(false);
+    expect(isPdfMessage({ type: 'pdf:history-update', hash: 'h', title: 'P', page: 11, pageCount: 10 })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:unknown' })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:cancel', apiKey: 'secret' })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:parse-start', source: {}, consent: false })).toBe(false);
