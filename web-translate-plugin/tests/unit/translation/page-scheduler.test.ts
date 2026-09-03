@@ -39,6 +39,7 @@ describe('逐页翻译调度器', () => {
   it('按需窗口裁剪边界、去重并跳过缓存页', () => {
     const scheduler = new PageScheduler(3, 2, 'on-demand');
     scheduler.hydrateDone([1, 2]);
+    expect(scheduler.isCached(1)).toBe(true);
     expect(scheduler.requestWindow(1, 0)).toEqual([1, 2, 3]);
     expect(scheduler.take()).toBe(3);
     expect(scheduler.take()).toBeNull();
@@ -55,5 +56,28 @@ describe('逐页翻译调度器', () => {
     scheduler.setMode('on-demand');
     scheduler.markDone(1);
     expect(scheduler.take()).toBeNull();
+  });
+
+  it('新显式导航清除旧预取队列并在并发释放后首先派发目标页', () => {
+    const scheduler = new PageScheduler(76, 1, 'on-demand');
+    scheduler.requestWindow(10, 1);
+    expect(scheduler.take()).toBe(10);
+    scheduler.requestNavigationWindow(50, 1);
+    scheduler.markDone(10);
+    expect(scheduler.take()).toBe(50);
+    scheduler.markDone(50);
+    expect(scheduler.take()).toBe(51);
+    expect([9, 11, 12].some((page) => scheduler.isCached(page))).toBe(false);
+  });
+
+  it('350ms 后同页稳定窗口不会降低仍在等待的显式导航优先级', () => {
+    const scheduler = new PageScheduler(76, 1, 'on-demand');
+    scheduler.requestWindow(1);
+    expect(scheduler.take()).toBe(1);
+    scheduler.requestNavigationWindow(50);
+    scheduler.requestWindow(50);
+    scheduler.requestPage(70, -150);
+    scheduler.markDone(1);
+    expect(scheduler.take()).toBe(50);
   });
 });

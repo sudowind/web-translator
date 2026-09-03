@@ -1,4 +1,8 @@
+// @vitest-environment jsdom
+
 import React from 'react';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -59,5 +63,25 @@ describe('PDF 极简工具栏', () => {
     expect(workspaceFeedbackPlacement('translating')).toBe('toolbar');
     expect(workspaceFeedbackPlacement('ready')).toBe('toolbar');
     expect(workspaceFeedbackPlacement('idle')).toBe('toolbar');
+  });
+
+  it('更多菜单可以在按需与全文模式之间显式切换', async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => root.render(<WorkspaceToolbar
+      title="Long Paper" activePage={40} pageCount={76} scale={1}
+      progressLabel="当前页已完成 · 已缓存 4/76 页 · 正在预取 0 页"
+      agentOpen={false} canRetryFailed={false} canStopAgent={false}
+      translationMode="on-demand" {...actions}
+    />));
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
+    const modeButton = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((button) => button.textContent === '翻译全文')!;
+    expect(modeButton).toBeDefined();
+    await act(async () => modeButton.click());
+    expect(actions.onChangeTranslationMode).toHaveBeenCalledWith('full-document');
+    await act(async () => root.unmount());
   });
 });

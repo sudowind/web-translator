@@ -35,6 +35,25 @@ export interface TranslationPageProps {
   onCopyFailure(failure: TranslationFailure): void;
 }
 
+export function translationPagePropsEqual(previous: TranslationPageProps, next: TranslationPageProps): boolean {
+  const attemptVisible = (status: TranslationPageStatus) => status === 'translating' || status === 'retrying';
+  return previous.page === next.page &&
+    previous.number === next.number &&
+    previous.height === next.height &&
+    previous.translations === next.translations &&
+    previous.status === next.status &&
+    previous.failure === next.failure &&
+    (!attemptVisible(next.status) || previous.attempt === next.attempt) &&
+    previous.pinnedBlockId === next.pinnedBlockId &&
+    previous.renderBody === next.renderBody &&
+    previous.onBlockPreview === next.onBlockPreview &&
+    previous.onBlockPin === next.onBlockPin &&
+    previous.onRequest === next.onRequest &&
+    previous.onScrollTopChange === next.onScrollTopChange &&
+    previous.onRetry === next.onRetry &&
+    previous.onCopyFailure === next.onCopyFailure;
+}
+
 export const TranslationPage = React.memo(function TranslationPage({
   page,
   number,
@@ -53,6 +72,8 @@ export const TranslationPage = React.memo(function TranslationPage({
   onRetry,
   onCopyFailure,
 }: TranslationPageProps) {
+  const renderCount = React.useRef(0);
+  renderCount.current += 1;
   const bodyRef = React.useRef<HTMLDivElement>(null);
   React.useLayoutEffect(() => {
     if (renderBody && bodyRef.current) bodyRef.current.scrollTop = initialScrollTop;
@@ -64,6 +85,7 @@ export const TranslationPage = React.memo(function TranslationPage({
       style={{ height }}
       data-translation-page={number}
       data-status={status}
+      data-translation-render-count={renderCount.current}
       aria-label={`第 ${number} 页译文`}
     >
       <header>
@@ -123,7 +145,7 @@ export const TranslationPage = React.memo(function TranslationPage({
       </div>}
     </section>
   );
-});
+}, translationPagePropsEqual);
 
 function TranslationBlock({
   block,

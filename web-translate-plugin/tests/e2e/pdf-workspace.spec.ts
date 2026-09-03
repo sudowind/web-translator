@@ -22,6 +22,7 @@ declare const chrome: {
 
 const extensionPath = resolve('.output/chrome-mv3');
 const mineruResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-paper.zip';
+const mineruLongResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-long-paper.zip';
 
 function createTwoPagePdf(label = 'Public'): Buffer {
   const streams = [
@@ -50,6 +51,35 @@ function createTwoPagePdf(label = 'Public'): Buffer {
   for (const offset of offsets.slice(1)) {
     body += `${offset.toString().padStart(10, '0')} 00000 n \n`;
   }
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body);
+}
+
+function createLongPdf(pageCount = 76): Buffer {
+  const pageObjectStart = 3;
+  const contentObjectStart = pageObjectStart + pageCount;
+  const fontObject = contentObjectStart + pageCount;
+  const pageReferences = Array.from({ length: pageCount }, (_, index) => `${pageObjectStart + index} 0 R`).join(' ');
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${pageReferences}] /Count ${pageCount} >>`,
+    ...Array.from({ length: pageCount }, (_, index) =>
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObject} 0 R >> >> /Contents ${contentObjectStart + index} 0 R >>`),
+    ...Array.from({ length: pageCount }, (_, index) => {
+      const stream = `BT /F1 18 Tf 72 720 Td (Long Document Page ${index + 1}) Tj ET`;
+      return `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`;
+    }),
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let body = '%PDF-1.7\n';
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(body));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(body);
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) body += `${offset.toString().padStart(10, '0')} 00000 n \n`;
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
   return Buffer.from(body);
 }
@@ -84,6 +114,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   const pdf = createTwoPagePdf();
   const failurePdf = createTwoPagePdf('Failure Diagnostics');
   const authenticatedPdf = createTwoPagePdf('Authenticated');
+  const longPdf = createLongPdf();
   const archive = Buffer.from(zipSync({
     'nested/paper_content_list.json': strToU8(JSON.stringify([
       { page_idx: 0, type: 'header', text: 'OmniGUI arXiv Preprint', bbox: [220, 112, 785, 124] },
@@ -120,6 +151,15 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       { page_idx: 1, type: 'page_number', text: '2', bbox: [770, 869, 785, 881] },
     ])),
   }));
+  const longArchive = Buffer.from(zipSync({
+    'nested/long_content_list.json': strToU8(JSON.stringify(Array.from({ length: 76 }, (_, index) => [
+      { page_idx: index, type: 'text', text: `Long paper section ${index + 1}`, text_level: 2, bbox: [100, 80, 900, 150] },
+      { page_idx: index, type: 'text', text: `Representative paragraph for page ${index + 1}.`, bbox: [100, 200, 900, 400] },
+      { page_idx: index, type: 'list', text: `- Evidence ${index + 1}\n- Result ${index + 1}`, bbox: [100, 420, 900, 560] },
+      { page_idx: index, type: 'interline_equation', text: `$$x_${index + 1}^2$$`, bbox: [200, 580, 800, 680] },
+      { page_idx: index, type: 'image', image_caption: [`Figure ${index + 1}`], img_path: `images/${index + 1}.png`, bbox: [100, 700, 900, 850] },
+    ]).flat())),
+  }));
   const observed = {
     urlTasks: [] as string[],
     translationPages: [] as number[],
@@ -129,6 +169,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     batchDataId: '',
   };
   let translationFailureMode: 'none' | 'mixed' = 'none';
+  let translationDelayMs = 0;
   let releaseAgentFinal: (() => void) | undefined;
 
   test.beforeAll(async ({ playwright }) => {
@@ -158,6 +199,12 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         return;
       }
 
+      if (requestUrl.pathname === '/download' && requestUrl.searchParams.get('id') === 'long') {
+        response.writeHead(200, { 'content-type': 'application/pdf' });
+        response.end(longPdf);
+        return;
+      }
+
       if (requestUrl.pathname === '/mineru/api/v4/extract/task' && request.method === 'POST') {
         const body = await readJson(request);
         observed.urlTasks.push(String(body.url ?? ''));
@@ -166,9 +213,11 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       }
 
       if (requestUrl.pathname.startsWith('/mineru/api/v4/extract/task/') && request.method === 'GET') {
+        const taskNumber = Number(requestUrl.pathname.split('/').pop()?.replace('url-', ''));
+        const sourceUrl = observed.urlTasks[taskNumber - 1] ?? '';
         json(response, {
           code: 0,
-          data: { state: 'done', full_zip_url: mineruResultUrl },
+          data: { state: 'done', full_zip_url: sourceUrl.includes('id=long') ? mineruLongResultUrl : mineruResultUrl },
         });
         return;
       }
@@ -229,6 +278,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
             response.end(JSON.stringify({ error: { message: 'rate limited' } }));
             return;
           }
+          if (translationDelayMs > 0) await new Promise((resolveDelay) => setTimeout(resolveDelay, translationDelayMs));
           if (page === '1') await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_000));
           sse(response, translationFailureMode === 'mixed' && page === '1'
             ? 'not json'
@@ -288,6 +338,11 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       contentType: 'application/zip',
       body: archive,
     }));
+    await context.route(mineruLongResultUrl, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/zip',
+      body: longArchive,
+    }));
     let serviceWorker = context.serviceWorkers()[0];
     if (!serviceWorker) serviceWorker = await context.waitForEvent('serviceworker');
     const extensionId = new URL(serviceWorker.url()).host;
@@ -330,6 +385,11 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await context?.close();
     await new Promise<void>((resolveClosed, reject) => server.close((error) => error ? reject(error) : resolveClosed()));
     if (extensionCopy) await rm(extensionCopy, { recursive: true, force: true });
+  });
+
+  test.afterEach(() => {
+    translationDelayMs = 0;
+    translationFailureMode = 'none';
   });
 
   async function enableWorkspace(pdfPage: Page): Promise<void> {
@@ -437,9 +497,12 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('[data-translation-page="1"]')).toBeInViewport();
 
     const paragraphBlock = pageOne.locator('[data-block-kind="paragraph"]');
+    await pdfPage.waitForTimeout(300);
+    const translationRenderCountBeforeHover = await pageOne.getAttribute('data-translation-render-count');
     await paragraphBlock.hover();
     const highlight = pdfPage.locator('[data-page-pair="1"] .pdf-block-highlight');
     await expect(highlight).toBeVisible();
+    await expect(pageOne).toHaveAttribute('data-translation-render-count', translationRenderCountBeforeHover!);
     const highlightError = await pdfPage.evaluate(() => {
       const wrap = document.querySelector('[data-page-pair="1"] .pdf-page-canvas-wrap')!.getBoundingClientRect();
       const box = document.querySelector('[data-page-pair="1"] .pdf-block-highlight')!.getBoundingClientRect();
@@ -495,11 +558,13 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(streamedAnswer.getByRole('heading', { name: '主要贡献' })).toBeVisible();
     await expect(streamedAnswer).toHaveAttribute('data-status', 'streaming');
     await expect.poll(() => typeof releaseAgentFinal).toBe('function');
+    const readingRenderCountDuringAgent = await pdfPage.locator('.paired-page-stream').getAttribute('data-reading-render-count');
     await expect(pdfPage.locator('.agent-panel')).toHaveScreenshot('agent-streaming.png', { animations: 'disabled' });
     releaseAgentFinal?.();
     await expect(streamedAnswer.locator('table')).toBeVisible();
     await expect(streamedAnswer.locator('.katex')).toBeVisible();
     await expect(streamedAnswer).toHaveAttribute('data-status', 'done');
+    await expect(pdfPage.locator('.paired-page-stream')).toHaveAttribute('data-reading-render-count', readingRenderCountDuringAgent!);
     await expect(pdfPage.locator('.agent-panel')).toHaveScreenshot('agent-rich-answer.png', { animations: 'disabled' });
     await pdfPage.getByRole('button', { name: '第 2 页' }).click();
     await expect(pdfPage.locator('[data-pdf-page="2"]')).toBeInViewport();
@@ -546,6 +611,146 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await pdfPage.reload();
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
     await expect(pdfPage).toHaveURL(sourceUrl);
+    await pdfPage.close();
+  });
+
+  test('76 页长文档按需翻译、限制正文挂载并支持模式切换和缓存恢复', async () => {
+    test.setTimeout(120_000);
+    translationFailureMode = 'none';
+    translationDelayMs = 80;
+    observed.translationPages.length = 0;
+    observed.urlTasks.length = 0;
+    const sourceUrl = `${origin}/download?id=long#page=40`;
+    const pdfPage = await context.newPage();
+    await pdfPage.goto(sourceUrl);
+    await pdfPage.evaluate(() => {
+      const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
+      const metrics = { startedAt: performance.now(), startHeap: memory.memory?.usedJSHeapSize, longTasks: [] as number[] };
+      (window as typeof window & { __pdfLongMetrics?: typeof metrics }).__pdfLongMetrics = metrics;
+      new PerformanceObserver((list) => {
+        metrics.longTasks.push(...list.getEntries().map((entry) => entry.duration));
+      }).observe({ type: 'longtask', buffered: true });
+    });
+    await enableWorkspace(pdfPage);
+
+    await expect(pdfPage.locator('.workspace-toolbar')).toHaveAttribute('data-translation-mode', 'on-demand', { timeout: 30_000 });
+    await expect(pdfPage.locator('[data-page-pair]')).toHaveCount(76);
+    await expect(pdfPage.locator('[data-translation-page]')).toHaveCount(76);
+    await expect(pdfPage.locator('[data-page-pair="40"]')).toBeInViewport();
+    await expect(pdfPage.locator('[data-page-pair="40"] canvas')).toBeVisible();
+    const firstReadableMs = await pdfPage.evaluate(() => performance.now() -
+      (window as typeof window & { __pdfLongMetrics: { startedAt: number } }).__pdfLongMetrics.startedAt);
+    await expect.poll(() => observed.translationPages.length).toBe(4);
+    expect(new Set(observed.translationPages)).toEqual(new Set([39, 40, 41, 42]));
+    await pdfPage.waitForTimeout(500);
+    expect(observed.translationPages).toHaveLength(4);
+    await expect(pdfPage.locator('[data-translation-body="full"]')).toHaveCount(5);
+    await expect(pdfPage.locator('[data-translation-page="60"]')).toHaveAttribute('data-status', 'unrequested');
+    await expect(pdfPage.locator('[data-translation-page="60"] [data-translation-body="deferred"]')).toHaveText('按需翻译');
+
+    const frameIntervals = await pdfPage.evaluate(async () => {
+      const samples: number[] = [];
+      let previous = performance.now();
+      for (let index = 0; index < 30; index += 1) {
+        await new Promise<void>((resolveFrame) => requestAnimationFrame((timestamp) => {
+          samples.push(timestamp - previous);
+          previous = timestamp;
+          window.scrollBy(0, 2);
+          resolveFrame();
+        }));
+      }
+      return samples.slice(1);
+    });
+    const benchmark = await pdfPage.evaluate(() => {
+      const memory = performance as Performance & { memory?: { usedJSHeapSize: number } };
+      const metrics = (window as typeof window & {
+        __pdfLongMetrics: { startedAt: number; startHeap?: number; longTasks: number[] };
+      }).__pdfLongMetrics;
+      const endHeap = memory.memory?.usedJSHeapSize;
+      return {
+        longTaskCount: metrics.longTasks.length,
+        longestTaskMs: Math.max(0, ...metrics.longTasks),
+        heapDeltaBytes: endHeap !== undefined && metrics.startHeap !== undefined ? endHeap - metrics.startHeap : null,
+        readingRenderCount: Number(document.querySelector('.paired-page-stream')?.getAttribute('data-reading-render-count') ?? 0),
+        maxRenderToCommitMs: Number(document.querySelector('.paired-page-stream')?.getAttribute('data-reading-max-render-to-commit-ms') ?? 0),
+      };
+    });
+    console.info('PDF_LONG_DOCUMENT_BENCHMARK', {
+      ...benchmark,
+      firstReadableMs,
+      mountedTranslationBodies: 5,
+      initialProviderPages: 4,
+      maxFrameIntervalMs: Math.max(...frameIntervals),
+    });
+
+    const initialRequestCount = observed.translationPages.length;
+    await pdfPage.evaluate(async () => {
+      for (const page of [10, 20, 30]) {
+        document.querySelector<HTMLElement>(`[data-page-pair="${page}"]`)!.scrollIntoView({ block: 'start' });
+        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
+      }
+    });
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '30');
+    await pdfPage.waitForTimeout(100);
+    expect(observed.translationPages).toHaveLength(initialRequestCount);
+    await expect.poll(() => observed.translationPages.length).toBe(initialRequestCount + 4);
+    expect(new Set(observed.translationPages.slice(initialRequestCount))).toEqual(new Set([29, 30, 31, 32]));
+
+    const pageInput = pdfPage.getByLabel('跳转页码');
+    await pageInput.fill('60');
+    await pageInput.press('Enter');
+    await expect(pdfPage.locator('[data-page-pair="60"]')).toBeInViewport();
+    await expect.poll(() => observed.translationPages.includes(60)).toBe(true);
+    expect(observed.translationPages.indexOf(60)).toBeLessThanOrEqual(initialRequestCount + 5);
+    await expect.poll(() => observed.translationPages.length).toBe(initialRequestCount + 8);
+    for (const page of [59, 60, 61, 62]) {
+      await expect(pdfPage.locator(`[data-translation-page="${page}"]`)).toHaveAttribute('data-status', 'done');
+    }
+
+    const fullDocumentStart = observed.translationPages.length;
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitem', { name: '翻译全文' }).click();
+    await expect(pdfPage.locator('.workspace-toolbar')).toHaveAttribute('data-translation-mode', 'full-document');
+    await expect.poll(() => observed.translationPages.length).toBeGreaterThanOrEqual(fullDocumentStart + 8);
+    const firstFullDocumentPages = observed.translationPages.slice(fullDocumentStart, fullDocumentStart + 8);
+    expect(firstFullDocumentPages).toEqual([...firstFullDocumentPages].sort((left, right) => left - right));
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitem', { name: '改为按需' }).click();
+    const stoppedAt = observed.translationPages.length;
+    await pdfPage.waitForTimeout(500);
+    expect(observed.translationPages.length - stoppedAt).toBeLessThanOrEqual(2);
+    await expect(pdfPage.locator('.workspace-toolbar')).toHaveAttribute('data-translation-mode', 'on-demand');
+
+    await pdfPage.close();
+    observed.translationPages.length = 0;
+    const cachedPage = await context.newPage();
+    await cachedPage.goto(sourceUrl);
+    await enableWorkspace(cachedPage);
+    await expect(cachedPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-translation-snapshot-count', '1');
+    await expect(cachedPage.locator('[data-translation-page="40"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await cachedPage.waitForTimeout(700);
+    expect(observed.translationPages).toEqual([]);
+    await cachedPage.close();
+  });
+
+  test('真实 arXiv 76 页样本可由内容脚本读取并保持原 URL 恢复', async () => {
+    test.skip(process.env.PDF_ARXIV_FEASIBILITY !== '1', '仅用于一次性真实浏览器源读取门禁');
+    test.setTimeout(180_000);
+    const sourceUrl = 'https://arxiv.org/pdf/2510.12403';
+    const pdfPage = await context.newPage();
+    await pdfPage.goto(sourceUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await enableWorkspace(pdfPage);
+    await expect(pdfPage).toHaveURL(sourceUrl);
+    await expect(pdfPage.locator('.workspace-title')).toContainText('2510.12403', { timeout: 90_000 });
+    await expect(pdfPage.locator('.workspace-page-total')).toHaveText('/ 76', { timeout: 60_000 });
+    await expect(pdfPage.locator('[data-pdf-page="1"] canvas')).toBeVisible();
+
+    const restored = pdfPage.waitForEvent('load');
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitem', { name: '关闭工作台' }).click();
+    await restored;
+    await expect(pdfPage).toHaveURL(sourceUrl);
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
     await pdfPage.close();
   });
 

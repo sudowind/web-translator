@@ -351,6 +351,22 @@ describe('后台 PDF 工作台服务', () => {
     expect(waitForResult).toHaveBeenCalledTimes(2);
   });
 
+  it('公共 URL 轮询失败后的上传回退原样保留 PDF_SOURCE_CHANGED', async () => {
+    const putTask = vi.fn();
+    const createUploadTask = vi.fn();
+    const changed = { ...loadedSource, descriptor: { ...source, hash: 'sha256:changed' } };
+    const service = makeService({
+      createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }),
+      createUploadTask,
+      waitForResult: vi.fn().mockResolvedValue({ state: 'failed', error: 'MINERU_TASK_FAILED' }),
+    }, { loadSource: vi.fn().mockResolvedValue(changed), putTask });
+
+    await expect(service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7))
+      .rejects.toMatchObject({ code: 'PDF_SOURCE_CHANGED' });
+    expect(createUploadTask).not.toHaveBeenCalled();
+    expect(putTask).toHaveBeenLastCalledWith(expect.objectContaining({ errorCode: 'PDF_SOURCE_CHANGED' }));
+  });
+
   it('公共 URL 任务创建失败时也只回退一次字节上传', async () => {
     const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
     const service = new PdfWorkspaceService({
@@ -457,6 +473,27 @@ describe('PDF workspace 生命周期修复波', () => {
     await expect(parsing).rejects.toHaveProperty('name', 'AbortError');
     expect(clearCache).toHaveBeenCalledWith(source.hash);
     expect(putDocument).not.toHaveBeenCalled();
+  });
+
+  it('cache-clear 期间的其他标签读取等待清理屏障且不回填旧 LRU', async () => {
+    let stored: DocumentModel | undefined = model;
+    let releaseClear!: () => void;
+    const clearGate = new Promise<void>((resolve) => { releaseClear = resolve; });
+    const getDocument = vi.fn(async () => stored);
+    const clearCache = vi.fn(async () => {
+      await clearGate;
+      stored = undefined;
+    });
+    const service = makeService(undefined, { getDocument, clearCache });
+
+    const clearing = service.handle({ type: 'pdf:cache-clear', hash: source.hash }, 7);
+    const reading = service.handle({ type: 'pdf:document-get', hash: source.hash }, 8);
+    await Promise.resolve();
+    expect(getDocument).not.toHaveBeenCalled();
+    releaseClear();
+    await expect(clearing).resolves.toEqual({ cleared: true });
+    await expect(reading).resolves.toBeNull();
+    expect(getDocument).toHaveBeenCalledOnce();
   });
 
   it('clear 排在已启动 document put 后执行，resolve 后旧写不能重建', async () => {

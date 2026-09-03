@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
 import { visibleTranslationPageWindow } from '../../../src/pdf/PairedPageViewer';
 import { visiblePageWindow } from '../../../src/pdf/PdfViewer';
-import { TranslationPage } from '../../../src/pdf/TranslationPane';
+import { TranslationPage, translationPagePropsEqual, type TranslationPageProps } from '../../../src/pdf/TranslationPane';
 
 const model: DocumentModel = {
   schemaVersion: DOCUMENT_SCHEMA_VERSION,
@@ -27,6 +27,26 @@ const model: DocumentModel = {
 };
 
 describe('PDF 逐页配对组件契约', () => {
+  it('完成态清理不可见的尝试次数时不重渲染，进行中更新仍会渲染', () => {
+    const base: TranslationPageProps = {
+      page: model.pages[0],
+      number: 1,
+      height: 640,
+      translations: new Map(),
+      status: 'done',
+      attempt: 1,
+      onRetry: () => undefined,
+      onCopyFailure: () => undefined,
+    };
+    expect(translationPagePropsEqual(base, { ...base, attempt: undefined })).toBe(true);
+    expect(translationPagePropsEqual(base, { ...base, initialScrollTop: 320 })).toBe(true);
+    expect(translationPagePropsEqual(base, { ...base, renderBody: false, initialScrollTop: 320 })).toBe(false);
+    expect(translationPagePropsEqual(
+      { ...base, status: 'translating', attempt: 1 },
+      { ...base, status: 'translating', attempt: 2 },
+    )).toBe(false);
+  });
+
   it('只把当前页与邻近页放入立即渲染窗口', () => {
     expect(visiblePageWindow(5, 10)).toEqual(new Set([3, 4, 5, 6, 7]));
     expect(visiblePageWindow(1, 10)).toEqual(new Set([1, 2, 3]));

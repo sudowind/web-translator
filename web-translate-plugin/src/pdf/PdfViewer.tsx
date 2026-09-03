@@ -54,7 +54,7 @@ export function PdfViewer({
 
   React.useEffect(() => {
     let cancelled = false;
-    const task = getDocument({ data: bytes.slice() });
+    const task = getDocument({ data: bytes });
     void task.promise.then((pdf) => {
       if (cancelled) {
         return;
@@ -144,41 +144,54 @@ export function PdfViewer({
 
 export function PdfPageCanvas({
   document,
+  page: suppliedPage,
   pageNumber,
   scale,
   onHeightChange,
   highlightedBlock,
 }: {
   document: PDFDocumentProxy;
+  page?: PDFPageProxy;
   pageNumber: number;
   scale: number;
   onHeightChange?(pageNumber: number, height: number): void;
   highlightedBlock?: DocumentBlock;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const [textLayer, setTextLayer] = React.useState<{ page: PDFPageProxy; viewport: PageViewport } | null>(null);
+  const [textLayer, setTextLayer] = React.useState<{ page: PDFPageProxy; viewport: PageViewport; renderId: number } | null>(null);
   const [renderError, setRenderError] = React.useState<string>();
   const [fitScale, setFitScale] = React.useState(1);
+  const renderGeneration = React.useRef(0);
+  const textLayerActive = React.useRef(false);
+  const textLayerWaiters = React.useRef<Array<() => void>>([]);
   const handleTextLayerError = React.useCallback(() => setRenderError('PDF 文本层渲染失败'), []);
+  const handleTextLayerActiveChange = React.useCallback((renderId: number, active: boolean) => {
+    if (renderId !== renderGeneration.current) return;
+    textLayerActive.current = active;
+    if (!active) textLayerWaiters.current.splice(0).forEach((resolve) => resolve());
+  }, []);
 
   React.useEffect(() => {
+    const generation = ++renderGeneration.current;
     let cancelled = false;
     let renderTask: RenderTask | undefined;
     let pageProxy: PDFPageProxy | undefined;
+    let renderedCanvas: HTMLCanvasElement | undefined;
     let renderSettled: Promise<unknown> = Promise.resolve();
     setTextLayer(null);
     setRenderError(undefined);
-    void document.getPage(pageNumber).then(async (page) => {
+    void Promise.resolve(suppliedPage ?? document.getPage(pageNumber)).then(async (page) => {
       if (cancelled || !canvasRef.current) return;
       pageProxy = page;
       const viewport = page.getViewport({ scale });
       const canvas = canvasRef.current;
+      renderedCanvas = canvas;
       const ratio = globalThis.devicePixelRatio || 1;
       canvas.width = Math.floor(viewport.width * ratio);
       canvas.height = Math.floor(viewport.height * ratio);
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
-      setTextLayer({ page, viewport });
+      setTextLayer({ page, viewport, renderId: generation });
       renderTask = page.render({
         canvas,
         viewport,
@@ -194,18 +207,20 @@ export function PdfPageCanvas({
     return () => {
       cancelled = true;
       renderTask?.cancel();
-      const canvas = canvasRef.current;
+      const canvas = renderedCanvas;
       if (canvas) {
         canvas.width = 0;
         canvas.height = 0;
       }
-      void renderSettled.catch(() => undefined).then(() => {
-        // React has synchronously unmounted/cancelled the text layer by this point.
-        // PDF.js cleanup is only safe after the page render task settles.
-        pageProxy?.cleanup();
+      void renderSettled.catch(() => undefined).then(async () => {
+        if (renderGeneration.current !== generation) return;
+        if (textLayerActive.current) {
+          await new Promise<void>((resolve) => textLayerWaiters.current.push(resolve));
+        }
+        if (renderGeneration.current === generation) pageProxy?.cleanup();
       });
     };
-  }, [document, onHeightChange, pageNumber, scale]);
+  }, [document, onHeightChange, pageNumber, scale, suppliedPage]);
 
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -231,8 +246,10 @@ export function PdfPageCanvas({
       {textLayer && <PdfTextLayer
         page={textLayer.page}
         viewport={textLayer.viewport}
+        renderId={textLayer.renderId}
         fitScale={fitScale}
         onError={handleTextLayerError}
+        onActiveChange={handleTextLayerActiveChange}
       />}
       {renderError && <p className="pdf-page-render-error" role="status">{renderError}</p>}
     </div>

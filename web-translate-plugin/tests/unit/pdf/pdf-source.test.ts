@@ -34,6 +34,14 @@ describe('PDF 源读取', () => {
     expect(fetcher.mock.calls[1][1]).toMatchObject({ credentials: 'include' });
   });
 
+  it('公共响应读取字节失败时继续尝试带凭据读取', async () => {
+    const unreadable = { ...response(pdf), arrayBuffer: async () => { throw new Error('stream failed'); } } as Response;
+    const fetcher = vi.fn().mockResolvedValueOnce(unreadable).mockResolvedValueOnce(response(pdf));
+    await expect(loadPdfSource('https://example.test/private.pdf', fetcher))
+      .resolves.toMatchObject({ descriptor: { kind: 'authenticated' } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('优先使用响应头文件名，并为通用下载地址生成可识别标题', async () => {
     const named = vi.fn().mockResolvedValue(response(pdf, true, {
       'content-disposition': "attachment; filename*=UTF-8''Attention%20Paper.pdf",

@@ -7,7 +7,7 @@ import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import { defaultTranslationMode } from '../translation/document-policy';
 import { classifyTranslationFailure, formatTranslationFailure, type TranslationFailure } from '../translation/failure';
-import { PageScheduler, type ReadingDirection, type TranslationMode } from '../translation/page-scheduler';
+import { PAGE_PRIORITY, PageScheduler, type ReadingDirection, type TranslationMode } from '../translation/page-scheduler';
 import {
   isPdfAgentProgress,
   isPdfTranslationProgress,
@@ -57,6 +57,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const agentFlushTimer = React.useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const activePageRef = React.useRef(activePage);
   const readingDirectionRef = React.useRef<ReadingDirection>(0);
+  const snapshotRequestCount = React.useRef(0);
   activePageRef.current = activePage;
   const highlightedBlockId = previewBlockId ?? pinnedBlockId;
   const pageCount = model?.pageCount ?? documentPageCount;
@@ -204,6 +205,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
       }
     };
     pumpRef.current = pump;
+    snapshotRequestCount.current += 1;
     void sendPdfMessage({ type: 'pdf:translation-snapshot', hash: model.hash }).then((value) => {
       if (disposed || !operationEpoch.current.isCurrent(epoch) || !isTranslationSnapshot(value)) return;
       const cachedPages = value.pages.map(({ page }) => page);
@@ -278,18 +280,18 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     setNavigationPage(target);
     const scheduler = schedulerRef.current;
     if (scheduler?.getMode() === 'on-demand') {
-      const requested = scheduler.requestWindow(target, readingDirectionRef.current);
+      const requested = scheduler.requestNavigationWindow(target, readingDirectionRef.current);
       setPageStatus((statuses) => markRequestedPages(statuses, requested));
       pumpRef.current();
     } else if (scheduler) {
-      scheduler.requestPage(target, -1);
+      scheduler.requestPage(target, PAGE_PRIORITY.navigation);
       pumpRef.current();
     }
   }, [documentPageCount, model?.pageCount]);
 
   const requestPage = React.useCallback((page: number) => {
     const scheduler = schedulerRef.current;
-    if (!scheduler?.requestPage(page, -1)) return;
+    if (!scheduler?.requestPage(page, PAGE_PRIORITY.navigation)) return;
     setPageStatus((statuses) => new Map(statuses).set(page, 'pending'));
     pumpRef.current();
   }, []);
@@ -419,7 +421,12 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }, []);
 
   return (
-    <main className="pdf-workspace" data-renderer="pdfjs" data-pdf-render-page={activePage}>
+    <main
+      className="pdf-workspace"
+      data-renderer="pdfjs"
+      data-pdf-render-page={activePage}
+      data-translation-snapshot-count={snapshotRequestCount.current}
+    >
       <WorkspaceToolbar
         title={source?.title ?? 'PDF 翻译工作台'}
         activePage={activePage}

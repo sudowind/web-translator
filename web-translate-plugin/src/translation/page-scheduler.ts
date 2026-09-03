@@ -4,10 +4,18 @@ export type ReadingDirection = -1 | 0 | 1;
 interface QueuedPage {
   priority: number;
   order: number;
+  scope: 'window' | 'explicit';
 }
+
+export const PAGE_PRIORITY = {
+  retry: -300,
+  navigation: -200,
+  stableVisible: -100,
+} as const;
 
 export class PageScheduler {
   private readonly done = new Set<number>();
+  private readonly cached = new Set<number>();
   private readonly failed = new Set<number>();
   private readonly inFlight = new Set<number>();
   private readonly queued = new Map<number, QueuedPage>();
@@ -47,32 +55,46 @@ export class PageScheduler {
     for (const page of pages) {
       if (!this.isValidPage(page)) continue;
       this.done.add(page);
+      this.cached.add(page);
       this.failed.delete(page);
       this.queued.delete(page);
     }
   }
 
-  requestPage(page: number, priority = 0): boolean {
+  requestPage(page: number, priority = 0, scope: QueuedPage['scope'] = 'explicit'): boolean {
     if (!this.isAvailable(page)) return false;
     const current = this.queued.get(page);
     if (current && current.priority <= priority) return false;
-    this.queued.set(page, { priority, order: current?.order ?? this.enqueueOrder++ });
+    this.queued.set(page, { priority, order: current?.order ?? this.enqueueOrder++, scope });
     return true;
   }
 
-  requestWindow(activePage: number, direction: ReadingDirection = 0): number[] {
+  requestWindow(
+    activePage: number,
+    direction: ReadingDirection = 0,
+    basePriority: number = PAGE_PRIORITY.stableVisible,
+  ): number[] {
     const offsets = direction < 0 ? [0, -1, -2, 1] : [0, 1, 2, -1];
     const pages = offsets
       .map((offset) => activePage + offset)
       .filter((page, index, values) => this.isValidPage(page) && values.indexOf(page) === index);
-    pages.forEach((page, priority) => this.requestPage(page, priority));
+    const currentWindow = new Set(pages);
+    for (const [page, queued] of this.queued) {
+      if (queued.scope === 'window' && !currentWindow.has(page)) this.queued.delete(page);
+    }
+    pages.forEach((page, priority) => this.requestPage(page, basePriority + priority, 'window'));
     return pages;
+  }
+
+  requestNavigationWindow(activePage: number, direction: ReadingDirection = 0): number[] {
+    return this.requestWindow(activePage, direction, PAGE_PRIORITY.navigation);
   }
 
   markDone(page: number): void {
     this.inFlight.delete(page);
     this.failed.delete(page);
     this.done.add(page);
+    this.cached.delete(page);
     this.queued.delete(page);
   }
 
@@ -84,8 +106,12 @@ export class PageScheduler {
 
   retry(page: number): boolean {
     if (!this.failed.delete(page)) return false;
-    this.requestPage(page, -1);
+    this.requestPage(page, PAGE_PRIORITY.retry);
     return true;
+  }
+
+  isCached(page: number): boolean {
+    return this.cached.has(page);
   }
 
   private nextSequentialPage(): number | undefined {

@@ -2,6 +2,7 @@ import React from 'react';
 import {
   getDocument,
   type PDFDocumentProxy,
+  type PDFPageProxy,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 import type { DocumentModel } from '../document/model';
@@ -100,6 +101,10 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   onBlockPreview,
   onBlockPin,
 }: PairedPageViewerProps) {
+  const renderStartedAt = performance.now();
+  const renderCount = React.useRef(0);
+  const maxRenderToCommitMs = React.useRef(0);
+  renderCount.current += 1;
   const rootRef = React.useRef<HTMLDivElement>(null);
   const activePageRef = React.useRef(activePage);
   const lastReportedPage = React.useRef<number | null>(null);
@@ -111,12 +116,23 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   const translationScrollOffsets = React.useRef(new Map<number, number>());
   const pageSizeCache = React.useRef(new Map<number, { width: number; height: number }>());
   const pageSizeLoads = React.useRef(new Map<number, Promise<{ width: number; height: number }>>());
+  const pageProxyCache = React.useRef(new Map<number, PDFPageProxy>());
   activePageRef.current = activePage;
+
+  React.useLayoutEffect(() => {
+    const duration = performance.now() - renderStartedAt;
+    maxRenderToCommitMs.current = Math.max(maxRenderToCommitMs.current, duration);
+    if (rootRef.current) {
+      rootRef.current.dataset.readingRenderToCommitMs = duration.toFixed(2);
+      rootRef.current.dataset.readingMaxRenderToCommitMs = maxRenderToCommitMs.current.toFixed(2);
+    }
+  });
 
   React.useEffect(() => {
     let cancelled = false;
     pageSizeCache.current.clear();
     pageSizeLoads.current.clear();
+    pageProxyCache.current.clear();
     setPageSizes(new Map());
     setPageHeights(new Map());
     const task = getDocument({ data: bytes });
@@ -144,6 +160,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
       const loading = pageSizeLoads.current.get(number);
       if (loading) return loading;
       const promise = document.getPage(number).then((page) => {
+        pageProxyCache.current.set(number, page);
         const viewport = page.getViewport({ scale: 1 });
         const size = { width: viewport.width, height: viewport.height };
         pageSizeCache.current.set(number, size);
@@ -163,7 +180,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
       if (cancelled || remaining.length === 0) return;
       const run = () => {
         const batch = remaining.splice(0, 4).filter((page) => !pageSizeCache.current.has(page));
-        void publish(batch).finally(scheduleIdle);
+        void publish(batch).catch(() => undefined).finally(scheduleIdle);
       };
       if (typeof globalThis.requestIdleCallback === 'function') {
         idleHandle = globalThis.requestIdleCallback(run, { timeout: 500 });
@@ -171,7 +188,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
         timeoutHandle = globalThis.setTimeout(run, 16);
       }
     };
-    void publish(priorityPages).finally(scheduleIdle);
+    void publish(priorityPages).catch(() => undefined).finally(scheduleIdle);
     return () => {
       cancelled = true;
       if (idleHandle !== undefined) globalThis.cancelIdleCallback(idleHandle);
@@ -247,18 +264,30 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
 
   const renderWindow = visiblePageWindow(activePage, pageCount);
   const translationWindow = visibleTranslationPageWindow(activePage, pageCount);
-  const fallbackSize = pageSizes.get(activePage) ?? pageSizes.values().next().value;
+  const firstKnownSize = pageSizes.values().next().value;
+  const pageSizeEstimates = React.useMemo(() => {
+    const estimates = new Map<number, { width: number; height: number }>();
+    if (firstKnownSize) {
+      for (let page = 1; page <= pageCount; page += 1) estimates.set(page, firstKnownSize);
+    }
+    return estimates;
+  }, [firstKnownSize, pageCount]);
   const availableWidth = rootRef.current?.querySelector<HTMLElement>('.page-pair-pdf')?.clientWidth ?? 0;
-  const fallbackHeight = fallbackSize && availableWidth > 0
-    ? fitPageHeight(fallbackSize.width * scale, fallbackSize.height * scale, availableWidth)
-    : 780;
   const onTranslationScroll = React.useCallback((page: number, scrollTop: number) => {
     translationScrollOffsets.current.set(page, scrollTop);
   }, []);
   return (
-    <div ref={rootRef} className="paired-page-stream" aria-label="PDF 原文与逐页译文">
+    <div
+      ref={rootRef}
+      className="paired-page-stream"
+      aria-label="PDF 原文与逐页译文"
+      data-reading-render-count={renderCount.current}
+    >
       {Array.from({ length: pageCount }, (_, index) => index + 1).map((number) => {
-        const height = pageHeights.get(number) ?? fallbackHeight;
+        const estimatedSize = pageSizeEstimates.get(number);
+        const height = pageHeights.get(number) ?? (estimatedSize && availableWidth > 0
+          ? fitPageHeight(estimatedSize.width * scale, estimatedSize.height * scale, availableWidth)
+          : 780);
         const page = model?.pages[number - 1];
         const highlightedBlock = page?.blocks.find((block) => block.id === highlightedBlockId);
         return (
@@ -267,6 +296,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
             number={number}
             height={height}
             document={document}
+            pdfPage={pageProxyCache.current.get(number)}
             scale={scale}
             renderPdf={renderWindow.has(number)}
             renderTranslation={translationWindow.has(number)}
@@ -299,6 +329,7 @@ const PairedPageRow = React.memo(function PairedPageRow({
   number,
   height,
   document,
+  pdfPage,
   scale,
   renderPdf,
   renderTranslation,
@@ -322,6 +353,7 @@ const PairedPageRow = React.memo(function PairedPageRow({
   number: number;
   height: number;
   document: PDFDocumentProxy | null;
+  pdfPage?: PDFPageProxy;
   scale: number;
   renderPdf: boolean;
   renderTranslation: boolean;
@@ -342,11 +374,17 @@ const PairedPageRow = React.memo(function PairedPageRow({
   onBlockPreview(blockId: string | null): void;
   onBlockPin(blockId: string): void;
 }) {
+  const handleTranslationScroll = React.useCallback(
+    (scrollTop: number) => onTranslationScroll(number, scrollTop),
+    [number, onTranslationScroll],
+  );
+  const handleRequest = React.useCallback(() => onRequestPage(number), [number, onRequestPage]);
+  const handleRetry = React.useCallback(() => onRetryPage(number), [number, onRetryPage]);
   return <PagePair
     number={number}
     height={height}
-    pdf={document && renderPdf
-      ? <PdfPageCanvas document={document} pageNumber={number} scale={scale} onHeightChange={onHeightChange} highlightedBlock={highlightedBlock} />
+    pdf={document && pdfPage && renderPdf
+      ? <PdfPageCanvas document={document} page={pdfPage} pageNumber={number} scale={scale} onHeightChange={onHeightChange} highlightedBlock={highlightedBlock} />
       : <div className="pdf-page-placeholder" aria-hidden="true" />}
     translation={page
       ? <TranslationPage
@@ -360,11 +398,11 @@ const PairedPageRow = React.memo(function PairedPageRow({
         pinnedBlockId={pinnedBlockId}
         renderBody={renderTranslation}
         initialScrollTop={translationScrollTop}
-        onScrollTopChange={(scrollTop) => onTranslationScroll(number, scrollTop)}
+        onScrollTopChange={handleTranslationScroll}
         onBlockPreview={onBlockPreview}
         onBlockPin={onBlockPin}
-        onRequest={() => onRequestPage(number)}
-        onRetry={() => onRetryPage(number)}
+        onRequest={handleRequest}
+        onRetry={handleRetry}
         onCopyFailure={onCopyFailure}
       />
       : <div className="translation-page translation-page-placeholder" style={{ height }}>{translationPlaceholder ?? '等待 MinerU 解析'}</div>}

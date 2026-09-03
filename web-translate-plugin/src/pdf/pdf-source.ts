@@ -29,7 +29,7 @@ export async function loadPdfSource(
   }
 
   const publicResponse = await safeFetch(fetcher, rawUrl, 'omit', signal);
-  const publicBytes = publicResponse?.ok ? await readBytes(publicResponse) : null;
+  const publicBytes = publicResponse?.ok ? await tryReadBytes(publicResponse) : null;
   let kind: PdfSourceDescriptor['kind'] = 'remote';
   let bytes = publicBytes;
   let sourceResponse = publicResponse;
@@ -84,6 +84,14 @@ export function resolvePdfTitle(url: URL, response?: Response | null): string {
 async function readBytes(response: Response): Promise<Uint8Array<ArrayBuffer>> {
   try { return new Uint8Array(await response.arrayBuffer()); }
   catch { throw new PdfSourceError('PDF_READ_FAILED'); }
+}
+
+async function tryReadBytes(response: Response): Promise<Uint8Array<ArrayBuffer> | null> {
+  try { return await readBytes(response); }
+  catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    return null;
+  }
 }
 
 function hasPdfSignature(bytes: Uint8Array): boolean {

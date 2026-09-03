@@ -32,6 +32,7 @@ describe('PDF 工作台消息', () => {
     expect(isPdfMessage({ type: 'pdf:unknown' })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:cancel', apiKey: 'secret' })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:parse-start', source: {}, consent: false })).toBe(false);
+    expect(isPdfMessage({ type: 'pdf:source', url: 'https://example.test/p.pdf' })).toBe(false);
   });
 
   it.each([

@@ -99,6 +99,7 @@ export class PdfWorkspaceService {
   private readonly resuming = new Set<string>();
   private readonly mutationTails = new Map<string, Promise<unknown>>();
   private readonly generations = new Map<string, number>();
+  private readonly cacheClears = new Map<string, Promise<unknown>>();
   private readonly documents = new Map<string, DocumentModel>();
 
   constructor(private readonly dependencies: Dependencies = defaults) {}
@@ -117,7 +118,14 @@ export class PdfWorkspaceService {
       this.cancel(tabId);
       this.invalidate(message.hash);
       this.documents.delete(message.hash);
-      await this.enqueueForced(message.hash, () => this.dependencies.clearCache(message.hash));
+      const clearing = this.enqueueForced(message.hash, () => this.dependencies.clearCache(message.hash));
+      this.cacheClears.set(message.hash, clearing);
+      try {
+        await clearing;
+        this.documents.delete(message.hash);
+      } finally {
+        if (this.cacheClears.get(message.hash) === clearing) this.cacheClears.delete(message.hash);
+      }
       return { cleared: true };
     }
     if (message.type === 'pdf:agent-ask') {
@@ -218,8 +226,12 @@ export class PdfWorkspaceService {
         result = await client.waitForResult(task.providerTask, signal);
       } catch (error) {
         if (signal.aborted) throw signal.reason;
-        await this.failTask(task, 'MINERU_UPLOAD_FAILED', generation);
-        throw new PdfWorkspaceServiceError('MINERU_UPLOAD_FAILED');
+        const errorCode = error instanceof PdfWorkspaceServiceError && error.code === 'PDF_SOURCE_CHANGED'
+          ? error.code
+          : 'MINERU_UPLOAD_FAILED';
+        await this.failTask(task, errorCode, generation);
+        if (errorCode === 'PDF_SOURCE_CHANGED') throw error;
+        throw new PdfWorkspaceServiceError(errorCode);
       }
     }
     if (result.state !== 'done') {
@@ -425,6 +437,9 @@ export class PdfWorkspaceService {
   }
 
   private async getDocument(hash: string): Promise<DocumentModel | undefined> {
+    const generation = this.generation(hash);
+    await this.cacheClears.get(hash);
+    if (generation !== this.generation(hash)) return this.getDocument(hash);
     const cached = this.documents.get(hash);
     if (cached) {
       this.documents.delete(hash);
@@ -432,6 +447,7 @@ export class PdfWorkspaceService {
       return cached;
     }
     const model = await this.dependencies.getDocument(hash);
+    if (generation !== this.generation(hash)) return this.getDocument(hash);
     if (model) this.rememberDocument(model);
     return model;
   }
