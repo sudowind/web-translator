@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { TranslationMode } from '../translation/page-scheduler';
+import type { PdfThemePreference } from './theme';
 import type { LifecyclePhase } from './workspace-reducer';
 
 export type WorkspaceFeedbackPlacement = 'toolbar' | 'notice';
@@ -20,6 +21,7 @@ export interface WorkspaceToolbarProps {
   scale: number;
   progressLabel: string;
   agentOpen: boolean;
+  themePreference: PdfThemePreference;
   canRetryFailed: boolean;
   canStopAgent: boolean;
   translationMode: TranslationMode;
@@ -28,6 +30,7 @@ export interface WorkspaceToolbarProps {
   onZoomOut(): void;
   onZoomIn(): void;
   onToggleAgent(): void;
+  onChangeTheme(theme: PdfThemePreference): void;
   onRetryCurrent(): void;
   onRetryFailed(): void;
   onRetryParsing?(): void;
@@ -44,6 +47,7 @@ export function WorkspaceToolbar({
   scale,
   progressLabel,
   agentOpen,
+  themePreference,
   canRetryFailed,
   canStopAgent,
   translationMode,
@@ -52,6 +56,7 @@ export function WorkspaceToolbar({
   onZoomOut,
   onZoomIn,
   onToggleAgent,
+  onChangeTheme,
   onRetryCurrent,
   onRetryFailed,
   onRetryParsing,
@@ -96,7 +101,9 @@ export function WorkspaceToolbar({
           canRetryFailed={canRetryFailed}
           canStopAgent={canStopAgent}
           translationMode={translationMode}
+          themePreference={themePreference}
           onChangeTranslationMode={onChangeTranslationMode}
+          onChangeTheme={onChangeTheme}
           onZoomOut={onZoomOut}
           onZoomIn={onZoomIn}
           onRetryCurrent={onRetryCurrent}
@@ -185,7 +192,9 @@ function MoreMenu({
   canRetryFailed,
   canStopAgent,
   translationMode,
+  themePreference,
   onChangeTranslationMode,
+  onChangeTheme,
   onZoomOut,
   onZoomIn,
   onRetryCurrent,
@@ -200,6 +209,7 @@ function MoreMenu({
   | 'canRetryFailed'
   | 'canStopAgent'
   | 'translationMode'
+  | 'themePreference'
   | 'onZoomOut'
   | 'onZoomIn'
   | 'onRetryCurrent'
@@ -210,6 +220,7 @@ function MoreMenu({
   | 'onOpenSettings'
   | 'onCloseWorkspace'
   | 'onChangeTranslationMode'
+  | 'onChangeTheme'
 >) {
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -253,6 +264,26 @@ function MoreMenu({
           <MenuButton onClick={() => run(() => onChangeTranslationMode(
             translationMode === 'on-demand' ? 'full-document' : 'on-demand',
           ))}>{translationMode === 'on-demand' ? '翻译全文' : '改为按需'}</MenuButton>
+          <div className="workspace-menu-section" role="group" aria-label="外观">
+            <span className="workspace-menu-section-label">外观</span>
+            {([
+              ['system', '跟随系统'],
+              ['light', '浅色'],
+              ['dark', '深色'],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={themePreference === value}
+                className="workspace-theme-choice"
+                onClick={() => run(() => onChangeTheme(value))}
+              >
+                <span className="workspace-choice-mark" aria-hidden="true">{themePreference === value ? '✓' : ''}</span>
+                {label}
+              </button>
+            ))}
+          </div>
           <MenuButton className="workspace-mobile-menu-action" onClick={() => run(onZoomOut)}>缩小页面</MenuButton>
           <MenuButton className="workspace-mobile-menu-action" onClick={() => run(onZoomIn)}>放大页面</MenuButton>
           <MenuButton onClick={() => run(onRetryCurrent)}>重试当前页</MenuButton>

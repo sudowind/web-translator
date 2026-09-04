@@ -9,6 +9,8 @@
 
 ## 当前规格记录
 
+- PDF 工作台夜间主题与原稿柔和暗化：`docs/superpowers/specs/2026-09-03-pdf-night-theme-soft-dimming-design.md`
+- PDF 工作台夜间主题与原稿柔和暗化实施计划：`docs/superpowers/plans/2026-09-03-pdf-night-theme-soft-dimming-plan.md`
 - PDF 紧凑对译布局与缩放清晰度：`docs/superpowers/specs/2026-09-03-pdf-compact-reading-layout-canvas-clarity-design.md`
 - PDF 紧凑对译布局与缩放清晰度实施计划：`docs/superpowers/plans/2026-09-03-pdf-compact-reading-layout-canvas-clarity-plan.md`
 - PDF 长文档按需翻译与性能优化：`docs/superpowers/specs/2026-09-03-pdf-long-document-on-demand-performance-design.md`

@@ -665,6 +665,30 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     }
     await pdfPage.setViewportSize({ width: 1440, height: 1000 });
 
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '深色' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'dark');
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(() => pdfPage.locator('canvas[data-active="true"]').first().evaluate(
+      (canvas) => getComputedStyle(canvas).filter,
+    )).toContain('brightness(0.72)');
+    await pdfPage.evaluate(() => window.scrollTo(0, 0));
+    await expect(pdfPage).toHaveScreenshot('pdf-workspace-dark.png', { animations: 'disabled' });
+
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '浅色' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'light');
+    await expect.poll(() => pdfPage.locator('canvas[data-active="true"]').first().evaluate(
+      (canvas) => getComputedStyle(canvas).filter,
+    )).toBe('none');
+
+    await pdfPage.emulateMedia({ colorScheme: 'dark' });
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '跟随系统' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'dark');
+    await pdfPage.emulateMedia({ colorScheme: 'light' });
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'light');
+
     const restoredPageLoaded = pdfPage.waitForEvent('load');
     await pdfPage.getByLabel('更多操作').click();
     await expect(pdfPage.getByRole('menu')).toBeVisible();
