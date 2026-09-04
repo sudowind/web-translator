@@ -1,4 +1,6 @@
 import { LlmProviderError, OpenAiChatClient } from './chat-client';
+import { TRANSLATION_OUTPUT_INSTRUCTIONS } from './translation-format';
+import { resolveTranslationOutputFormat } from '../../settings/translation-capabilities';
 import type {
   OpenAiSettings,
   TranslationRequest,
@@ -34,7 +36,11 @@ export class OpenAiTranslationClient {
 
     let content: string;
     try {
-      content = await new OpenAiChatClient(this.settings, this.fetcher).complete(
+      const outputMode = await resolveTranslationOutputFormat(this.settings);
+      signal?.throwIfAborted();
+      content = await new OpenAiChatClient({ ...this.settings,
+        translation: { ...this.settings.translation, outputMode },
+      }, this.fetcher).complete(
         {
           purpose: 'translation',
           messages: [
@@ -42,7 +48,7 @@ export class OpenAiTranslationClient {
               role: 'system',
               content:
                 `Translate each block from ${request.sourceLanguage} to ${request.targetLanguage}. ` +
-                'Return one JSON object with a translations array. Preserve every id exactly once; never merge or split blocks. ' +
+                TRANSLATION_OUTPUT_INSTRUCTIONS +
                 'Preserve Markdown structure, inline/display math delimiters and code fences. ' +
                 'Do not translate math expressions. For table and figure blocks, the input text is caption only. ' +
                 'Translate it as plain Markdown; never output a table body or image content.',
@@ -54,6 +60,9 @@ export class OpenAiTranslationClient {
       );
     } catch (error) {
       if (error instanceof LlmProviderError) {
+        if (error.code === 'LLM_OUTPUT_FORMAT_UNSUPPORTED') {
+          throw new TranslationProviderError('TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED');
+        }
         const status = /^LLM_HTTP_(\d+)$/.exec(error.code)?.[1];
         if (status) throw new TranslationProviderError(`TRANSLATION_HTTP_${status}`);
         if (error.code === 'LLM_TIMEOUT') {

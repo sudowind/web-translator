@@ -86,6 +86,7 @@ function readHttpStatus(code: string): number | undefined {
 }
 
 function categoryFor(code: string, status?: number): TranslationFailureCategory {
+  if (code === 'TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED') return 'configuration';
   if (code === 'TRANSLATION_TIMEOUT') return 'timeout';
   if (status === 429) return 'rate-limit';
   if (status !== undefined && status >= 500) return 'server';
@@ -96,6 +97,7 @@ function categoryFor(code: string, status?: number): TranslationFailureCategory 
 }
 
 function summaryFor(code: string, category: TranslationFailureCategory, status?: number): string {
+  if (code === 'TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED') return '接口不支持当前翻译输出模式，请在设置中重新测试或选择 JSON 模式';
   if (code in responseSummaries) return responseSummaries[code];
   if (category === 'timeout') return '请求超时';
   if (category === 'rate-limit') return '接口限流';

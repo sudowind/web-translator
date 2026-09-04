@@ -9,6 +9,11 @@
 
 ## 当前规格记录
 
+- 翻译输出协议与能力配置：`docs/superpowers/specs/2026-09-04-translation-output-capabilities-design.md`
+- 翻译输出能力实施计划：`docs/superpowers/plans/2026-09-04-translation-output-capabilities-plan.md`
+
+- 百炼 Qwen 翻译结构化输出加固：`docs/superpowers/specs/2026-09-04-qwen-translation-structured-output-design.md`
+- 百炼 Qwen 翻译结构化输出实施计划：`docs/superpowers/plans/2026-09-04-qwen-translation-structured-output-plan.md`
 - arXiv PDF 标识缓存与快速恢复：`docs/superpowers/specs/2026-09-03-arxiv-pdf-identity-cache-fast-restore-design.md`
 - arXiv PDF 标识缓存与快速恢复实施计划：`docs/superpowers/plans/2026-09-03-arxiv-pdf-identity-cache-fast-restore-plan.md`
 - PDF 紧凑对译布局与缩放清晰度：`docs/superpowers/specs/2026-09-03-pdf-compact-reading-layout-canvas-clarity-design.md`

@@ -175,7 +175,11 @@ function normalizeTranslationProfile(
   if (profile.reasoning.mode !== 'off') {
     throw new Error('翻译结构化输出必须关闭思考模式');
   }
-  return { reasoning: { ...profile.reasoning, mode: 'off' }, timeoutMs: profile.timeoutMs };
+  if (profile.outputMode !== undefined && !['auto', 'json_schema', 'json_object'].includes(profile.outputMode)) {
+    throw new Error('翻译输出模式无效');
+  }
+  return { reasoning: { ...profile.reasoning, mode: 'off' }, timeoutMs: profile.timeoutMs,
+    ...(profile.outputMode === undefined ? {} : { outputMode: profile.outputMode }) };
 }
 
 export async function authorizeProviderSettings(

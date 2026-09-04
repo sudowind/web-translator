@@ -12,8 +12,11 @@ import {
   type ExtensionSettings,
   type ProviderDialect,
   type ReasoningMode,
+  type TranslationOutputMode,
 } from '../../src/settings/schema';
 import { getSettings, saveSettings } from '../../src/settings/store';
+import type { LlmTestResult } from '../../src/settings/test-provider';
+import { getTranslationCapability } from '../../src/settings/translation-capabilities';
 
 type Activity = 'loading' | 'idle' | 'saving' | 'checking-mineru' | `testing-${LlmPurpose}`;
 type FieldName = 'baseUrl' | 'apiKey' | 'model' | 'agentModel' | 'mineruBaseUrl' | 'mineruToken' | 'mineruModel';
@@ -36,6 +39,8 @@ export default function App() {
   });
   const [mineruFeedback, setMineruFeedback] = useState('尚未检查；不会创建解析任务');
   const [fieldError, setFieldError] = useState<Partial<Record<FieldName, string>>>({});
+  const [capabilityStatus, setCapabilityStatus] = useState('尚无有效验证记录；自动模式使用 JSON 模式');
+  const [capabilityRevision, setCapabilityRevision] = useState(0);
   const showProgress = useDelayedProgress(activity !== 'idle');
 
   useEffect(() => {
@@ -54,6 +59,17 @@ export default function App() {
       },
     );
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    setCapabilityStatus('正在读取当前接口与模型的验证记录');
+    void getTranslationCapability(settings.openAi).then((record) => {
+      if (!disposed) setCapabilityStatus(record
+        ? `最近验证通过：${record.format === 'json_schema' ? '严格 Schema' : 'JSON 模式'}（${new Date(record.testedAt).toLocaleString()}），自动模式将使用此结果`
+        : '尚无有效验证记录；自动模式使用 JSON 模式');
+    }, () => { if (!disposed) setCapabilityStatus('暂无可用验证记录；自动模式使用 JSON 模式'); });
+    return () => { disposed = true; };
+  }, [settings.openAi.baseUrl, settings.openAi.defaultModel, settings.openAi.dialect, capabilityRevision]);
 
   function markLlmChanged() {
     setLlmFeedback({ 'connection-test': '配置已修改，请重新测试', translation: '配置已修改，请重新测试', agent: '配置已修改，请重新测试' });
@@ -173,15 +189,20 @@ export default function App() {
           sourceLanguage: settings.sourceLanguage,
           targetLanguage: settings.targetLanguage,
         },
-      })) as { ok: true; value: { connected: true } } | { ok: false; error: string };
+      })) as { ok: true; value: LlmTestResult } | { ok: false; error: string };
       if (!response?.ok) throw new Error(response?.error ?? '后台未返回测试结果');
-      setLlmFeedback((current) => ({ ...current, [purpose]: '测试成功' }));
+      const format = response.value.outputFormat;
+      const result = format
+        ? `测试成功：${format === 'json_schema' ? '严格 Schema' : 'JSON 模式'}请求及译文校验通过，能力已记录。${response.value.downgraded ? '接口明确不支持严格 Schema，已降级验证 JSON 模式。' : ''}连接及模式设置仍需点击保存。`
+        : '测试成功';
+      setLlmFeedback((current) => ({ ...current, [purpose]: result }));
     } catch (error) {
       const message = errorText(error);
       const field = providerErrorField(message, 'llm');
       if (field) setFieldError((current) => ({ ...current, [field]: message }));
       setLlmFeedback((current) => ({ ...current, [purpose]: message }));
     } finally {
+      if (purpose === 'translation') setCapabilityRevision((current) => current + 1);
       setActivity('idle');
     }
   }
@@ -221,7 +242,7 @@ export default function App() {
       </header>
 
       <form onSubmit={(event) => void save(event)} aria-busy={activity !== 'idle'}>
-        <fieldset>
+        <fieldset disabled={anyActionBusy}>
           <legend>LLM 基础连接（必需）</legend>
           <div className="field">
             <label htmlFor="dialect">Provider 类型</label>
@@ -252,11 +273,21 @@ export default function App() {
           <TestAction purpose="connection-test" activity={activity} busy={anyActionBusy} feedback={llmFeedback['connection-test']} onTest={testLlm} />
         </fieldset>
 
-        <fieldset>
+        <fieldset disabled={anyActionBusy}>
           <legend>翻译配置</legend>
           <p className="help">翻译固定关闭思考并要求 JSON 结构化输出，以降低耗时并保证逐块对齐。</p>
           <p className="profile-summary">模型：使用上方默认模型</p>
           <p className="profile-summary">思考模式：关闭</p>
+          <div className="field">
+            <label htmlFor="translation-output-mode">翻译输出模式</label>
+            <select id="translation-output-mode" value={settings.openAi.translation.outputMode ?? 'auto'} onChange={(event) => updateTranslation({ outputMode: event.target.value as TranslationOutputMode })}>
+              <option value="auto">自动（使用验证结果）</option>
+              <option value="json_schema">严格 Schema</option>
+              <option value="json_object">JSON 模式</option>
+            </select>
+            <p className="help">{capabilityStatus}</p>
+            <p className="help">显式模式优先于验证记录。测试会调用模型并可能计费：自动模式先测试严格 Schema，仅明确不支持时再测试一次 JSON 模式，最多两次请求；正式翻译不自动探测或降级。</p>
+          </div>
           <div className="field">
             <label htmlFor="translation-timeout">翻译超时（秒）</label>
             <input id="translation-timeout" type="number" min="5" max="120" value={settings.openAi.translation.timeoutMs / 1000} onChange={(event) => updateTranslation({ timeoutMs: Number(event.target.value) * 1000 })} />
@@ -264,7 +295,7 @@ export default function App() {
           <TestAction purpose="translation" activity={activity} busy={anyActionBusy} feedback={llmFeedback.translation} onTest={testLlm} />
         </fieldset>
 
-        <fieldset>
+        <fieldset disabled={anyActionBusy}>
           <legend>论文智能体配置</legend>
           <label className="checkbox-row">
             <input type="checkbox" checked={settings.openAi.agent.inheritDefaultModel} onChange={(event) => updateAgent({ inheritDefaultModel: event.target.checked })} />
@@ -305,7 +336,7 @@ export default function App() {
           <TestAction purpose="agent" activity={activity} busy={anyActionBusy} feedback={llmFeedback.agent} onTest={testLlm} />
         </fieldset>
 
-        <fieldset>
+        <fieldset disabled={anyActionBusy}>
           <legend>MinerU PDF 解析（PDF 功能必需）</legend>
           <p className="help">配置检查不会上传文件或消耗解析额度。</p>
           <div className="field">
@@ -390,7 +421,7 @@ function useDelayedProgress(active: boolean): boolean {
 
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 export function feedbackState(value: string): 'error' | 'info' {
-  return /失败|不能为空|必须|未获得|无效|超时|不符合翻译格式要求/.test(value)
+  return /失败|不能为空|必须|未获得|无效|超时|不符合翻译格式要求|不支持严格 Schema/.test(value)
     ? 'error'
     : 'info';
 }

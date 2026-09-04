@@ -5,6 +5,7 @@ import {
   type LlmPurpose,
 } from './request-builder';
 import { readChatCompletionSse, SseResponseError } from './sse';
+import { isOutputFormatUnsupported } from './output-format-error';
 
 export class LlmProviderError extends Error {
   readonly name = 'LlmProviderError';
@@ -60,7 +61,14 @@ export class OpenAiChatClient {
           signal: controller.signal,
         },
       );
-      if (!response.ok) throw new LlmProviderError(`LLM_HTTP_${response.status}`);
+      if (!response.ok) {
+        const strict = (body.response_format as { type?: string } | undefined)?.type === 'json_schema';
+        const unsupported = strict && await isOutputFormatUnsupported(response);
+        if (timedOut) throw new LlmProviderError('LLM_TIMEOUT');
+        signal?.throwIfAborted();
+        if (unsupported) throw new LlmProviderError('LLM_OUTPUT_FORMAT_UNSUPPORTED');
+        throw new LlmProviderError(`LLM_HTTP_${response.status}`);
+      }
 
       if (body.stream === true) {
         armTimeout();
