@@ -8,6 +8,10 @@ describe('设置页 Provider 操作', () => {
     const html = renderToStaticMarkup(<App />);
     expect(html).toContain('测试快速连通');
     expect(html).toContain('测试翻译配置');
+    expect(html).toContain('翻译输出模式');
+    expect(html).toContain('严格 Schema');
+    expect(html).toContain('最多两次请求');
+    expect(html).toContain('正式翻译不自动探测或降级');
     expect(html).toContain('测试智能体配置');
     expect(html).toContain('检查 MinerU 配置');
   });

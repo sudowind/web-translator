@@ -4,6 +4,15 @@ import { OpenAiTranslationClient } from '../providers/openai/client';
 import type { LlmPurpose } from '../providers/openai/request-builder';
 import { defaultSettings, type OpenAiSettings } from './schema';
 import { validateProviderSettings } from './provider-access';
+import type { TranslationOutputFormat } from './schema';
+import { setTranslationCapability, translationCapabilityKey } from './translation-capabilities';
+
+export interface LlmTestResult {
+  connected: true;
+  outputFormat?: TranslationOutputFormat;
+  downgraded?: boolean;
+}
+const activeTranslationTests = new Set<string>();
 
 export interface LlmConnectionSettings {
   openAi: OpenAiSettings;
@@ -24,7 +33,7 @@ interface SettingsMessageSender {
 }
 
 type TestProviderResponse =
-  | { ok: true; value: { connected: true } }
+  | { ok: true; value: LlmTestResult }
   | { ok: false; error: string };
 
 interface TestClients {
@@ -71,7 +80,7 @@ export async function dispatchSettingsTestLlm(
   message: unknown,
   sender: SettingsMessageSender,
   optionsUrl: string,
-  run: (settings: LlmConnectionSettings, purpose: LlmPurpose) => Promise<{ connected: true }> = testLlmConfiguration,
+  run: (settings: LlmConnectionSettings, purpose: LlmPurpose) => Promise<LlmTestResult> = testLlmConfiguration,
 ): Promise<TestProviderResponse> {
   const extensionId = new URL(optionsUrl).hostname;
   if (sender.id !== extensionId || sender.url !== optionsUrl) {
@@ -95,7 +104,7 @@ export async function testLlmConfiguration(
     createTranslation: (value) => new OpenAiTranslationClient(value),
     createAgent: (value) => new OpenAiPaperAgentClient(value),
   },
-): Promise<{ connected: true }> {
+): Promise<LlmTestResult> {
   const validated = normalizeLlmConnectionSettings(settings, purpose);
   try {
     if (purpose === 'connection-test') {
@@ -104,11 +113,7 @@ export async function testLlmConfiguration(
         messages: [{ role: 'user', content: 'Reply with OK.' }],
       });
     } else if (purpose === 'translation') {
-      await clients.createTranslation(validated.openAi).translate({
-        sourceLanguage: validated.sourceLanguage,
-        targetLanguage: validated.targetLanguage,
-        blocks: [{ id: 'provider-connection-test', text: 'Hello' }],
-      });
+      return await testTranslationOutput(validated, clients);
     } else {
       await clients.createAgent(validated.openAi).ask(
         { mode: 'full', text: '[p:1]\nHello', recentMessages: [] },
@@ -119,6 +124,36 @@ export async function testLlmConfiguration(
     throw llmTestError(error, purpose, validated.openAi.dialect);
   }
   return { connected: true };
+}
+
+async function testTranslationOutput(settings: LlmConnectionSettings, clients: TestClients): Promise<LlmTestResult> {
+  const key = await translationCapabilityKey(settings.openAi);
+  if (activeTranslationTests.has(key)) throw new Error('翻译能力测试正在进行');
+  activeTranslationTests.add(key);
+  try {
+    await setTranslationCapability(settings.openAi);
+    const mode = settings.openAi.translation.outputMode ?? 'auto';
+    let format: TranslationOutputFormat = mode === 'auto' ? 'json_schema' : mode;
+    let downgraded = false;
+    const probe = (outputMode: TranslationOutputFormat) => clients.createTranslation({
+      ...settings.openAi, translation: { ...settings.openAi.translation, outputMode },
+    }).translate({
+      sourceLanguage: settings.sourceLanguage, targetLanguage: settings.targetLanguage,
+      blocks: [{ id: 'provider-connection-test', text: 'Hello' }],
+    });
+    try {
+      await probe(format);
+    } catch (error) {
+      if (mode !== 'auto' || !(error instanceof Error) || !('code' in error) || error.code !== 'TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED') throw error;
+      format = 'json_object';
+      downgraded = true;
+      await probe(format);
+    }
+    await setTranslationCapability(settings.openAi, format);
+    return { connected: true, outputFormat: format, downgraded };
+  } finally {
+    activeTranslationTests.delete(key);
+  }
 }
 
 function normalizeLlmConnectionSettings(
@@ -173,10 +208,13 @@ function llmTestError(
   const status = /(?:LLM|AGENT|TRANSLATION)_HTTP_(\d{3})/.exec(code)?.[1] ?? /\((\d{3})\)/.exec(message)?.[1];
   const label = purpose === 'connection-test' ? '快速连通测试' : purpose === 'translation' ? '翻译配置测试' : '智能体配置测试';
   const safeCode = code || (status ? `HTTP_${status}` : 'PROVIDER_ERROR');
+  if (code === 'TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED') {
+    return new Error('接口明确不支持严格 Schema 输出格式，请选择自动或 JSON 模式后重新测试');
+  }
   if (purpose === 'translation' && contractCodes.has(code)) {
     return new Error(
       `接口连接成功，但模型输出不符合翻译格式要求（Provider: ${dialect}；错误码: ${code}）。` +
-      '请确认模型支持 JSON Object 输出，或更换适合结构化翻译的模型',
+      '请检查翻译输出模式；本次未自动降级或重试',
     );
   }
   if (code === 'LLM_TIMEOUT' || code === 'AGENT_TIMEOUT' || code === 'TRANSLATION_TIMEOUT') {
@@ -201,7 +239,8 @@ function isOpenAiShape(value: unknown): boolean {
 }
 
 function isTranslationProfileShape(value: unknown): boolean {
-  if (!hasExactKeys(value, ['reasoning', 'timeoutMs'])) return false;
+  if (!hasExactKeys(value, ['reasoning', 'timeoutMs']) && !hasExactKeys(value, ['reasoning', 'timeoutMs', 'outputMode'])) return false;
+  if ('outputMode' in value && !['auto', 'json_schema', 'json_object'].includes(String(value.outputMode))) return false;
   return typeof value.timeoutMs === 'number' && isReasoningShape(value.reasoning);
 }
 

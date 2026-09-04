@@ -9,6 +9,8 @@ export type ProviderDialect =
   | 'generic-openai';
 export type ReasoningMode = 'off' | 'auto' | 'on';
 export type ReasoningEffort = 'low' | 'medium' | 'high';
+export type TranslationOutputFormat = 'json_schema' | 'json_object';
+export type TranslationOutputMode = 'auto' | TranslationOutputFormat;
 
 export interface ReasoningSettings {
   mode: ReasoningMode;
@@ -23,6 +25,8 @@ export interface ModelProfile {
 }
 
 export interface TranslationProfile {
+  /** 缺省值兼容旧配置，等同于 auto。 */
+  outputMode?: TranslationOutputMode;
   reasoning: ReasoningSettings & { mode: 'off' };
   timeoutMs: number;
 }

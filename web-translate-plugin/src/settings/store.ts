@@ -81,6 +81,8 @@ function migrateTranslationProfile(
   );
   return {
     reasoning: { ...reasoning, mode: 'off' },
+    ...(value.outputMode === 'auto' || value.outputMode === 'json_schema' || value.outputMode === 'json_object'
+      ? { outputMode: value.outputMode } : {}),
     timeoutMs: typeof value.timeoutMs === 'number' && Number.isSafeInteger(value.timeoutMs)
       ? value.timeoutMs
       : defaultOpenAiSettings.translation.timeoutMs,

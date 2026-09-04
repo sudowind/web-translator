@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
-import { getSettings, saveSettings } from '../../../src/settings/store';
+import { getSettings, saveSettings, migrateOpenAiSettings } from '../../../src/settings/store';
 import type {
   ExtensionSettings,
   OpenAiSettings,
@@ -12,6 +12,13 @@ beforeEach(() => {
 });
 
 describe('网页翻译设置', () => {
+  it('保留合法输出模式，旧配置和损坏模式按自动模式处理', () => {
+    for (const outputMode of ['auto', 'json_schema', 'json_object']) {
+      expect(migrateOpenAiSettings({ translation: { outputMode } }).translation.outputMode).toBe(outputMode);
+    }
+    expect(migrateOpenAiSettings({ translation: { outputMode: 'invalid' } }).translation.outputMode).toBeUndefined();
+    expect(migrateOpenAiSettings({}).translation.outputMode).toBeUndefined();
+  });
   it('从 local 存储返回默认语言并完整保存配置', async () => {
     await expect(getSettings()).resolves.toEqual({
       openAi: {

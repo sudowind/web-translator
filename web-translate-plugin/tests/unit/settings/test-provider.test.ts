@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
+
+beforeEach(() => fakeBrowser.reset());
 
 import {
   dispatchSettingsTestLlm,
@@ -112,7 +115,7 @@ describe('LLM 独立配置测试', () => {
     };
 
     await expect(testLlmConfiguration(incompleteAgent, 'connection-test', clients)).resolves.toEqual({ connected: true });
-    await expect(testLlmConfiguration(incompleteAgent, 'translation', clients)).resolves.toEqual({ connected: true });
+    await expect(testLlmConfiguration(incompleteAgent, 'translation', clients)).resolves.toEqual({ connected: true, outputFormat: 'json_schema', downgraded: false });
   });
 
   it.each([

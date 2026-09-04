@@ -27,6 +27,69 @@ function settings(dialect: OpenAiSettings['dialect']): OpenAiSettings {
 const messages = [{ role: 'user' as const, content: 'Hello' }];
 
 describe('OpenAI 兼容请求构造器', () => {
+  it.each([
+    'https://test-workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    'https://dashscope.aliyuncs.com/compatible-mode/v1/',
+    'https://proxy.example/v1',
+  ])('显式严格模式使用统一翻译 Schema：%s', (baseUrl) => {
+    const result = buildChatRequest({
+      purpose: 'translation', messages,
+      settings: { ...settings('dashscope'), baseUrl, defaultModel: 'any-model',
+        translation: { ...settings('dashscope').translation, outputMode: 'json_schema' } },
+    });
+    expect(result.body).toMatchObject({ stream: true, enable_thinking: false });
+    expect(result.body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: {
+        name: 'translation_result', strict: true,
+        schema: {
+          type: 'object', additionalProperties: false, required: ['translations'],
+          properties: {
+            translations: {
+              type: 'array', items: {
+                type: 'object', additionalProperties: false, required: ['id', 'text'],
+                properties: { id: { type: 'string' }, text: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.body).not.toHaveProperty('max_tokens');
+  });
+
+  it.each([
+    { baseUrl: 'https://proxy.example/v1' },
+    { baseUrl: 'not-a-url' },
+    { baseUrl: 'https://test.cn-beijing.maas.aliyuncs.com:8443/compatible-mode/v1' },
+    { baseUrl: 'https://test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1?proxy=1' },
+    { baseUrl: 'https://test.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1' },
+    { baseUrl: 'https://test.cn-beijing.maas.aliyuncs.com.evil.test/compatible-mode/v1' },
+    { baseUrl: 'http://test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' },
+    { baseUrl: 'https://test.cn-beijing.maas.aliyuncs.com/other/v1' },
+    { defaultModel: 'qwen-max' },
+    { defaultModel: 'qwen3.8-max-custom' },
+    { dialect: 'generic-openai' as const },
+  ])('无能力记录时不根据模型或地址猜测严格模式：%j', (overrides) => {
+    const result = buildChatRequest({
+      purpose: 'translation', messages,
+      settings: { ...settings('dashscope'),
+        baseUrl: 'https://test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+        defaultModel: 'qwen3.8-max', ...overrides },
+    });
+    expect(result.body.response_format).toEqual({ type: 'json_object' });
+  });
+
+  it.each(['connection-test', 'agent'] as const)('严格 Schema 不影响 %s', (purpose) => {
+    const result = buildChatRequest({ purpose, messages, settings: {
+      ...settings('dashscope'), defaultModel: 'qwen3.8-max',
+      translation: { ...settings('dashscope').translation, outputMode: 'json_schema' },
+      baseUrl: 'https://test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    } });
+    expect(result.body).not.toHaveProperty('response_format');
+    expect(result.body.enable_thinking).toBe(purpose === 'agent');
+  });
+
   it('快速连通测试固定关闭思考、限制输出且不要求 JSON', () => {
     const result = buildChatRequest({
       purpose: 'connection-test',
