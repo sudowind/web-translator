@@ -7,6 +7,8 @@ import {
   clearAllCache,
   clearDocumentCache,
   documentRepository,
+  getStorageSummary,
+  historyRepository,
   readingRepository,
   sourceRepository,
   taskRepository,
@@ -26,6 +28,7 @@ const model: DocumentModel = {
 
 beforeEach(async () => {
   await clearAllCache();
+  await historyRepository.clear();
 });
 
 describe('PDF IndexedDB 仓储', () => {
@@ -82,6 +85,38 @@ describe('PDF IndexedDB 仓储', () => {
     await expect(translationRepository.get(key)).resolves.toBeUndefined();
     await expect(taskRepository.get('task-1')).resolves.toBeUndefined();
     await expect(readingRepository.get('reading-1')).resolves.toBeUndefined();
+  });
+
+  it('历史按最近访问倒序合并，且与运行缓存独立清理', async () => {
+    await historyRepository.put({
+      id: 'webpage:https://example.test/article', kind: 'webpage',
+      url: 'https://example.test/article', title: 'Example article',
+      sourceLanguage: 'en', targetLanguage: 'zh-CN', lastVisitedAt: 10,
+    });
+    await historyRepository.put({
+      id: 'pdf:hash|one', kind: 'pdf', url: model.sourceUrl, title: model.title,
+      sourceLanguage: 'en', targetLanguage: 'zh-CN', lastVisitedAt: 20,
+      documentHash: model.hash, lastPage: 1, pageCount: 3,
+    });
+    await historyRepository.put({
+      id: 'pdf:hash|one', kind: 'pdf', url: model.sourceUrl, title: 'Updated title',
+      sourceLanguage: 'en', targetLanguage: 'zh-CN', lastVisitedAt: 30,
+      documentHash: model.hash, lastPage: 2, pageCount: 3,
+    });
+
+    await expect(historyRepository.listRecent()).resolves.toMatchObject([
+      { kind: 'pdf', title: 'Updated title', lastPage: 2, lastVisitedAt: 30 },
+      { kind: 'webpage', lastVisitedAt: 10 },
+    ]);
+    await documentRepository.put(model);
+    await clearAllCache();
+    await expect(historyRepository.listRecent()).resolves.toHaveLength(2);
+    await expect(getStorageSummary()).resolves.toMatchObject({ documents: 0, history: 2 });
+
+    await historyRepository.delete('pdf:hash|one');
+    await expect(historyRepository.listRecent()).resolves.toMatchObject([{ kind: 'webpage' }]);
+    await historyRepository.clear();
+    await expect(historyRepository.listRecent()).resolves.toEqual([]);
   });
 
   it('清理全部覆盖所有 store', async () => {

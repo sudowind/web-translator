@@ -20,6 +20,7 @@ import { getTranslationCapability } from '../../src/settings/translation-capabil
 
 type Activity = 'loading' | 'idle' | 'saving' | 'checking-mineru' | `testing-${LlmPurpose}`;
 type FieldName = 'baseUrl' | 'apiKey' | 'model' | 'agentModel' | 'mineruBaseUrl' | 'mineruToken' | 'mineruModel';
+export type SettingsSection = 'all' | 'providers' | 'translation' | 'pdf';
 
 const purposeLabels: Record<LlmPurpose, string> = {
   'connection-test': '快速连通',
@@ -27,7 +28,7 @@ const purposeLabels: Record<LlmPurpose, string> = {
   agent: '智能体配置',
 };
 
-export default function App() {
+export default function App({ section = 'all' }: { section?: SettingsSection }) {
   const [settings, setSettings] = useState<ExtensionSettings>(defaultSettings);
   const [dialectManuallySelected, setDialectManuallySelected] = useState(false);
   const [activity, setActivity] = useState<Activity>('loading');
@@ -118,6 +119,11 @@ export default function App() {
       openAi: { ...current.openAi, translation: { ...current.openAi.translation, ...patch } },
     }));
     setFieldError((current) => ({ ...current, model: undefined }));
+    markLlmChanged();
+  }
+
+  function updateLanguage(field: 'sourceLanguage' | 'targetLanguage', value: string) {
+    setSettings((current) => ({ ...current, [field]: value }));
     markLlmChanged();
   }
 
@@ -234,15 +240,15 @@ export default function App() {
   const agentReasoning = settings.openAi.agent.profile.reasoning;
 
   return (
-    <main>
-      <header>
-        <p className="eyebrow">Web Translate</p>
-        <h1>Provider 设置</h1>
-        <p>凭据仅保存在扩展本地。快速连通、翻译和智能体配置可分别测试。</p>
+    <section className="settings-panel">
+      <header className="panel-header">
+        <p className="eyebrow">{settingsSectionEyebrow(section)}</p>
+        <h1>{settingsSectionTitle(section)}</h1>
+        <p>{settingsSectionDescription(section)}</p>
       </header>
 
       <form onSubmit={(event) => void save(event)} aria-busy={activity !== 'idle'}>
-        <fieldset disabled={anyActionBusy}>
+        {(section === 'all' || section === 'providers') && <fieldset disabled={anyActionBusy}>
           <legend>LLM 基础连接（必需）</legend>
           <div className="field">
             <label htmlFor="dialect">Provider 类型</label>
@@ -271,13 +277,23 @@ export default function App() {
             {fieldError.model && <p className="error">{fieldError.model}</p>}
           </div>
           <TestAction purpose="connection-test" activity={activity} busy={anyActionBusy} feedback={llmFeedback['connection-test']} onTest={testLlm} />
-        </fieldset>
+        </fieldset>}
 
-        <fieldset disabled={anyActionBusy}>
+        {(section === 'all' || section === 'translation') && <fieldset disabled={anyActionBusy}>
           <legend>翻译配置</legend>
           <p className="help">翻译固定关闭思考并要求 JSON 结构化输出，以降低耗时并保证逐块对齐。</p>
           <p className="profile-summary">模型：使用上方默认模型</p>
           <p className="profile-summary">思考模式：关闭</p>
+          <div className="field-grid">
+            <div className="field">
+              <label htmlFor="source-language">原文语言</label>
+              <input id="source-language" value={settings.sourceLanguage} onChange={(event) => updateLanguage('sourceLanguage', event.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="target-language">译文语言</label>
+              <input id="target-language" value={settings.targetLanguage} onChange={(event) => updateLanguage('targetLanguage', event.target.value)} />
+            </div>
+          </div>
           <div className="field">
             <label htmlFor="translation-output-mode">翻译输出模式</label>
             <select id="translation-output-mode" value={settings.openAi.translation.outputMode ?? 'auto'} onChange={(event) => updateTranslation({ outputMode: event.target.value as TranslationOutputMode })}>
@@ -293,9 +309,9 @@ export default function App() {
             <input id="translation-timeout" type="number" min="5" max="120" value={settings.openAi.translation.timeoutMs / 1000} onChange={(event) => updateTranslation({ timeoutMs: Number(event.target.value) * 1000 })} />
           </div>
           <TestAction purpose="translation" activity={activity} busy={anyActionBusy} feedback={llmFeedback.translation} onTest={testLlm} />
-        </fieldset>
+        </fieldset>}
 
-        <fieldset disabled={anyActionBusy}>
+        {(section === 'all' || section === 'providers') && <fieldset disabled={anyActionBusy}>
           <legend>论文智能体配置</legend>
           <label className="checkbox-row">
             <input type="checkbox" checked={settings.openAi.agent.inheritDefaultModel} onChange={(event) => updateAgent({ inheritDefaultModel: event.target.checked })} />
@@ -334,9 +350,9 @@ export default function App() {
             <input id="agent-timeout" type="number" min="15" max="300" value={settings.openAi.agent.profile.timeoutMs / 1000} onChange={(event) => updateAgentProfile({ timeoutMs: Number(event.target.value) * 1000 })} />
           </div>
           <TestAction purpose="agent" activity={activity} busy={anyActionBusy} feedback={llmFeedback.agent} onTest={testLlm} />
-        </fieldset>
+        </fieldset>}
 
-        <fieldset disabled={anyActionBusy}>
+        {(section === 'all' || section === 'pdf') && <fieldset disabled={anyActionBusy}>
           <legend>MinerU PDF 解析（PDF 功能必需）</legend>
           <p className="help">配置检查不会上传文件或消耗解析额度。</p>
           <div className="field">
@@ -357,13 +373,29 @@ export default function App() {
           </div>
           <div className="provider-actions"><button type="button" disabled={anyActionBusy} onClick={() => void checkMineru()}>{activity === 'checking-mineru' ? '检查中…' : '检查 MinerU 配置'}</button></div>
           <p className="provider-status" aria-live="polite" data-state={feedbackState(mineruFeedback)}>{mineruFeedback}</p>
-        </fieldset>
+        </fieldset>}
 
         <div className="actions"><button className="primary" type="submit" disabled={activity !== 'idle'}>{activity === 'saving' ? '保存中…' : '保存设置'}</button></div>
       </form>
       <div className="feedback" aria-live="polite" data-state={feedbackState(feedback)}><strong>{showProgress ? '处理中：' : '状态：'}</strong>{feedback}</div>
-    </main>
+    </section>
   );
+}
+
+function settingsSectionTitle(section: SettingsSection): string {
+  if (section === 'translation') return '翻译偏好';
+  if (section === 'pdf') return 'PDF 解析';
+  return section === 'providers' ? 'AI 服务' : 'Provider 设置';
+}
+
+function settingsSectionEyebrow(section: SettingsSection): string {
+  return section === 'pdf' ? 'Document pipeline' : section === 'translation' ? 'Language pair' : 'Model providers';
+}
+
+function settingsSectionDescription(section: SettingsSection): string {
+  if (section === 'translation') return '选择阅读时使用的语言方向和翻译响应边界。';
+  if (section === 'pdf') return '配置结构化解析服务；检查配置不会上传文件或消耗解析额度。';
+  return '凭据仅保存在扩展本地。连接、翻译和论文智能体可以分别验证。';
 }
 
 function TestAction({ purpose, activity, busy, feedback, onTest }: { purpose: LlmPurpose; activity: Activity; busy: boolean; feedback: string; onTest: (purpose: LlmPurpose) => Promise<void> }) {

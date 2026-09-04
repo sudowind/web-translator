@@ -7,14 +7,17 @@ import { loadMineruResult } from '../providers/mineru/result-loader';
 import { OpenAiTranslationClient } from '../providers/openai/client';
 import type { OpenAiSettings, TranslationResult } from '../providers/openai/contracts';
 import { getSettings } from '../settings/store';
+import { historyEntryId, normalizeHistoryUrl, safeHistoryTitle } from '../history/model';
 import {
   clearDocumentCache,
   documentRepository,
   sourceRepository,
+  historyRepository,
   taskRepository,
   translationRepository,
   type StoredTask,
   type StoredSource,
+  type HistoryEntry,
   type StoredTranslation,
   type TranslationKey,
 } from '../storage/repositories';
@@ -75,6 +78,7 @@ interface Dependencies {
   createAgent?: (settings: OpenAiSettings) => Pick<OpenAiPaperAgentClient, 'ask'>;
   reportTranslationProgress?(tabId: number, progress: PdfTranslationProgress): void | Promise<void>;
   reportAgentProgress?(tabId: number, progress: PdfAgentProgress): void | Promise<void>;
+  recordHistory?(entry: HistoryEntry): Promise<void>;
 }
 
 const defaults: Dependencies = {
@@ -102,6 +106,7 @@ const defaults: Dependencies = {
   reportAgentProgress: (tabId, progress) => {
     void browser.tabs.sendMessage(tabId, progress).catch(() => undefined);
   },
+  recordHistory: (entry) => historyRepository.put(entry),
 };
 
 export class PdfWorkspaceService {
@@ -115,7 +120,7 @@ export class PdfWorkspaceService {
 
   constructor(private readonly dependencies: Dependencies = defaults) {}
 
-  async handle(message: PdfMessage, tabId: number): Promise<PdfMessageValue> {
+  async handle(message: PdfMessage, tabId: number, senderUrl?: string): Promise<PdfMessageValue> {
     if (message.type === 'pdf:cancel') {
       this.dispose(tabId);
       return { cancelled: true };
@@ -124,6 +129,19 @@ export class PdfWorkspaceService {
       this.agentSessions.get(tabId)?.abort();
       this.agentSessions.delete(tabId);
       return { cancelled: true };
+    }
+    if (message.type === 'pdf:history-update') {
+      if (!senderUrl) throw new PdfWorkspaceServiceError('PDF_MESSAGE_SENDER_INVALID');
+      const settings = await this.dependencies.getSettings();
+      const url = normalizeHistoryUrl(senderUrl);
+      await this.dependencies.recordHistory?.({
+        id: historyEntryId('pdf', url, message.hash), kind: 'pdf', url,
+        title: safeHistoryTitle(message.title, url),
+        sourceLanguage: settings.sourceLanguage, targetLanguage: settings.targetLanguage,
+        lastVisitedAt: Date.now(), documentHash: message.hash,
+        lastPage: message.page, pageCount: message.pageCount,
+      });
+      return { historyUpdated: true };
     }
     if (message.type === 'pdf:cache-clear') {
       this.cancel(tabId);

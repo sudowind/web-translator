@@ -44,6 +44,26 @@ export interface StoredSource {
   updatedAt: number;
 }
 
+export interface HistoryEntry {
+  id: string;
+  kind: 'pdf' | 'webpage';
+  url: string;
+  title: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  lastVisitedAt: number;
+  documentHash?: string;
+  lastPage?: number;
+  pageCount?: number;
+}
+
+export interface StorageSummary {
+  documents: number;
+  translations: number;
+  tasks: number;
+  history: number;
+}
+
 export function translationCacheKey(key: TranslationKey): string {
   return JSON.stringify([
     key.hash,
@@ -126,6 +146,47 @@ export const readingRepository = {
     return (await dbPromise).get('reading', id);
   },
 };
+
+export const historyRepository = {
+  async put(entry: HistoryEntry): Promise<void> {
+    const db = await dbPromise;
+    const existing = await db.get('history', entry.id);
+    await db.put('history', { ...existing, ...entry });
+  },
+  async get(id: string): Promise<HistoryEntry | undefined> {
+    return (await dbPromise).get('history', id);
+  },
+  async listRecent(limit = 200): Promise<HistoryEntry[]> {
+    const db = await dbPromise;
+    const entries: HistoryEntry[] = [];
+    let cursor = await db.transaction('history').store.index('by-last-visited')
+      .openCursor(undefined, 'prev');
+    while (cursor && entries.length < limit) {
+      entries.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+    return entries;
+  },
+  async delete(id: string): Promise<void> {
+    await (await dbPromise).delete('history', id);
+  },
+  async clear(): Promise<void> {
+    await (await dbPromise).clear('history');
+  },
+};
+
+export async function getStorageSummary(): Promise<StorageSummary> {
+  const db = await dbPromise;
+  const tx = db.transaction(['documents', 'translations', 'tasks', 'history']);
+  const [documents, translations, tasks, history] = await Promise.all([
+    tx.objectStore('documents').count(),
+    tx.objectStore('translations').count(),
+    tx.objectStore('tasks').count(),
+    tx.objectStore('history').count(),
+  ]);
+  await tx.done;
+  return { documents, translations, tasks, history };
+}
 
 export async function clearDocumentCache(hash: string): Promise<void> {
   const db = await dbPromise;

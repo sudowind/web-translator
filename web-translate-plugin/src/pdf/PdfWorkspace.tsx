@@ -310,6 +310,17 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     }
   }, [activePage, model, pageStatus, translationMode]);
 
+  React.useEffect(() => {
+    if (!source || pageCount < 1) return;
+    const timer = globalThis.setTimeout(() => {
+      void sendPdfMessage({
+        type: 'pdf:history-update', hash: model?.hash ?? source.hash,
+        title: model?.title ?? source.title, page: Math.min(activePage, pageCount), pageCount,
+      }).catch(() => undefined);
+    }, 350);
+    return () => globalThis.clearTimeout(timer);
+  }, [activePage, model?.hash, model?.title, pageCount, source]);
+
   const onPageVisible = React.useCallback((page: number) => {
     const previous = activePageRef.current;
     readingDirectionRef.current = page === previous ? readingDirectionRef.current : page > previous ? 1 : -1;

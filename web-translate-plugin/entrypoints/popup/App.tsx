@@ -139,7 +139,7 @@ export default function App() {
           <p className="status" aria-live="polite">{pdfStatus === null ? pdfFeedback : webpageFeedback}</p>
         </>}
         <button className="text-button" type="button" onClick={() => void browser.runtime.openOptionsPage()}>
-          Provider 设置
+          打开阅读控制台
         </button>
       </section>
 

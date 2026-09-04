@@ -4,6 +4,7 @@ import { OpenAiTranslationClient } from '../providers/openai/client';
 import type { LlmPurpose } from '../providers/openai/request-builder';
 import { defaultSettings, type OpenAiSettings } from './schema';
 import { validateProviderSettings } from './provider-access';
+import { isOptionsPageSender } from '../dashboard/messages';
 import type { TranslationOutputFormat } from './schema';
 import { setTranslationCapability, translationCapabilityKey } from './translation-capabilities';
 
@@ -82,8 +83,7 @@ export async function dispatchSettingsTestLlm(
   optionsUrl: string,
   run: (settings: LlmConnectionSettings, purpose: LlmPurpose) => Promise<LlmTestResult> = testLlmConfiguration,
 ): Promise<TestProviderResponse> {
-  const extensionId = new URL(optionsUrl).hostname;
-  if (sender.id !== extensionId || sender.url !== optionsUrl) {
+  if (!isOptionsPageSender(sender, optionsUrl)) {
     return { ok: false, error: 'LLM 配置测试仅允许扩展设置页调用' };
   }
   if (!isSettingsTestLlmMessage(message)) {

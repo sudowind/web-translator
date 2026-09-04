@@ -26,6 +26,7 @@ export type PdfMessage =
   | { type: 'pdf:document-get'; hash: string }
   | { type: 'pdf:translation-snapshot'; hash: string }
   | { type: 'pdf:translate-page'; hash: string; page: number }
+  | { type: 'pdf:history-update'; hash: string; title: string; page: number; pageCount: number }
   | { type: 'pdf:agent-ask'; hash: string; requestId: string; activePage: number; selection: string; recentMessages: AgentMessage[]; question: string; maxCharacters: number }
   | { type: 'pdf:agent-cancel' }
   | { type: 'pdf:cancel' }
@@ -39,6 +40,7 @@ export type PdfMessageValue =
   | { answer: string; mode: 'full' | 'compressed'; notice?: string }
   | { cancelled: true }
   | { cleared: true }
+  | { historyUpdated: true }
   | null;
 
 export type PdfMessageResponse =
@@ -88,6 +90,11 @@ export function isPdfMessage(value: unknown): value is PdfMessage {
       return exact(value, ['type', 'sourceUrl']) && nonEmpty(value.sourceUrl);
     case 'pdf:translate-page':
       return exact(value, ['type', 'hash', 'page']) && nonEmpty(value.hash) && positiveInteger(value.page);
+    case 'pdf:history-update':
+      return exact(value, ['type', 'hash', 'title', 'page', 'pageCount']) &&
+        nonEmpty(value.hash) && nonEmpty(value.title) && (value.title as string).length <= 300 &&
+        positiveInteger(value.page) && positiveInteger(value.pageCount) &&
+        (value.page as number) <= (value.pageCount as number) && (value.pageCount as number) <= 600;
     case 'pdf:agent-ask':
       return exact(value, ['type', 'hash', 'requestId', 'activePage', 'selection', 'recentMessages', 'question', 'maxCharacters']) &&
         nonEmpty(value.hash) && nonEmpty(value.requestId) && positiveInteger(value.activePage) &&
