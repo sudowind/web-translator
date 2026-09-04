@@ -2,6 +2,10 @@
 
 日期：2026-09-04
 
+工作区调整补记：以下路径保留为首轮集成时的历史记录。随后按用户要求，将主工作区 `D:\Projects\web-translate` 固定为 release，原独立 release 工作区改为 `D:\Projects\web-translate-worktrees\dev`。现在直接重载原主目录安装的插件，无需重新安装或配置；当前操作以 `docs/release-validation-workflow.md` 为准。
+
+调整后验证：release 主目录与 dev 独立目录分别执行各自锁文件的 `npm ci --no-audit --no-fund`、`npm run build`、`npm run verify:output`，均通过。release 安装 21 秒、构建 5.720 秒；dev 安装 19 秒、构建 4.063 秒。两边依赖与产物独立，无功能代码变化，未重复全量 check/E2E；下述长文档门禁问题仍保留。未操作浏览器安装、卸载或存储，重载原扩展由用户完成。
+
 状态：所有分支已集成、生产插件已构建；可开展人工验收，但完整 E2E 尚未全绿（长文档滚动窗口存在非稳定失败）。
 
 ## 集成范围
