@@ -9,6 +9,8 @@
 
 ## 当前规格记录
 
+- arXiv PDF 标识缓存与快速恢复：`docs/superpowers/specs/2026-09-03-arxiv-pdf-identity-cache-fast-restore-design.md`
+- arXiv PDF 标识缓存与快速恢复实施计划：`docs/superpowers/plans/2026-09-03-arxiv-pdf-identity-cache-fast-restore-plan.md`
 - PDF 紧凑对译布局与缩放清晰度：`docs/superpowers/specs/2026-09-03-pdf-compact-reading-layout-canvas-clarity-design.md`
 - PDF 紧凑对译布局与缩放清晰度实施计划：`docs/superpowers/plans/2026-09-03-pdf-compact-reading-layout-canvas-clarity-plan.md`
 - PDF 长文档按需翻译与性能优化：`docs/superpowers/specs/2026-09-03-pdf-long-document-on-demand-performance-design.md`

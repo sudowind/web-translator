@@ -10,14 +10,17 @@ import { getSettings } from '../settings/store';
 import {
   clearDocumentCache,
   documentRepository,
+  sourceRepository,
   taskRepository,
   translationRepository,
   type StoredTask,
+  type StoredSource,
   type StoredTranslation,
   type TranslationKey,
 } from '../storage/repositories';
 import { translatePage, translationBlocksForPage } from '../translation/translate-page';
 import { loadPdfSource, type LoadedPdfSource } from './pdf-source';
+import { arxivSourceUrlCandidates, readArxivSourceRevision, resolveArxivSource } from './arxiv-source';
 import type {
   PdfAgentProgress,
   PdfMessage,
@@ -54,7 +57,11 @@ interface MineruPort {
 interface Dependencies {
   loadSource(url: string, signal?: AbortSignal): Promise<LoadedPdfSource>;
   getDocument(hash: string): Promise<DocumentModel | undefined>;
+  listDocumentsBySourceUrl?(sourceUrl: string): Promise<DocumentModel[]>;
   putDocument(model: DocumentModel): Promise<void>;
+  getSource?(id: string): Promise<StoredSource | undefined>;
+  putSource?(source: StoredSource): Promise<void>;
+  getSourceRevision?(url: string, signal?: AbortSignal): Promise<string | undefined>;
   clearCache(hash: string): Promise<void>;
   getTranslation(key: TranslationKey): Promise<StoredTranslation | undefined>;
   listTranslations?(hash: string): Promise<StoredTranslation[]>;
@@ -73,7 +80,11 @@ interface Dependencies {
 const defaults: Dependencies = {
   loadSource: (url, signal) => loadPdfSource(url, globalThis.fetch, signal),
   getDocument: (hash) => documentRepository.get(hash),
+  listDocumentsBySourceUrl: (sourceUrl) => documentRepository.listBySourceUrl(sourceUrl),
   putDocument: (model) => documentRepository.put(model),
+  getSource: (id) => sourceRepository.get(id),
+  putSource: (source) => sourceRepository.put(source),
+  getSourceRevision: (url, signal) => readArxivSourceRevision(url, globalThis.fetch, signal),
   clearCache: (hash) => clearDocumentCache(hash),
   getTranslation: (key) => translationRepository.get(key),
   listTranslations: (hash) => translationRepository.listByHash(hash),
@@ -116,16 +127,12 @@ export class PdfWorkspaceService {
     }
     if (message.type === 'pdf:cache-clear') {
       this.cancel(tabId);
-      this.invalidate(message.hash);
-      this.documents.delete(message.hash);
-      const clearing = this.enqueueForced(message.hash, () => this.dependencies.clearCache(message.hash));
-      this.cacheClears.set(message.hash, clearing);
-      try {
-        await clearing;
-        this.documents.delete(message.hash);
-      } finally {
-        if (this.cacheClears.get(message.hash) === clearing) this.cacheClears.delete(message.hash);
-      }
+      await this.clearDocument(message.hash);
+      return { cleared: true };
+    }
+    if (message.type === 'pdf:cache-clear-source') {
+      this.cancel(tabId);
+      await this.clearSourceDocuments(message.sourceUrl);
       return { cleared: true };
     }
     if (message.type === 'pdf:agent-ask') {
@@ -137,6 +144,9 @@ export class PdfWorkspaceService {
       });
     }
     const signal = this.session(tabId).signal;
+    if (message.type === 'pdf:document-resolve') {
+      return this.resolveDocument(message.sourceUrl, signal);
+    }
     if (message.type === 'pdf:document-get') {
       return (await this.getDocument(message.hash)) ?? null;
     }
@@ -181,7 +191,10 @@ export class PdfWorkspaceService {
   ): Promise<DocumentModel> {
     const generation = this.generation(source.hash);
     const cached = await this.getDocument(source.hash);
-    if (cached?.schemaVersion === DOCUMENT_SCHEMA_VERSION) return cached;
+    if (cached?.schemaVersion === DOCUMENT_SCHEMA_VERSION) {
+      if (!await this.bindSource(source, cached.hash, generation)) throw cacheInvalidatedError();
+      return cached;
+    }
     if (source.kind === 'authenticated' && !consent) {
       throw new PdfWorkspaceServiceError('PDF_AUTH_UPLOAD_REQUIRES_CONSENT');
     }
@@ -247,7 +260,13 @@ export class PdfWorkspaceService {
       pageCount,
     });
     signal.throwIfAborted();
-    await this.enqueueMutation(source.hash, generation, () => this.dependencies.putDocument(model));
+    const documentStored = await this.enqueueMutation(source.hash, generation, async () => {
+      await this.dependencies.putDocument(model);
+      return true;
+    });
+    if (documentStored !== true) throw cacheInvalidatedError();
+    if (!await this.bindSource(source, model.hash, generation)) throw cacheInvalidatedError();
+    if (generation !== this.generation(source.hash)) throw cacheInvalidatedError();
     this.rememberDocument(model);
     await this.putTask(source.hash, generation, { ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
     return model;
@@ -326,8 +345,19 @@ export class PdfWorkspaceService {
         title: task.title,
         pageCount: task.pageCount,
       });
-      await this.enqueueMutation(task.hash, generation, () => this.dependencies.putDocument(model));
-      this.rememberDocument(model);
+      const documentStored = await this.enqueueMutation(task.hash, generation, async () => {
+        await this.dependencies.putDocument(model);
+        return true;
+      });
+      if (documentStored === true && await this.bindSource({
+        url: task.sourceUrl,
+        hash: task.hash,
+        title: task.title,
+        size: 0,
+        kind: 'remote',
+      }, model.hash, generation) && generation === this.generation(task.hash)) {
+        this.rememberDocument(model);
+      }
       await this.putTask(task.hash, generation, { ...task, status: 'done', errorCode: undefined, updatedAt: Date.now() });
     } catch {
       await this.putTask(task.hash, generation, { ...task, status: 'failed', errorCode: 'MINERU_RESUME_FAILED', updatedAt: Date.now() });
@@ -452,6 +482,116 @@ export class PdfWorkspaceService {
     return model;
   }
 
+  private async resolveDocument(sourceUrl: string, signal: AbortSignal): Promise<DocumentModel | null> {
+    const identity = resolveArxivSource(sourceUrl);
+    if (!identity) return null;
+    const sourceGeneration = this.generation(identity.key);
+    let stored = await this.dependencies.getSource?.(identity.key);
+    let model = await this.getDocument(stored?.hash ?? identity.key);
+    if (sourceGeneration !== this.generation(identity.key)) return null;
+    if (!model && this.dependencies.listDocumentsBySourceUrl) {
+      const legacyModels = new Map<string, DocumentModel>();
+      for (const candidate of arxivSourceUrlCandidates(identity, sourceUrl)) {
+        for (const candidateModel of await this.dependencies.listDocumentsBySourceUrl(candidate)) {
+          legacyModels.set(candidateModel.hash, candidateModel);
+        }
+      }
+      if (sourceGeneration !== this.generation(identity.key)) return null;
+      if (legacyModels.size === 1) {
+        model = legacyModels.values().next().value;
+        if (model) this.rememberDocument(model);
+      }
+    }
+    if (model && model.schemaVersion !== DOCUMENT_SCHEMA_VERSION) {
+      await this.clearDocument(model.hash);
+      model = undefined;
+      stored = undefined;
+    }
+
+    const mutationHash = model?.hash ?? stored?.hash ?? identity.key;
+    const generation = this.generation(mutationHash);
+    const revision = identity.version === null
+      ? await this.dependencies.getSourceRevision?.(identity.pdfUrl, signal)
+      : `version:${identity.version}`;
+    if (generation !== this.generation(mutationHash)) return null;
+    if (model && stored?.revision && revision && stored.revision !== revision) {
+      await this.clearDocument(model.hash);
+      const baselineGeneration = this.generation(identity.key);
+      await this.enqueueMutation(identity.key, baselineGeneration, async () => {
+        await this.dependencies.putSource?.({
+          id: identity.key,
+          hash: identity.key,
+          sourceUrl: identity.pdfUrl,
+          revision,
+          updatedAt: Date.now(),
+        });
+      });
+      return null;
+    }
+
+    const sourceStored = await this.enqueueMutation(mutationHash, generation, async () => {
+      await this.dependencies.putSource?.({
+        id: identity.key,
+        hash: mutationHash,
+        sourceUrl: identity.pdfUrl,
+        ...(revision ?? stored?.revision ? { revision: revision ?? stored?.revision } : {}),
+        updatedAt: Date.now(),
+      });
+      return true;
+    });
+    if (sourceStored !== true || generation !== this.generation(mutationHash)) return null;
+    return model ?? null;
+  }
+
+  private async bindSource(
+    source: PdfSourceDescriptor,
+    hash: string,
+    generation = this.generation(hash),
+  ): Promise<boolean> {
+    const identity = resolveArxivSource(source.url);
+    if (!identity || !this.dependencies.putSource) return true;
+    const stored = await this.enqueueMutation(hash, generation, async () => {
+      const current = await this.dependencies.getSource?.(identity.key);
+      await this.dependencies.putSource!({
+        id: identity.key,
+        hash,
+        sourceUrl: identity.pdfUrl,
+        ...(current?.revision ? { revision: current.revision } : {}),
+        updatedAt: Date.now(),
+      });
+      return true;
+    });
+    return stored === true;
+  }
+
+  private async clearDocument(hash: string): Promise<void> {
+    this.invalidate(hash);
+    this.documents.delete(hash);
+    const clearing = this.enqueueForced(hash, () => this.dependencies.clearCache(hash));
+    this.cacheClears.set(hash, clearing);
+    try {
+      await clearing;
+      this.documents.delete(hash);
+    } finally {
+      if (this.cacheClears.get(hash) === clearing) this.cacheClears.delete(hash);
+    }
+  }
+
+  private async clearSourceDocuments(sourceUrl: string): Promise<void> {
+    const identity = resolveArxivSource(sourceUrl);
+    if (!identity) throw new PdfWorkspaceServiceError('PDF_SOURCE_URL_INVALID');
+    const stored = await this.dependencies.getSource?.(identity.key);
+    const hashes = new Set([stored?.hash, identity.key].filter((hash): hash is string => Boolean(hash)));
+    if (this.dependencies.listDocumentsBySourceUrl) {
+      for (const candidate of arxivSourceUrlCandidates(identity, sourceUrl)) {
+        for (const model of await this.dependencies.listDocumentsBySourceUrl(candidate)) {
+          hashes.add(model.hash);
+        }
+      }
+    }
+    await Promise.all([...hashes].map((hash) => this.clearDocument(hash)));
+  }
+
   private rememberDocument(model: DocumentModel): void {
     this.documents.delete(model.hash);
     this.documents.set(model.hash, model);
@@ -501,6 +641,10 @@ function safeTaskError(result: { state: string; error?: string }): string {
   return result.state === 'failed' && typeof result.error === 'string' && /^MINERU_[A-Z0-9_]+$/.test(result.error)
     ? result.error
     : 'MINERU_RESULT_MISSING';
+}
+
+function cacheInvalidatedError(): DOMException {
+  return new DOMException('PDF_CACHE_INVALIDATED', 'AbortError');
 }
 
 function translationCacheSchemaForPage(page: DocumentPage): 1 | 2 {

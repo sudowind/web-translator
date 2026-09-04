@@ -65,7 +65,8 @@ export function PagePair({ number, height, layout, pdf, translation }: PagePairP
 }
 
 interface PairedPageViewerProps {
-  bytes: Uint8Array;
+  bytes?: Uint8Array;
+  url?: string;
   scale: number;
   activePage: number;
   navigationPage: number;
@@ -93,6 +94,7 @@ export function visibleTranslationPageWindow(activePage: number, pageCount: numb
 
 export const PairedPageViewer = React.memo(function PairedPageViewer({
   bytes,
+  url,
   scale,
   activePage,
   navigationPage,
@@ -122,7 +124,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   const lastReportedPage = React.useRef<number | null>(null);
   const lastNavigationPage = React.useRef<number | null>(null);
   const [document, setDocument] = React.useState<PDFDocumentProxy | null>(null);
-  const [pageCount, setPageCount] = React.useState(0);
+  const [pdfPageCount, setPdfPageCount] = React.useState(0);
   const [containerWidth, setContainerWidth] = React.useState(0);
   const [renderScale, setRenderScale] = React.useState(scale);
   const [pageSizes, setPageSizes] = React.useState<ReadonlyMap<number, { width: number; height: number }>>(new Map());
@@ -210,18 +212,24 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
     pageLayoutModes.current.clear();
     setPageSizes(new Map());
     setPageHeights(new Map());
-    const task = getDocument({ data: bytes });
+    setDocument(null);
+    setPdfPageCount(0);
+    const input = bytes ? { data: bytes } : url ? { url } : null;
+    if (!input) return undefined;
+    const task = getDocument(input);
     void task.promise.then((pdf) => {
       if (cancelled) return;
       setDocument(pdf);
-      setPageCount(pdf.numPages);
+      setPdfPageCount(pdf.numPages);
       onDocumentReady(pdf.numPages);
-    });
+    }).catch(() => undefined);
     return () => {
       cancelled = true;
       void task.destroy();
     };
-  }, [bytes, onDocumentReady]);
+  }, [bytes, onDocumentReady, url]);
+
+  const pageCount = pdfPageCount || model?.pageCount || 0;
 
   React.useEffect(() => {
     if (!document || pageCount === 0) return;

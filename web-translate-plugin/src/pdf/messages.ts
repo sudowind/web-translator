@@ -22,13 +22,15 @@ export interface PdfTranslationSnapshot {
 
 export type PdfMessage =
   | { type: 'pdf:parse-start'; source: PdfSourceDescriptor; pageCount: number; consent: boolean }
+  | { type: 'pdf:document-resolve'; sourceUrl: string }
   | { type: 'pdf:document-get'; hash: string }
   | { type: 'pdf:translation-snapshot'; hash: string }
   | { type: 'pdf:translate-page'; hash: string; page: number }
   | { type: 'pdf:agent-ask'; hash: string; requestId: string; activePage: number; selection: string; recentMessages: AgentMessage[]; question: string; maxCharacters: number }
   | { type: 'pdf:agent-cancel' }
   | { type: 'pdf:cancel' }
-  | { type: 'pdf:cache-clear'; hash: string };
+  | { type: 'pdf:cache-clear'; hash: string }
+  | { type: 'pdf:cache-clear-source'; sourceUrl: string };
 
 export type PdfMessageValue =
   | DocumentModel
@@ -81,6 +83,9 @@ export function isPdfMessage(value: unknown): value is PdfMessage {
     case 'pdf:translation-snapshot':
     case 'pdf:cache-clear':
       return exact(value, ['type', 'hash']) && nonEmpty(value.hash);
+    case 'pdf:document-resolve':
+    case 'pdf:cache-clear-source':
+      return exact(value, ['type', 'sourceUrl']) && nonEmpty(value.sourceUrl);
     case 'pdf:translate-page':
       return exact(value, ['type', 'hash', 'page']) && nonEmpty(value.hash) && positiveInteger(value.page);
     case 'pdf:agent-ask':

@@ -5,6 +5,7 @@ import { isPdfAgentProgress, isPdfMessage } from '../../../src/pdf/messages';
 describe('PDF 工作台消息', () => {
   it.each([
     { type: 'pdf:parse-start', source: { url: 'https://example.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 12, kind: 'remote' }, pageCount: 2, consent: false },
+    { type: 'pdf:document-resolve', sourceUrl: 'https://arxiv.org/pdf/2510.12403' },
     { type: 'pdf:document-get', hash: 'sha256:x' },
     { type: 'pdf:translation-snapshot', hash: 'sha256:x' },
     { type: 'pdf:translate-page', hash: 'sha256:x', page: 1 },
@@ -12,6 +13,7 @@ describe('PDF 工作台消息', () => {
     { type: 'pdf:agent-cancel' },
     { type: 'pdf:cancel' },
     { type: 'pdf:cache-clear', hash: 'sha256:x' },
+    { type: 'pdf:cache-clear-source', sourceUrl: 'https://arxiv.org/pdf/2510.12403' },
   ])('接受精确合法消息：$type', (message) => {
     expect(isPdfMessage(message)).toBe(true);
     expect(isPdfMessage({ ...message, token: 'secret' })).toBe(false);
@@ -33,6 +35,8 @@ describe('PDF 工作台消息', () => {
     expect(isPdfMessage({ type: 'pdf:cancel', apiKey: 'secret' })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:parse-start', source: {}, consent: false })).toBe(false);
     expect(isPdfMessage({ type: 'pdf:source', url: 'https://example.test/p.pdf' })).toBe(false);
+    expect(isPdfMessage({ type: 'pdf:document-resolve', sourceUrl: '' })).toBe(false);
+    expect(isPdfMessage({ type: 'pdf:cache-clear-source', sourceUrl: '', hash: 'sha256:x' })).toBe(false);
   });
 
   it.each([

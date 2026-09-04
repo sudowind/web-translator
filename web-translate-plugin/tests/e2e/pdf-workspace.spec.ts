@@ -23,6 +23,7 @@ declare const chrome: {
 const extensionPath = resolve('.output/chrome-mv3');
 const mineruResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-paper.zip';
 const mineruLongResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-long-paper.zip';
+const arxivFixtureUrl = 'https://arxiv.org/pdf/2510.99999';
 
 function createTwoPagePdf(label = 'Public'): Buffer {
   const streams = [
@@ -167,7 +168,10 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     batchInitializations: 0,
     uploads: 0,
     batchDataId: '',
+    arxivPdfMethods: [] as string[],
   };
+  let holdArxivPdf = false;
+  let releaseArxivPdfRequests: Array<() => void> = [];
   let translationFailureMode: 'none' | 'mixed' = 'none';
   let translationDelayMs = 0;
   let releaseAgentFinal: (() => void) | undefined;
@@ -332,6 +336,33 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         `--load-extension=${extensionCopy}`,
       ],
     });
+    await context.route(`${arxivFixtureUrl}*`, async (route) => {
+      const method = route.request().method();
+      observed.arxivPdfMethods.push(method);
+      if (method === 'HEAD') {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'content-type': 'application/pdf',
+            'content-length': String(pdf.byteLength),
+            etag: '"arxiv-fixture-v1"',
+          },
+        });
+        return;
+      }
+      if (holdArxivPdf) {
+        await new Promise<void>((resolveHeld) => releaseArxivPdfRequests.push(resolveHeld));
+      }
+      await route.fulfill({
+        status: 200,
+        headers: {
+          'content-type': 'application/pdf',
+          'content-length': String(pdf.byteLength),
+          'accept-ranges': 'bytes',
+        },
+        body: pdf,
+      });
+    });
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     await context.route(mineruResultUrl, (route) => route.fulfill({
       status: 200,
@@ -388,6 +419,8 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   });
 
   test.afterEach(() => {
+    holdArxivPdf = false;
+    for (const release of releaseArxivPdfRequests.splice(0)) release();
     translationDelayMs = 0;
     translationFailureMode = 'none';
   });
@@ -800,7 +833,41 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await cachedPage.close();
   });
 
-  test('真实 arXiv 76 页样本可由内容脚本读取并保持原 URL 恢复', async () => {
+  test('arXiv 二次打开先恢复缓存，版本检查只用 HEAD 且不等待 PDF.js', async () => {
+    test.setTimeout(120_000);
+    observed.arxivPdfMethods.length = 0;
+    observed.urlTasks.length = 0;
+    observed.translationPages.length = 0;
+    const firstPage = await context.newPage();
+    await firstPage.goto(arxivFixtureUrl);
+    await enableWorkspace(firstPage);
+    await expect(firstPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await expect(firstPage.locator('[data-translation-page="2"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    expect(observed.urlTasks).toEqual([arxivFixtureUrl]);
+    const providerPageCount = observed.translationPages.length;
+    const mineruTaskCount = observed.urlTasks.length;
+    await firstPage.close();
+
+    const cachedPage = await context.newPage();
+    await cachedPage.goto(arxivFixtureUrl);
+    holdArxivPdf = true;
+    await enableWorkspace(cachedPage);
+    await expect(cachedPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await expect(cachedPage.locator('canvas')).toHaveCount(0);
+    expect(observed.urlTasks).toHaveLength(mineruTaskCount);
+    expect(observed.translationPages).toHaveLength(providerPageCount);
+    expect(observed.arxivPdfMethods.filter((method) => method === 'HEAD').length).toBeGreaterThanOrEqual(2);
+
+    holdArxivPdf = false;
+    for (const release of releaseArxivPdfRequests.splice(0)) release();
+    await expect(cachedPage.locator('[data-pdf-page="1"] canvas[data-active="true"]')).toBeVisible({ timeout: 30_000 });
+    await cachedPage.getByLabel('更多操作').click();
+    await cachedPage.getByRole('menuitem', { name: '清理本文缓存' }).click();
+    await expect.poll(() => observed.urlTasks.length).toBe(mineruTaskCount + 1);
+    await cachedPage.close();
+  });
+
+  test('真实 arXiv 76 页样本可由 PDF.js URL 路径读取并保持原 URL 恢复', async () => {
     test.skip(process.env.PDF_ARXIV_FEASIBILITY !== '1', '仅用于一次性真实浏览器源读取门禁');
     test.setTimeout(180_000);
     const sourceUrl = 'https://arxiv.org/pdf/2510.12403';

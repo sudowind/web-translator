@@ -8,6 +8,7 @@ import {
   clearDocumentCache,
   documentRepository,
   readingRepository,
+  sourceRepository,
   taskRepository,
   translationCacheKey,
   translationRepository,
@@ -41,9 +42,13 @@ describe('PDF IndexedDB 仓储', () => {
     );
   });
 
-  it('保存并读取文档、译文及判别任务引用，支持按状态恢复', async () => {
+  it('保存并读取文档、源映射、译文及判别任务引用，支持按状态恢复', async () => {
     const key = { hash: model.hash, page: 0, source: 'en', target: 'zh-CN', provider: 'openai', model: 'm', schema: 1 };
     await documentRepository.put(model);
+    await sourceRepository.put({
+      id: 'arxiv:2510.12403', hash: model.hash, sourceUrl: 'https://arxiv.org/pdf/2510.12403',
+      revision: 'etag:"one"', updatedAt: 1,
+    });
     await translationRepository.put(key, [{ id: 'b1', text: '译文' }]);
     await taskRepository.put({
       id: 'task-1', type: 'mineru', providerTask: { kind: 'batch', id: 'batch-1', dataId: 'data-1' },
@@ -51,6 +56,8 @@ describe('PDF IndexedDB 仓储', () => {
     });
 
     await expect(documentRepository.get(model.hash)).resolves.toEqual(model);
+    await expect(documentRepository.listBySourceUrl(model.sourceUrl)).resolves.toEqual([model]);
+    await expect(sourceRepository.get('arxiv:2510.12403')).resolves.toMatchObject({ hash: model.hash, revision: 'etag:"one"' });
     await expect(translationRepository.get(key)).resolves.toMatchObject({ blocks: [{ text: '译文' }] });
     await expect(translationRepository.listByHash(model.hash)).resolves.toMatchObject([
       { hash: model.hash, blocks: [{ text: '译文' }] },
@@ -60,9 +67,10 @@ describe('PDF IndexedDB 仓储', () => {
     ]);
   });
 
-  it('删除单篇缓存会清理四个 store 中对应 hash', async () => {
+  it('删除单篇缓存会清理五个 store 中对应 hash', async () => {
     const key = { hash: model.hash, page: 0, source: 'en', target: 'zh-CN', provider: 'openai', model: 'm', schema: 1 };
     await documentRepository.put(model);
+    await sourceRepository.put({ id: 'arxiv:2510.12403', hash: model.hash, sourceUrl: 'https://arxiv.org/pdf/2510.12403', updatedAt: 1 });
     await translationRepository.put(key, []);
     await taskRepository.put({ id: 'task-1', type: 'mineru', providerTask: { kind: 'single', id: 's1' }, status: 'done', sourceUrl: model.sourceUrl, hash: model.hash, title: model.title, pageCount: 1 });
     await readingRepository.put({ id: 'reading-1', hash: model.hash, page: 0 });
@@ -70,6 +78,7 @@ describe('PDF IndexedDB 仓储', () => {
     await clearDocumentCache(model.hash);
 
     await expect(documentRepository.get(model.hash)).resolves.toBeUndefined();
+    await expect(sourceRepository.get('arxiv:2510.12403')).resolves.toBeUndefined();
     await expect(translationRepository.get(key)).resolves.toBeUndefined();
     await expect(taskRepository.get('task-1')).resolves.toBeUndefined();
     await expect(readingRepository.get('reading-1')).resolves.toBeUndefined();
@@ -77,9 +86,11 @@ describe('PDF IndexedDB 仓储', () => {
 
   it('清理全部覆盖所有 store', async () => {
     await documentRepository.put(model);
+    await sourceRepository.put({ id: 'arxiv:2510.12403', hash: model.hash, sourceUrl: 'https://arxiv.org/pdf/2510.12403', updatedAt: 1 });
     await readingRepository.put({ id: 'reading-1', hash: model.hash, page: 0 });
     await clearAllCache();
     await expect(documentRepository.get(model.hash)).resolves.toBeUndefined();
+    await expect(sourceRepository.get('arxiv:2510.12403')).resolves.toBeUndefined();
     await expect(readingRepository.get('reading-1')).resolves.toBeUndefined();
   });
 });

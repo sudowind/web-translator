@@ -18,6 +18,7 @@ import {
 } from '../src/pdf/popup-client';
 import { ChromePdfTakeoverAdapter } from '../src/pdf/takeover-port';
 import { PdfWorkspaceService } from '../src/pdf/workspace-service';
+import { arxivSourceKeyMatches, resolveArxivSource, samePdfSource } from '../src/pdf/arxiv-source';
 import { getSettings } from '../src/settings/store';
 import {
   dispatchSettingsTestLlm,
@@ -204,7 +205,11 @@ export default defineBackground(() => {
 
 function messageMatchesSender(message: PdfMessage, senderUrl: string): boolean {
   if (message.type === 'pdf:parse-start') {
-    return message.source.url === senderUrl;
+    return arxivSourceKeyMatches(message.source.url, message.source.hash) &&
+      samePdfSource(message.source.url, senderUrl);
+  }
+  if (message.type === 'pdf:document-resolve' || message.type === 'pdf:cache-clear-source') {
+    return samePdfSource(message.sourceUrl, senderUrl);
   }
   return true;
 }
@@ -229,8 +234,7 @@ function isLikelyPdfUrl(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    return url.pathname.toLowerCase().endsWith('.pdf') ||
-      (url.hostname === 'arxiv.org' && url.pathname.startsWith('/pdf/'));
+    return url.pathname.toLowerCase().endsWith('.pdf') || resolveArxivSource(rawUrl) !== null;
   } catch {
     return false;
   }

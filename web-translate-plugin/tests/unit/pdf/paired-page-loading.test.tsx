@@ -28,6 +28,69 @@ function longModel(): DocumentModel {
 }
 
 describe('长 PDF 页面加载窗口', () => {
+  it('arXiv 使用 URL 输入且 PDF.js 未就绪时先按缓存模型渲染译文窗口', async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    pdfMocks.getDocument.mockReturnValue({
+      promise: new Promise(() => undefined),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    });
+    const originalIntersectionObserver = globalThis.IntersectionObserver;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.IntersectionObserver = class {
+      constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords() { return []; }
+      root = null;
+      rootMargin = '';
+      thresholds = [];
+    } as unknown as typeof IntersectionObserver;
+    globalThis.ResizeObserver = class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    } as typeof ResizeObserver;
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<PairedPageViewer
+          url="https://arxiv.org/pdf/2510.12403"
+          scale={1}
+          activePage={40}
+          navigationPage={40}
+          model={longModel()}
+          translationsByPage={new Map()}
+          translationMode="on-demand"
+          pageStatus={new Map()}
+          pageFailures={new Map()}
+          pageAttempts={new Map()}
+          onDocumentReady={vi.fn()}
+          onPageVisible={vi.fn()}
+          onRetryPage={vi.fn()}
+          onRequestPage={vi.fn()}
+          onCopyFailure={vi.fn()}
+          onBlockPreview={vi.fn()}
+          onBlockPin={vi.fn()}
+        />);
+        await Promise.resolve();
+      });
+      expect(pdfMocks.getDocument).toHaveBeenCalledWith({
+        url: 'https://arxiv.org/pdf/2510.12403',
+      });
+      expect(container.querySelectorAll('[data-page-pair]')).toHaveLength(76);
+      expect(container.querySelectorAll('[data-translation-body="full"]')).toHaveLength(5);
+      expect(container.querySelectorAll('canvas')).toHaveLength(0);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      globalThis.IntersectionObserver = originalIntersectionObserver;
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
   it('76 页仅挂载 5 页译文正文，初始与缩放均不重复读取页面 proxy', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const getPage = vi.fn(async (pageNumber: number) => ({

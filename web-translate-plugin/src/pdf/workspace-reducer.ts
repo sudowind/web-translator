@@ -20,6 +20,7 @@ export type LifecycleAction =
   | { type: 'consent-granted' }
   | { type: 'parse-started' }
   | { type: 'parse-done' }
+  | { type: 'cache-restored' }
   | { type: 'translations-done' }
   | { type: 'parse-failed'; error: string }
   | { type: 'cancelled' }
@@ -47,6 +48,8 @@ export function lifecycleReducer(
     case 'parse-started':
       return { ...state, phase: 'parsing', error: undefined };
     case 'parse-done':
+      return { ...state, phase: 'translating', error: undefined };
+    case 'cache-restored':
       return { ...state, phase: 'translating', error: undefined };
     case 'translations-done':
       return { ...state, phase: 'ready', error: undefined };
