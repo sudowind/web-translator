@@ -30,7 +30,7 @@ import type {
 } from './messages';
 
 export class PdfWorkspaceServiceError extends Error {
-  readonly name = 'PdfWorkspaceServiceError';
+  override readonly name = 'PdfWorkspaceServiceError';
 
   constructor(readonly code: string) {
     super(code);

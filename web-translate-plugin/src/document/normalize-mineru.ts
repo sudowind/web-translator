@@ -9,7 +9,7 @@ import {
 } from './model';
 
 export class MineruDataError extends Error {
-  readonly name = 'MineruDataError';
+  override readonly name = 'MineruDataError';
 
   constructor(readonly code: string) {
     super(code);

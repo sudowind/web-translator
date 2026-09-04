@@ -7,7 +7,7 @@ export interface LoadedPdfSource {
 }
 
 export class PdfSourceError extends Error {
-  readonly name = 'PdfSourceError';
+  override readonly name = 'PdfSourceError';
 
   constructor(readonly code: string) {
     super(code);

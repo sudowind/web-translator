@@ -678,6 +678,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
 
     for (const viewport of [{ width: 800, height: 800 }, { width: 375, height: 760 }]) {
       await pdfPage.setViewportSize(viewport);
+      await pdfPage.evaluate(() => window.scrollTo(0, 0));
       const responsiveLayout = await pdfPage.evaluate(() => {
         const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect();
         const agent = document.querySelector('.agent-panel')!.getBoundingClientRect();

@@ -8,7 +8,7 @@ import { readChatCompletionSse, SseResponseError } from './sse';
 import { isOutputFormatUnsupported } from './output-format-error';
 
 export class LlmProviderError extends Error {
-  readonly name = 'LlmProviderError';
+  override readonly name = 'LlmProviderError';
 
   constructor(readonly code: string) {
     super(code);

@@ -1,7 +1,7 @@
 import type { TranslationResult } from './contracts';
 
 export class TranslationProviderError extends Error {
-  readonly name = 'TranslationProviderError';
+  override readonly name = 'TranslationProviderError';
 
   constructor(readonly code: string) {
     super(code);
