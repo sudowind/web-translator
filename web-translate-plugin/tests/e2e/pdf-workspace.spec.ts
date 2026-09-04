@@ -910,6 +910,10 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await pdfPage.goto(sourceUrl);
     await enableWorkspace(pdfPage);
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    // Release integration: remembered reading must also retain the night-mode preference.
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '深色' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'dark');
     await pdfPage.getByRole('button', { name: '放大', exact: true }).click();
     await expect(pdfPage.getByLabel('当前缩放比例')).toHaveText('120%');
     await pdfPage.getByLabel('跳转页码').fill('40');
@@ -935,6 +939,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '40', { timeout: 30_000 });
     await expect(pdfPage.getByLabel('跳转页码')).toHaveValue('40');
     await expect(pdfPage.getByLabel('当前缩放比例')).toHaveText('120%');
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-theme', 'dark');
     await expect.poll(() => progress(pdfPage)).toBeCloseTo(0.25, 1);
     await expect(pdfPage.locator('[data-translation-page="40"]')).toHaveAttribute('data-status', 'done');
     await pdfPage.waitForTimeout(700);
@@ -945,7 +950,10 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     const reopened = await context.newPage();
     await reopened.goto(sourceUrl);
     await expect(reopened.getByLabel('跳转页码')).toHaveValue('40', { timeout: 30_000 });
+    await expect(reopened.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-theme', 'dark');
     await expect.poll(() => progress(reopened)).toBeCloseTo(0.25, 1);
+    await reopened.getByLabel('更多操作').click();
+    await reopened.getByRole('menuitemradio', { name: '跟随系统' }).click();
     await reopened.close();
 
     const explicitPage = await context.newPage();
