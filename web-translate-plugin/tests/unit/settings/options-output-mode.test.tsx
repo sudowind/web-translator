@@ -15,7 +15,7 @@ describe('输出模式交互', () => {
     fakeBrowser.reset();
     mocks.getSettings.mockResolvedValue({ ...defaultSettings, openAi: { ...defaultSettings.openAi, apiKey: 'secret', baseUrl: 'https://proxy.example/v1', defaultModel: 'any-model' } });
     mocks.getCapability.mockResolvedValue(undefined);
-    vi.spyOn(fakeBrowser.permissions, 'request').mockResolvedValue(true);
+    vi.spyOn(fakeBrowser.permissions, 'request').mockImplementation(async () => true);
     let finish!: (value: unknown) => void;
     const send = vi.spyOn(fakeBrowser.runtime, 'sendMessage').mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     const container = document.createElement('div');
