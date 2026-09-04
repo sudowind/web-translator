@@ -16,7 +16,7 @@
 
 2. 关闭旧插件设置页及正在运行的翻译工作台，在 Chrome 扩展管理页对原插件点击“重新加载”。原加载路径和扩展身份不变，本地 Provider 配置及数据继续使用；不要清空存储或把密钥写入 Git。
 3. 刷新待测试网页或 PDF，再使用原来的工具栏按钮启动功能。此时运行的是 release 构建。
-4. 如果此前额外安装过独立 release 目录版本，停用该副本以免两版干扰；它的安装路径已改作 dev 工作区，不再用于验收。不要依赖该副本自动共享原插件配置。
+4. 如果此前额外安装过独立 release 目录版本，停用该副本以免两版干扰；原独立 release 目录已迁移为 dev 工作区，旧安装路径不再有效，Chrome 不会自动跟随 Git 工作区移动。不要依赖该副本自动共享原插件配置。
 5. 只有从未安装过主目录插件时，才需要“加载已解压的扩展程序”并选择上方固定目录。
 
 加载与重载方式参见 [Chrome 官方扩展入门](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world)。卸载会清除扩展 local 存储，参见 [chrome.storage](https://developer.chrome.com/docs/extensions/reference/api/storage)。
