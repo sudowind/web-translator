@@ -35,6 +35,61 @@ function createPage(renderPromises: Promise<void>[]) {
 }
 
 describe('PDF Canvas 清晰帧生命周期', () => {
+  it('分辨率媒体查询变化可独立触发高清重绘，取整映射到精确显示宽高', async () => {
+    const oldRatio = globalThis.devicePixelRatio;
+    const oldMatchMedia = globalThis.matchMedia;
+    const listeners: Array<() => void> = [];
+    const removers: Array<ReturnType<typeof vi.fn>> = [];
+    globalThis.devicePixelRatio = 1;
+    globalThis.matchMedia = vi.fn(() => {
+      const removeEventListener = vi.fn();
+      removers.push(removeEventListener);
+      return { addEventListener: (_: string, listener: () => void) => listeners.push(listener), removeEventListener } as unknown as MediaQueryList;
+    });
+    const { page } = createPage([Promise.resolve(), Promise.resolve()]);
+    const rootContainer = document.createElement('div');
+    const root = createRoot(rootContainer);
+    try {
+      await act(async () => root.render(<PdfPageCanvas document={{} as never} page={page as never} pageNumber={1} scale={1.113} displayWidth={667.8} />));
+      expect(rootContainer.querySelector('.pdf-page-canvas-wrap')?.getAttribute('data-output-scale')).toBe('1.5');
+      globalThis.devicePixelRatio = 3;
+      await act(async () => listeners[0]());
+      expect(rootContainer.querySelector('.pdf-page-canvas-wrap')?.getAttribute('data-output-scale')).toBe('3');
+      expect(page.render).toHaveBeenCalledTimes(2);
+      const active = rootContainer.querySelector<HTMLCanvasElement>('canvas[data-active="true"]')!;
+      const input = (page.render.mock.calls as unknown[][])[1][0] as { transform: number[] };
+      expect(input.transform[0]).toBeCloseTo(active.width / parseFloat(active.style.width), 8);
+      expect(input.transform[3]).toBeCloseTo(active.height / parseFloat(active.style.height), 8);
+      expect(removers[0]).toHaveBeenCalled();
+      await act(async () => globalThis.dispatchEvent(new Event('resize')));
+      expect(page.render).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.unmount());
+      expect(removers.at(-1)).toHaveBeenCalled();
+      globalThis.devicePixelRatio = oldRatio;
+      globalThis.matchMedia = oldMatchMedia;
+    }
+  });
+
+  it('缩小预览显式等比设置宽高，新帧完成后不残留预览缩放', async () => {
+    let finish!: () => void;
+    const next = new Promise<void>((resolve) => { finish = resolve; });
+    const { page } = createPage([Promise.resolve(), next]);
+    const pdf = {} as never;
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<PdfPageCanvas document={pdf} page={page as never} pageNumber={1} scale={2} displayWidth={1200} />));
+      await act(async () => root.render(<PdfPageCanvas document={pdf} page={page as never} pageNumber={1} scale={1.1} displayWidth={660} />));
+      const old = container.querySelector<HTMLCanvasElement>('canvas[data-active="true"]')!;
+      expect(parseFloat(old.style.width)).toBeCloseTo(660);
+      expect(parseFloat(old.style.height)).toBeCloseTo(880);
+      await act(async () => { finish(); await next; });
+      const current = container.querySelector<HTMLCanvasElement>('canvas[data-active="true"]')!;
+      expect(current).not.toBe(old);
+      expect(parseFloat(current.style.height)).toBeCloseTo(880);
+    } finally { await act(async () => root.unmount()); }
+  });
   it('后台帧完成前不展示半成品，完成后原子切换为清晰前台帧', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     let settleRender!: () => void;

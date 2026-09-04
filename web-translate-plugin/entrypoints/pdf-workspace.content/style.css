@@ -68,7 +68,7 @@
 .pdf-page-slot { min-height: 780px; margin: 0 auto 16px; display: grid; place-items: center; background: transparent; }
 .pdf-page-placeholder { width: min(100%, 720px); height: 100%; background: #f9fafb; box-shadow: 0 8px 24px rgb(17 24 39 / 10%); }
 .pdf-page-canvas-wrap { position: relative; max-width: 100%; display: grid; place-items: start; overflow: hidden; background: var(--pdf-surface); box-shadow: 0 8px 24px rgb(17 24 39 / 14%); }
-.pdf-page-canvas-wrap canvas { grid-area: 1 / 1; display: block; max-width: 100%; height: auto !important; }
+.pdf-page-canvas-wrap canvas { grid-area: 1 / 1; display: block; max-width: none; }
 .pdf-page-canvas-wrap canvas:not([data-active="true"]) { visibility: hidden; }
 .pdf-block-highlight-layer { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
 .pdf-block-highlight { position: absolute; border: 1px solid rgb(79 70 229 / 72%); border-radius: 3px; background: rgb(79 70 229 / 14%); box-shadow: none; opacity: 1; transition: opacity 150ms ease-out; }

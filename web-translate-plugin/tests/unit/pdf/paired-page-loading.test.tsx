@@ -113,8 +113,11 @@ describe('长 PDF 页面加载窗口', () => {
     const clientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 300 });
     HTMLElement.prototype.scrollIntoView = vi.fn();
+    let notifyVisiblePdf!: IntersectionObserverCallback;
     globalThis.IntersectionObserver = class {
-      constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        if (options?.rootMargin === '-68px 0px 0px 0px') notifyVisiblePdf = callback;
+      }
       observe() {}
       disconnect() {}
       unobserve() {}
@@ -163,6 +166,16 @@ describe('长 PDF 页面加载窗口', () => {
       expect(container.querySelectorAll('[data-page-pair]')).toHaveLength(76);
       expect(container.querySelectorAll('[data-translation-body="full"]')).toHaveLength(5);
       expect(getPage.mock.calls.map(([page]) => page).sort((a, b) => a - b)).toEqual([38, 39, 40, 41, 42]);
+
+      const adjacent = container.querySelector<HTMLElement>('[data-page-pair="41"] .pdf-page-canvas-wrap')!;
+      expect(adjacent.dataset.outputScale).toBe('1.25');
+      await act(async () => {
+        notifyVisiblePdf([{ target: container.querySelector('[data-pdf-page="41"]'), isIntersecting: true,
+          intersectionRect: { width: 300, height: 80 } } as IntersectionObserverEntry], {} as IntersectionObserver);
+      });
+      expect(adjacent.dataset.outputScale).toBe('1.5');
+      expect(common.onPageVisible).not.toHaveBeenCalled();
+      expect(getPage).toHaveBeenCalledTimes(5);
 
       const activeTranslation = container.querySelector<HTMLElement>('[data-translation-page="40"]')!;
       const renderCountBeforePreview = activeTranslation.dataset.translationRenderCount;
