@@ -21,11 +21,12 @@ import { PairedPageViewer } from './PairedPageViewer';
 import { loadPdfSource } from './pdf-source';
 import { describeArxivPdfSource } from './arxiv-source';
 import { initialPageFromUrl } from './source-page';
+import type { PdfReadingPosition } from './reading-state';
 import type { TranslationPageStatus } from './TranslationPane';
 import { WorkspaceToolbar, workspaceFeedbackPlacement } from './WorkspaceToolbar';
 import { initialLifecycleState, lifecycleReducer } from './workspace-reducer';
 
-export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
+export function PdfWorkspace({ sourceUrl, initialReading }: { sourceUrl: string; initialReading?: PdfReadingPosition }) {
   const [lifecycle, dispatch] = React.useReducer(lifecycleReducer, initialLifecycleState);
   const [source, setSource] = React.useState<PdfSourceDescriptor | null>(null);
   const [pdfBytes, setPdfBytes] = React.useState<Uint8Array | null>(null);
@@ -38,9 +39,10 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [pageStatus, setPageStatus] = React.useState(new Map<number, TranslationPageStatus>());
   const [pageFailures, setPageFailures] = React.useState(new Map<number, TranslationFailure>());
   const [pageAttempts, setPageAttempts] = React.useState(new Map<number, number>());
-  const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl));
-  const [navigationPage, setNavigationPage] = React.useState(() => initialPageFromUrl(sourceUrl));
-  const [scale, setScale] = React.useState(1.1);
+  const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl, initialReading?.page ?? 1));
+  const [navigationPage, setNavigationPage] = React.useState(() => initialPageFromUrl(sourceUrl, initialReading?.page ?? 1));
+  const [navigationProgress, setNavigationProgress] = React.useState(() => initialPageFromUrl(sourceUrl, 0) > 0 ? 0 : initialReading?.progress ?? 0);
+  const [scale, setScale] = React.useState(initialReading?.scale ?? 1.1);
   const [translationMode, setTranslationMode] = React.useState<TranslationMode>('full-document');
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
@@ -317,6 +319,18 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     setActivePage(page);
   }, []);
 
+  const saveReadingPosition = React.useCallback((page: number, progress: number) => {
+    void browser.runtime.sendMessage({ type: 'pdf:reading-save', page, progress, scale }).catch(() => undefined);
+  }, [scale]);
+
+  React.useEffect(() => {
+    if (pageCount < 1 || activePageRef.current <= pageCount) return;
+    activePageRef.current = pageCount;
+    setActivePage(pageCount);
+    setNavigationPage(pageCount);
+    setNavigationProgress(0);
+  }, [pageCount]);
+
   const navigateToPage = React.useCallback((page: number) => {
     const pageCount = model?.pageCount ?? documentPageCount;
     if (pageCount < 1) return;
@@ -326,6 +340,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     activePageRef.current = target;
     setActivePage(target);
     setNavigationPage(target);
+    setNavigationProgress(0);
     const scheduler = schedulerRef.current;
     if (scheduler?.getMode() === 'on-demand') {
       const requested = scheduler.requestNavigationWindow(target, readingDirectionRef.current);
@@ -522,6 +537,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               scale={scale}
               activePage={activePage}
               navigationPage={navigationPage}
+              navigationProgress={navigationProgress}
               model={model}
               translationsByPage={translationsByPage}
               translationMode={translationMode}
@@ -532,6 +548,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               pinnedBlockId={pinnedBlockId}
               onDocumentReady={onDocumentReady}
               onPageVisible={onPageVisible}
+              onReadingPositionChange={saveReadingPosition}
               onRetryPage={retryPage}
               onRequestPage={requestPage}
               onCopyFailure={copyFailure}

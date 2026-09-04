@@ -350,7 +350,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         });
         return;
       }
-      if (holdArxivPdf) {
+      if (holdArxivPdf && !route.request().isNavigationRequest()) {
         await new Promise<void>((resolveHeld) => releaseArxivPdfRequests.push(resolveHeld));
       }
       await route.fulfill({
@@ -827,12 +827,14 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     });
 
     const initialRequestCount = observed.translationPages.length;
-    await pdfPage.evaluate(async () => {
-      for (const page of [10, 20, 30]) {
-        document.querySelector<HTMLElement>(`[data-page-pair="${page}"]`)!.scrollIntoView({ block: 'start' });
-        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-      }
-    });
+    for (const page of [10, 20, 30]) {
+      await pdfPage.evaluate((targetPage) => {
+        document.querySelector<HTMLElement>(`[data-page-pair="${targetPage}"]`)!.scrollIntoView({ block: 'start' });
+      }, page);
+      // Observe each intended page before the next scroll; a single RAF can coalesce
+      // IntersectionObserver updates into a direct 40 -> 30 upward movement.
+      await pdfPage.waitForFunction((targetPage) => document.querySelector('main[data-renderer="pdfjs"]')?.getAttribute('data-pdf-render-page') === String(targetPage), page, { polling: 'raf' });
+    }
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '30');
     await pdfPage.waitForTimeout(100);
     expect(observed.translationPages).toHaveLength(initialRequestCount);
@@ -876,6 +878,72 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await cachedPage.close();
   });
 
+  test('记住 PDF 翻译状态，刷新和新标签页自动恢复阅读位置，关闭后不再自动开启', async () => {
+    test.setTimeout(90_000);
+    const sourceUrl = `${origin}/download?id=long&resume=1`;
+    const pdfPage = await context.newPage();
+    await pdfPage.goto(sourceUrl);
+    await enableWorkspace(pdfPage);
+    await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await pdfPage.getByRole('button', { name: '放大', exact: true }).click();
+    await expect(pdfPage.getByLabel('当前缩放比例')).toHaveText('120%');
+    await pdfPage.getByLabel('跳转页码').fill('40');
+    await pdfPage.getByLabel('跳转页码').press('Enter');
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '40');
+    await expect(pdfPage.locator('[data-translation-page="40"]')).toHaveAttribute('data-status', 'done');
+    await expect.poll(() => pdfPage.locator('[data-page-pair="40"]').evaluate((element) => element.getBoundingClientRect().top)).toBeCloseTo(68, 0);
+    await pdfPage.evaluate(() => {
+      const rect = document.querySelector('[data-page-pair="40"]')!.getBoundingClientRect();
+      window.scrollBy(0, rect.top - 68 + rect.height * 0.25);
+    });
+    await pdfPage.waitForTimeout(800);
+    const progress = async (page: Page) => page.locator('[data-page-pair="40"]').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return (68 - rect.top) / rect.height;
+    });
+    expect(await progress(pdfPage)).toBeCloseTo(0.25, 1);
+    const providerCount = observed.translationPages.length;
+    const parseCount = observed.urlTasks.length;
+
+    // No enableWorkspace call after reload: this is the persisted auto-resume path.
+    await pdfPage.reload();
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '40', { timeout: 30_000 });
+    await expect(pdfPage.getByLabel('跳转页码')).toHaveValue('40');
+    await expect(pdfPage.getByLabel('当前缩放比例')).toHaveText('120%');
+    await expect.poll(() => progress(pdfPage)).toBeCloseTo(0.25, 1);
+    await expect(pdfPage.locator('[data-translation-page="40"]')).toHaveAttribute('data-status', 'done');
+    await pdfPage.waitForTimeout(700);
+    expect(observed.translationPages).toHaveLength(providerCount);
+    expect(observed.urlTasks).toHaveLength(parseCount);
+    await pdfPage.close();
+
+    const reopened = await context.newPage();
+    await reopened.goto(sourceUrl);
+    await expect(reopened.getByLabel('跳转页码')).toHaveValue('40', { timeout: 30_000 });
+    await expect.poll(() => progress(reopened)).toBeCloseTo(0.25, 1);
+    await reopened.close();
+
+    const explicitPage = await context.newPage();
+    await explicitPage.goto(`${sourceUrl}#page=2`);
+    await expect(explicitPage.getByLabel('跳转页码')).toHaveValue('2', { timeout: 30_000 });
+    await explicitPage.bringToFront();
+    const [tab] = await extensionPage.evaluate(() => chrome.tabs.query({ active: true, currentWindow: true }));
+    await extensionPage.evaluate(async (tabId) => chrome.scripting.executeScript({
+      target: { tabId }, func: () => chrome.runtime.sendMessage({ type: 'pdf-workspace:disable' }),
+    }), tab.id!);
+    await expect(explicitPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
+    await explicitPage.reload();
+    await explicitPage.waitForTimeout(700);
+    await expect(explicitPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
+    await explicitPage.close();
+
+    const unrelated = await context.newPage();
+    await unrelated.goto(`${origin}/download?id=public&resume=unrelated`);
+    await unrelated.waitForTimeout(700);
+    await expect(unrelated.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
+    await unrelated.close();
+  });
+
   test('arXiv 二次打开先恢复缓存，版本检查只用 HEAD 且不等待 PDF.js', async () => {
     test.setTimeout(120_000);
     observed.arxivPdfMethods.length = 0;
@@ -892,9 +960,9 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await firstPage.close();
 
     const cachedPage = await context.newPage();
-    await cachedPage.goto(arxivFixtureUrl);
     holdArxivPdf = true;
-    await enableWorkspace(cachedPage);
+    await cachedPage.goto(arxivFixtureUrl);
+    await expect(cachedPage.locator('main[data-renderer="pdfjs"]')).toBeVisible({ timeout: 30_000 });
     await expect(cachedPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
     await expect(cachedPage.locator('canvas')).toHaveCount(0);
     expect(observed.urlTasks).toHaveLength(mineruTaskCount);

@@ -17,6 +17,9 @@
 
 ## 当前规格记录
 
+- PDF 翻译状态与阅读位置自动恢复：`docs/superpowers/specs/2026-09-04-pdf-auto-resume-design.md`
+- PDF 自动恢复实施计划：`docs/superpowers/plans/2026-09-04-pdf-auto-resume-plan.md`
+
 - PDF 可见页清晰度补全：`docs/superpowers/specs/2026-09-04-pdf-visible-page-sharpness-design.md`
 - PDF 可见页清晰度实施计划：`docs/superpowers/plans/2026-09-04-pdf-visible-page-sharpness-plan.md`
 

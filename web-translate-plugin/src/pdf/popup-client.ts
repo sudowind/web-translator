@@ -1,4 +1,16 @@
+import { pdfSitePermission } from './reading-state';
+
 export type PdfWorkspacePopupCommand = 'status' | 'enable' | 'disable';
+
+export async function requestPdfResumePermission(
+  url: string,
+  api: { request(permissions: { origins: string[] }): Promise<boolean> } = browser.permissions,
+): Promise<boolean> {
+  const origin = pdfSitePermission(url);
+  if (!origin) return false;
+  try { return await api.request({ origins: [origin] }); }
+  catch { return false; }
+}
 
 export interface PdfWorkspacePopupStatus {
   eligible: boolean;

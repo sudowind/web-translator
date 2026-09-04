@@ -4,6 +4,27 @@ import { ChromePdfTakeoverAdapter } from '../../../src/pdf/takeover-port';
 
 describe('正式 PDF 接管端口', () => {
   const insertCSS = () => vi.fn().mockResolvedValue(undefined);
+  it('读取状态可定向发送者 documentId，不借用新文档状态', async () => {
+    const sendMessage = vi.fn().mockResolvedValue({ ok: true, value: { enabled: true } });
+    const adapter = new ChromePdfTakeoverAdapter({ tabs: { get: vi.fn(), sendMessage, reload: vi.fn() }, scripting: { insertCSS: insertCSS(), executeScript: vi.fn() } });
+    await expect(adapter.status(7, 'doc-old')).resolves.toBe(true);
+    expect(sendMessage).toHaveBeenCalledWith(7, { type: 'pdf-workspace:status' }, { documentId: 'doc-old' });
+  });
+
+  it('自动恢复只注入预检确认的 PDF documentId，HTML 或缺失 documentId 不注入', async () => {
+    const executeScript = vi.fn().mockResolvedValueOnce([{ result: true, documentId: 'doc-7' }]).mockResolvedValueOnce([]);
+    const injectStyle = insertCSS();
+    const adapter = new ChromePdfTakeoverAdapter({ tabs: { get: vi.fn(), sendMessage: vi.fn(), reload: vi.fn() }, scripting: { insertCSS: injectStyle, executeScript } });
+    await expect(adapter.mountRemembered(7, 'https://x.test/p.pdf')).resolves.toBe(true);
+    expect(executeScript.mock.calls[0][0].args).toEqual(['https://x.test/p.pdf']);
+    expect(injectStyle).toHaveBeenCalledWith({ target: { tabId: 7, documentIds: ['doc-7'] }, files: ['/content-scripts/pdf-workspace.css'] });
+    expect(executeScript.mock.calls[1][0].target).toEqual({ tabId: 7, documentIds: ['doc-7'] });
+    executeScript.mockResolvedValue([{ result: false, documentId: 'html-8' }]);
+    await expect(adapter.mountRemembered(7, 'https://x.test/p.pdf')).resolves.toBe(false);
+    executeScript.mockResolvedValue([{ result: true }]);
+    await expect(adapter.mountRemembered(7, 'https://x.test/p.pdf')).resolves.toBe(false);
+    expect(injectStyle).toHaveBeenCalledOnce();
+  });
 
   it('注入固定 runtime bundle 且 URL 必须逐字不变', async () => {
     const get = vi.fn()
