@@ -1,5 +1,13 @@
 # 项目协作约定
 
+## 固定工作区与人工验收
+
+- 主工作区 `D:\Projects\web-translate` 固定使用 `release` 分支，作为人工验收与浏览器插件加载入口；不得为开发临时切回 dev 或 feature 分支。
+- `dev` 工作区为 `D:\Projects\web-translate-worktrees\dev`；各 feature 分支继续使用各自独立工作区。
+- 功能修复在所属开发分支提交，再以普通 merge 合入 release；集成冲突在 release 解决，不将 release 整体回灌 feature 分支。
+- 验收插件固定加载 `D:\Projects\web-translate\web-translate-plugin\.output\chrome-mv3`。每轮合并与构建后重载原扩展，不卸载、不清空配置，不将开发工作区产物覆盖到此目录。
+- 数据库升级后不要用较低数据库版本的旧分支覆盖验收插件；独立回测使用独立浏览器环境。完整流程见 release 分支的 `docs/release-validation-workflow.md`。
+
 ## 文档语言
 
 - 本项目中的所有设计规格（spec）和实施计划（plan）必须使用中文编写。
