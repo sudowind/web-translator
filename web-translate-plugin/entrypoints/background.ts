@@ -29,6 +29,9 @@ import { WebpageTranslationService } from '../src/webpage/translation-service';
 import { PageTranslationError } from '../src/translation/translate-page';
 import { dispatchDashboardMessage, isDashboardCandidate } from '../src/dashboard/messages';
 import { clearAllCache, getStorageSummary, historyRepository } from '../src/storage/repositories';
+import { PdfAutoResumeController } from '../src/pdf/auto-resume';
+import { PdfReadingStateStore, isPdfReadingMessage } from '../src/pdf/reading-state';
+import { handlePdfReadingMessage } from '../src/pdf/reading-state-handler';
 
 export default defineBackground(() => {
   console.info('PDF takeover probe ready');
@@ -40,7 +43,12 @@ export default defineBackground(() => {
   );
   const pdfWorkspace = new PdfWorkspaceService();
   const pdfTakeover = new ChromePdfTakeoverAdapter();
-  const enabledPdfTabs = new Set<number>();
+  const pdfReading = new PdfReadingStateStore();
+  const pdfResume = new PdfAutoResumeController(pdfReading, {
+    getTab: (tabId) => browser.tabs.get(tabId),
+    status: (tabId) => pdfTakeover.status(tabId),
+    mountRemembered: (tabId, url) => pdfTakeover.mountRemembered(tabId, url),
+  });
   void pdfWorkspace.resumePending().catch(() => undefined);
 
   async function getActiveTab() {
@@ -128,30 +136,55 @@ export default defineBackground(() => {
     const tab = sender.tab?.id !== undefined && sender.tab.url
       ? { id: sender.tab.id, url: sender.tab.url }
       : await getActiveTab();
-    const mounted = await pdfTakeover.status(tab.id);
-    const eligible = mounted || isLikelyPdfUrl(tab.url) || await pdfTakeover.probePdfContentType(tab.id).catch(() => false);
-    if (message.type === 'pdf-workspace:enable') {
-      if (!eligible) throw new Error('PDF_NOT_ELIGIBLE');
-      if (!mounted) await pdfTakeover.mount(tab.id);
-    } else if (message.type === 'pdf-workspace:disable' && mounted) {
-      pdfWorkspace.dispose(tab.id);
-      await pdfTakeover.restore(tab.id);
-    }
-    const enabled = message.type === 'pdf-workspace:disable' ? false : await pdfTakeover.status(tab.id);
-    return { eligible, enabled, url: tab.url };
+    if (message.type !== 'pdf-workspace:status') pdfResume.invalidate(tab.id);
+    return pdfResume.serialize(tab.id, async () => {
+      const currentTab = await browser.tabs.get(tab.id);
+      if (currentTab.url !== tab.url) throw new Error('PDF_URL_CHANGED');
+      const mounted = await pdfTakeover.status(tab.id);
+      const eligible = mounted || isLikelyPdfUrl(tab.url) || await pdfTakeover.probePdfContentType(tab.id).catch(() => false);
+      if (message.type === 'pdf-workspace:enable') {
+        if (!eligible) throw new Error('PDF_NOT_ELIGIBLE');
+        if (!mounted) await pdfTakeover.mount(tab.id);
+        if (!currentTab.incognito) await pdfReading.setEnabled(tab.url, true);
+      } else if (message.type === 'pdf-workspace:disable') {
+        if (!currentTab.incognito) await pdfReading.setEnabled(tab.url, false);
+        if (mounted) {
+          pdfWorkspace.dispose(tab.id);
+          await pdfTakeover.restore(tab.id);
+        }
+      }
+      const enabled = message.type === 'pdf-workspace:disable' ? false : await pdfTakeover.status(tab.id);
+      return { eligible, enabled, url: tab.url };
+    });
   }
 
   browser.tabs.onRemoved.addListener((tabId) => {
     pdfWorkspace.dispose(tabId);
-    enabledPdfTabs.delete(tabId);
+    pdfResume.forget(tabId);
   });
-  browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (!changeInfo.url) return;
-    pdfWorkspace.dispose(tabId);
-    enabledPdfTabs.delete(tabId);
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url || changeInfo.status === 'loading') {
+      pdfWorkspace.dispose(tabId);
+      pdfResume.invalidate(tabId);
+    }
+    if (changeInfo.status === 'complete' && tab.url && !tab.incognito) {
+      void pdfResume.restore(tabId, tab.url).catch(() => undefined);
+    }
   });
 
   browser.runtime.onMessage.addListener((message: unknown, _, sendResponse) => {
+    if (isPdfReadingMessage(message)) {
+      void handlePdfReadingMessage(message, _, {
+        getTab: (tabId) => browser.tabs.get(tabId),
+        status: (tabId, documentId) => pdfTakeover.status(tabId, documentId),
+        capture: (tabId) => pdfResume.capture(tabId),
+        store: pdfReading,
+      }).then(
+        (value) => sendResponse({ ok: true, value }),
+        (error: unknown) => sendResponse({ ok: false, error: safePdfError(error) }),
+      );
+      return true;
+    }
     if (isPdfWorkspacePopupMessage(message)) {
       void handlePdfWorkspacePopup(message, _).then(
         (value) => sendResponse({ ok: true, value }),

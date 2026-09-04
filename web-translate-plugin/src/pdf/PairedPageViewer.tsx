@@ -70,6 +70,7 @@ interface PairedPageViewerProps {
   scale: number;
   activePage: number;
   navigationPage: number;
+  navigationProgress?: number;
   model: DocumentModel | null;
   translationsByPage: ReadonlyMap<number, ReadonlyMap<string, TranslationResult>>;
   translationMode: TranslationMode;
@@ -81,6 +82,7 @@ interface PairedPageViewerProps {
   translationPlaceholder?: React.ReactNode;
   onDocumentReady(pageCount: number): void;
   onPageVisible(page: number, progress: number): void;
+  onReadingPositionChange?(page: number, progress: number): void;
   onRetryPage(page: number): void;
   onRequestPage(page: number): void;
   onCopyFailure(failure: TranslationFailure): void;
@@ -98,6 +100,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   scale,
   activePage,
   navigationPage,
+  navigationProgress = 0,
   model,
   translationsByPage,
   translationMode,
@@ -109,6 +112,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   translationPlaceholder,
   onDocumentReady,
   onPageVisible,
+  onReadingPositionChange,
   onRetryPage,
   onRequestPage,
   onCopyFailure,
@@ -332,7 +336,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
         Array.from(visibility, ([candidate, value]) => ({ page: candidate, intersectionRatio: value.ratio })),
         lastReportedPage.current ?? activePageRef.current,
       );
-      if (page === null || page === lastReportedPage.current) return;
+      if (lastNavigationPage.current === null || page === null || page === lastReportedPage.current) return;
       lastReportedPage.current = page;
       onPageVisible(page, visibility.get(page)?.progress ?? 0);
     }, { root: null, threshold: [0.25, 0.6] });
@@ -345,8 +349,38 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
     const target = rootRef.current.querySelector<HTMLElement>(`[data-page-pair="${navigationPage}"]`);
     if (!target) return;
     target.scrollIntoView({ block: 'start', behavior: lastNavigationPage.current === null ? 'auto' : 'smooth' });
+    if (lastNavigationPage.current === null && navigationProgress > 0) {
+      globalThis.scrollBy(0, target.getBoundingClientRect().height * navigationProgress);
+    }
     lastNavigationPage.current = navigationPage;
-  }, [navigationPage, pageCount, pageHeights]);
+  }, [navigationPage, navigationProgress, pageCount, pageHeights]);
+
+  React.useEffect(() => {
+    if (!onReadingPositionChange) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = () => {
+      if (timer !== undefined) globalThis.clearTimeout(timer);
+      timer = undefined;
+      if (lastNavigationPage.current === null) return;
+      const page = activePageRef.current;
+      const target = rootRef.current?.querySelector<HTMLElement>(`[data-page-pair="${page}"]`);
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      if (rect.height > 0) onReadingPositionChange(page, Math.max(0, Math.min(1, (68 - rect.top) / rect.height)));
+    };
+    const schedule = () => {
+      if (timer !== undefined) globalThis.clearTimeout(timer);
+      timer = globalThis.setTimeout(save, 200);
+    };
+    schedule();
+    globalThis.addEventListener('scroll', schedule, { passive: true });
+    globalThis.addEventListener('pagehide', save);
+    return () => {
+      save();
+      globalThis.removeEventListener('scroll', schedule);
+      globalThis.removeEventListener('pagehide', save);
+    };
+  }, [activePage, onReadingPositionChange]);
 
   const onHeightChange = React.useCallback((page: number, height: number) => {
     setPageHeights((current) => {
