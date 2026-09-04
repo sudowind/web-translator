@@ -129,7 +129,8 @@ function HistoryRow({ entry, onOpen, onDelete }: { entry: HistoryEntry; onOpen(i
       <h2>{entry.title}</h2>
       <p>{hostLabel(entry.url)} · {relativeTime(entry.lastVisitedAt)} · {entry.sourceLanguage} → {entry.targetLanguage}</p>
       {progress !== undefined && <div className="reading-progress" aria-label={`阅读进度 ${progress}%`}>
-        <span style={{ width: `${progress}%` }} /><small>第 {entry.lastPage} / {entry.pageCount} 页</small>
+        <div className="reading-progress-track"><span style={{ width: `${progress}%` }} /></div>
+        <small>第 {entry.lastPage} / {entry.pageCount} 页</small>
       </div>}
     </div>
     <div className="history-actions">
