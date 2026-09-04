@@ -546,7 +546,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     expect(compactClosed.translationWidth).toBeLessThanOrEqual(720.5);
     expect(compactClosed.outerMarginDifference).toBeLessThanOrEqual(2);
     expect(compactClosed.horizontalOverflow).toBeLessThanOrEqual(1);
-    expect(compactClosed.bitmapDensity).toBeGreaterThanOrEqual(1);
+    expect(compactClosed.bitmapDensity).toBeGreaterThanOrEqual(1.49);
     await expect(pdfPage).toHaveScreenshot('compact-reading-2560-180.png', { animations: 'disabled' });
 
     const wideAgentToggle = pdfPage.getByRole('button', { name: '论文智能体' });
@@ -737,6 +737,49 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
     await expect(pdfPage).toHaveURL(sourceUrl);
     await pdfPage.close();
+  });
+
+  test('非整数缩放与 DPR 变化后，全部可见 PDF 页达到最终密度且无 CSS 二次缩放', async () => {
+    const pdfPage = await context.newPage();
+    const cdp = await context.newCDPSession(pdfPage);
+    try {
+      await pdfPage.setViewportSize({ width: 1600, height: 1900 });
+      await pdfPage.goto(`${origin}/download?id=public&clarity=1`);
+      await enableWorkspace(pdfPage);
+      for (const deviceScaleFactor of [1, 1.25, 2, 3]) {
+        // CDP 仅改 density 不派发 resize/media change；同时改 viewport 验证真实事件链。
+        // 无 resize 的 media change 路径由组件回归单独覆盖。
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1600 + Math.round(deviceScaleFactor * 4), height: 1900, deviceScaleFactor, mobile: false });
+        await pdfPage.evaluate(() => window.scrollTo(0, 0));
+        await expect.poll(() => pdfPage.evaluate(() => window.devicePixelRatio)).toBe(deviceScaleFactor);
+        // 两页同时可见；第二页不能因不是主导页而一直停留在预览密度。
+        for (const number of [1, 2]) {
+          const wrap = pdfPage.locator(`[data-page-pair="${number}"] .pdf-page-canvas-wrap`);
+          await expect(wrap).toBeInViewport();
+          const expected = Math.max(1.5, deviceScaleFactor);
+          await expect.poll(async () => Number(await wrap.getAttribute('data-output-scale'))).toBeCloseTo(expected, 2);
+          await expect(wrap).toHaveAttribute('data-rendering', 'false');
+          const measure = await wrap.evaluate((element) => {
+            const canvas = element.querySelector<HTMLCanvasElement>('canvas[data-active="true"]')!;
+            const rect = canvas.getBoundingClientRect();
+            const css = getComputedStyle(canvas);
+            return { density: canvas.width / rect.width, pixels: canvas.width * canvas.height,
+              widthError: Math.abs(rect.width - parseFloat(canvas.style.width)),
+              heightError: Math.abs(rect.height - parseFloat(canvas.style.height)),
+              maxWidth: css.maxWidth, transform: css.transform };
+          });
+          expect(measure.density).toBeGreaterThanOrEqual(expected - 0.01);
+          expect(measure.pixels).toBeLessThanOrEqual(8_388_608 + 5000);
+          expect(measure.widthError).toBeLessThan(0.02);
+          expect(measure.heightError).toBeLessThan(0.02);
+          expect(measure.maxWidth).toBe('none');
+          expect(measure.transform).toBe('none');
+        }
+      }
+    } finally {
+      await cdp.detach();
+      await pdfPage.close();
+    }
   });
 
   test('76 页长文档按需翻译、限制正文挂载并支持模式切换和缓存恢复', async () => {

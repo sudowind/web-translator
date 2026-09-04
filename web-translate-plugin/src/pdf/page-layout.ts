@@ -5,7 +5,8 @@ export const MIN_PAIRED_READING_WIDTH = 900;
 export const MAX_TRANSLATION_WIDTH = 720;
 export const LAYOUT_HYSTERESIS = 48;
 export const MAX_CANVAS_PIXELS = 8_388_608;
-export const MAX_OUTPUT_SCALE = 2;
+export const MAX_OUTPUT_SCALE = 4;
+export const MIN_FINAL_OUTPUT_SCALE = 1.5;
 
 export interface ReadingLayout {
   mode: ReadingLayoutMode;
@@ -135,7 +136,8 @@ export function computePageDisplayMetrics({
   const displayScale = cssWidth / baseWidth;
   const cssHeight = baseHeight * displayScale;
   const budgetScale = Math.sqrt(pixelBudget / (cssWidth * cssHeight));
-  const outputScale = clamp(Math.min(devicePixelRatio || 1, budgetScale), 1, maximumOutputScale);
+  const desiredScale = Math.max(devicePixelRatio || 1, MIN_FINAL_OUTPUT_SCALE);
+  const outputScale = clamp(Math.min(desiredScale, budgetScale), 1, maximumOutputScale);
 
   return {
     cssWidth,

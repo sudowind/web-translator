@@ -17,6 +17,9 @@
 
 ## 当前规格记录
 
+- PDF 可见页清晰度补全：`docs/superpowers/specs/2026-09-04-pdf-visible-page-sharpness-design.md`
+- PDF 可见页清晰度实施计划：`docs/superpowers/plans/2026-09-04-pdf-visible-page-sharpness-plan.md`
+
 - 翻译输出协议与能力配置：`docs/superpowers/specs/2026-09-04-translation-output-capabilities-design.md`
 - 翻译输出能力实施计划：`docs/superpowers/plans/2026-09-04-translation-output-capabilities-plan.md`
 

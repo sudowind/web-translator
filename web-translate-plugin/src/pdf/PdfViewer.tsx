@@ -9,7 +9,7 @@ import {
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import type { DocumentBlock } from '../document/model';
-import { computePageDisplayMetrics, type PageDisplayMetrics } from './page-layout';
+import { computePageDisplayMetrics, MAX_OUTPUT_SCALE, type PageDisplayMetrics } from './page-layout';
 import { PdfBlockHighlightLayer } from './PdfBlockHighlightLayer';
 import { sharedPdfRenderQueue, type PdfRenderPriority } from './pdf-render-queue';
 import { PdfTextLayer } from './PdfTextLayer';
@@ -168,7 +168,7 @@ export function PdfPageCanvas({
   const firstCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const secondCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const activeBuffer = React.useRef<number | null>(null);
-  const retainedMaximumOutputScale = React.useRef(maximumOutputScale ?? 2);
+  const retainedMaximumOutputScale = React.useRef(maximumOutputScale ?? MAX_OUTPUT_SCALE);
   const retainedRenderPriority = React.useRef(renderPriority);
   const [devicePixelRatio, setDevicePixelRatio] = React.useState(() => globalThis.devicePixelRatio || 1);
   const [committedFrame, setCommittedFrame] = React.useState<{
@@ -184,7 +184,7 @@ export function PdfPageCanvas({
   const renderGeneration = React.useRef(0);
   const activeTextLayers = React.useRef(new Set<number>());
   const textLayerWaiters = React.useRef<Array<() => void>>([]);
-  retainedMaximumOutputScale.current = Math.max(retainedMaximumOutputScale.current, maximumOutputScale ?? 2);
+  retainedMaximumOutputScale.current = Math.max(retainedMaximumOutputScale.current, maximumOutputScale ?? MAX_OUTPUT_SCALE);
   const priorityRank: Record<PdfRenderPriority, number> = { 'visible-final': 0, 'near-preview': 1, 'idle-preview': 2 };
   if (priorityRank[renderPriority] < priorityRank[retainedRenderPriority.current]) retainedRenderPriority.current = renderPriority;
   const effectiveMaximumOutputScale = retainedMaximumOutputScale.current;
@@ -210,12 +210,20 @@ export function PdfPageCanvas({
   }, []);
 
   React.useEffect(() => {
+    let resolutionQuery: MediaQueryList | undefined;
     const updatePixelRatio = () => {
       const nextRatio = globalThis.devicePixelRatio || 1;
-      setDevicePixelRatio((current) => Math.abs(current - nextRatio) < 0.05 ? current : nextRatio);
+      setDevicePixelRatio((current) => current === nextRatio ? current : nextRatio);
+      resolutionQuery?.removeEventListener('change', updatePixelRatio);
+      resolutionQuery = globalThis.matchMedia?.(`(resolution: ${nextRatio}dppx)`);
+      resolutionQuery?.addEventListener('change', updatePixelRatio);
     };
+    updatePixelRatio();
     globalThis.addEventListener?.('resize', updatePixelRatio);
-    return () => globalThis.removeEventListener?.('resize', updatePixelRatio);
+    return () => {
+      resolutionQuery?.removeEventListener('change', updatePixelRatio);
+      globalThis.removeEventListener?.('resize', updatePixelRatio);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -259,9 +267,7 @@ export function PdfPageCanvas({
         renderTask = page.render({
           canvas,
           viewport,
-          transform: metrics.outputScale === 1
-            ? undefined
-            : [metrics.outputScale, 0, 0, metrics.outputScale, 0, 0],
+          transform: [metrics.bitmapWidth / metrics.cssWidth, 0, 0, metrics.bitmapHeight / metrics.cssHeight, 0, 0],
         });
         renderSettled = renderTask.promise;
         await renderSettled;
@@ -327,6 +333,10 @@ export function PdfPageCanvas({
   const previewFitScale = committedFrame && targetMetrics
     ? Math.min(1, targetMetrics.cssWidth / committedFrame.metrics.cssWidth)
     : 1;
+  const frameStyle = committedFrame ? {
+    width: committedFrame.metrics.cssWidth * previewFitScale,
+    height: committedFrame.metrics.cssHeight * previewFitScale,
+  } : undefined;
 
   return (
     <div
@@ -336,8 +346,8 @@ export function PdfPageCanvas({
       data-fitted-to-container={targetMetrics?.fittedToContainer || undefined}
       style={targetMetrics ? { width: targetMetrics.cssWidth, height: targetMetrics.cssHeight } : undefined}
     >
-      <canvas ref={firstCanvasRef} data-pdf-canvas-buffer="0" data-active={committedFrame?.bufferIndex === 0} />
-      <canvas ref={secondCanvasRef} data-pdf-canvas-buffer="1" data-active={committedFrame?.bufferIndex === 1} />
+      <canvas ref={firstCanvasRef} data-pdf-canvas-buffer="0" data-active={committedFrame?.bufferIndex === 0} style={committedFrame?.bufferIndex === 0 ? frameStyle : undefined} />
+      <canvas ref={secondCanvasRef} data-pdf-canvas-buffer="1" data-active={committedFrame?.bufferIndex === 1} style={committedFrame?.bufferIndex === 1 ? frameStyle : undefined} />
       <PdfBlockHighlightLayer polygon={highlightedBlock?.polygon} />
       {committedFrame && <PdfTextLayer
         page={committedFrame.page}

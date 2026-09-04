@@ -131,7 +131,7 @@
 .pdf-page-slot { min-height: 780px; margin: 0 auto 16px; display: grid; place-items: center; background: transparent; }
 .pdf-page-placeholder { width: min(100%, 720px); height: 100%; background: var(--pdf-surface-subtle); box-shadow: 0 8px 24px var(--pdf-shadow-soft); }
 .pdf-page-canvas-wrap { position: relative; max-width: 100%; display: grid; place-items: start; overflow: hidden; background: var(--pdf-surface); box-shadow: 0 8px 24px var(--pdf-shadow-strong); }
-.pdf-page-canvas-wrap canvas { grid-area: 1 / 1; display: block; max-width: 100%; height: auto !important; filter: var(--pdf-canvas-filter); transition: filter 160ms ease-out; }
+.pdf-page-canvas-wrap canvas { grid-area: 1 / 1; display: block; max-width: none; filter: var(--pdf-canvas-filter); transition: filter 160ms ease-out; }
 .pdf-page-canvas-wrap canvas:not([data-active="true"]) { visibility: hidden; }
 .pdf-block-highlight-layer { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
 .pdf-block-highlight { position: absolute; border: 1px solid var(--pdf-highlight-border); border-radius: 3px; background: var(--pdf-highlight-bg); box-shadow: none; opacity: 1; transition: opacity 150ms ease-out; }

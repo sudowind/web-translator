@@ -51,6 +51,10 @@ describe('PDF 紧凑对译布局', () => {
 });
 
 describe('PDF Canvas 显示度量', () => {
+  it.each([1, 1.25, 2, 3])('最终帧覆盖 DPR %s，低 DPR 保留采样余量', (devicePixelRatio) => {
+    const metrics = computePageDisplayMetrics({ baseWidth: 600, baseHeight: 800, requestedScale: 1.1, allocatedWidth: 660, devicePixelRatio });
+    expect(metrics.outputScale).toBe(Math.max(1.5, devicePixelRatio));
+  });
   it('按 CSS 显示尺寸和 DPR 生成清晰位图', () => {
     const metrics = computePageDisplayMetrics({
       baseWidth: 612,

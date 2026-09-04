@@ -9,7 +9,7 @@ import type { DocumentModel } from '../document/model';
 import type { TranslationResult } from '../providers/openai/contracts';
 import type { TranslationFailure } from '../translation/failure';
 import type { TranslationMode } from '../translation/page-scheduler';
-import { computeReadingLayout, type ReadingLayout } from './page-layout';
+import { computeReadingLayout, MAX_OUTPUT_SCALE, type ReadingLayout } from './page-layout';
 import { PdfPageCanvas, visiblePageWindow } from './PdfViewer';
 import { TranslationPage, type TranslationPageStatus } from './TranslationPane';
 import { selectDominantPage } from './visible-page';
@@ -127,6 +127,7 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
   const [pdfPageCount, setPdfPageCount] = React.useState(0);
   const [containerWidth, setContainerWidth] = React.useState(0);
   const [renderScale, setRenderScale] = React.useState(scale);
+  const [visiblePdfPages, setVisiblePdfPages] = React.useState<ReadonlySet<number>>(new Set());
   const [pageSizes, setPageSizes] = React.useState<ReadonlyMap<number, { width: number; height: number }>>(new Map());
   const [pageHeights, setPageHeights] = React.useState<ReadonlyMap<number, number>>(new Map());
   const translationScrollOffsets = React.useRef(new Map<number, number>());
@@ -296,6 +297,22 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
 
   React.useEffect(() => {
     if (!rootRef.current || pageCount === 0) return;
+    const visible = new Set<number>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const number = Number((entry.target as HTMLElement).dataset.pdfPage);
+        if (entry.isIntersecting && entry.intersectionRect.width > 0 && entry.intersectionRect.height > 0) visible.add(number);
+        else visible.delete(number);
+      }
+      setVisiblePdfPages((current) => current.size === visible.size && [...visible].every((page) => current.has(page))
+        ? current : new Set(visible));
+    }, { root: null, rootMargin: '-68px 0px 0px 0px', threshold: [0, 0.01] });
+    rootRef.current.querySelectorAll<HTMLElement>('.page-pair-pdf').forEach((page) => observer.observe(page));
+    return () => observer.disconnect();
+  }, [pageCount]);
+
+  React.useEffect(() => {
+    if (!rootRef.current || pageCount === 0) return;
     const visibility = new Map<number, { ratio: number; progress: number }>();
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
@@ -386,10 +403,11 @@ export const PairedPageViewer = React.memo(function PairedPageViewer({
           ? estimatedSize.height * (layout.pdfWidth / estimatedSize.width)
           : pageHeights.get(number) ?? 780;
         const distanceFromActivePage = Math.abs(number - activePage);
-        const renderPriority = distanceFromActivePage === 0
+        const finalQuality = distanceFromActivePage === 0 || visiblePdfPages.has(number);
+        const renderPriority = finalQuality
           ? 'visible-final'
           : distanceFromActivePage === 1 ? 'near-preview' : 'idle-preview';
-        const maximumOutputScale = distanceFromActivePage === 0 ? 2 : distanceFromActivePage === 1 ? 1.25 : 1;
+        const maximumOutputScale = finalQuality ? MAX_OUTPUT_SCALE : distanceFromActivePage === 1 ? 1.25 : 1;
         const page = model?.pages[number - 1];
         const highlightedBlock = page?.blocks.find((block) => block.id === highlightedBlockId);
         return (
