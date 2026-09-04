@@ -21,6 +21,10 @@ export default defineContentScript({
     originalMarkup = document.documentElement.innerHTML;
     document.documentElement.innerHTML = '<head><title>PDF 翻译工作台</title></head><body><div id="web-translate-pdf-root"></div></body>';
     document.documentElement.dataset.webTranslatePdfWorkspace = 'true';
+    const initialTheme = globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.pdfTheme = initialTheme;
+    document.documentElement.dataset.pdfThemePreference = 'system';
+    document.documentElement.style.colorScheme = initialTheme;
     if (location.href !== originalUrl) throw new Error('PDF_URL_CHANGED');
     const host = document.getElementById('web-translate-pdf-root');
     if (!host) throw new Error('PDF_ROOT_MISSING');
@@ -39,6 +43,9 @@ export default defineContentScript({
       if (originalMarkup !== null) document.documentElement.innerHTML = originalMarkup;
       originalMarkup = null;
       delete document.documentElement.dataset.webTranslatePdfWorkspace;
+      delete document.documentElement.dataset.pdfTheme;
+      delete document.documentElement.dataset.pdfThemePreference;
+      document.documentElement.style.removeProperty('color-scheme');
       scope[marker] = false;
       sendResponse({ ok: true, value: { enabled: false } });
       return undefined;

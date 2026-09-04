@@ -22,7 +22,7 @@ describe('输出模式交互', () => {
     document.body.append(container);
     const root = createRoot(container);
     try {
-      await act(async () => { root.render(<App />); });
+      await act(async () => { root.render(<App section="translation" />); });
       const select = container.querySelector<HTMLSelectElement>('#translation-output-mode')!;
       expect(select.value).toBe('auto');
       await act(async () => { select.value = 'json_schema'; select.dispatchEvent(new Event('change', { bubbles: true })); });

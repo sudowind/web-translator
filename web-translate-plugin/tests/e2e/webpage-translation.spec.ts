@@ -100,6 +100,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     const extensionId = new URL(worker.url()).host;
     extensionPage = await context.newPage();
     await extensionPage.goto(`chrome-extension://${extensionId}/options.html`);
+    await extensionPage.getByRole('button', { name: 'AI 服务 模型与智能体' }).click();
     await extensionPage.getByLabel('LLM 接口地址', { exact: true }).fill('https://api.example.test/v1');
     await extensionPage.getByLabel('默认模型', { exact: true }).fill('test-model');
     await extensionPage.getByLabel('LLM API Key', { exact: true }).fill('test-key');

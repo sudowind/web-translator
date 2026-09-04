@@ -21,11 +21,13 @@ import { PairedPageViewer } from './PairedPageViewer';
 import { loadPdfSource } from './pdf-source';
 import { describeArxivPdfSource } from './arxiv-source';
 import { initialPageFromUrl } from './source-page';
+import { usePdfTheme } from './theme';
 import type { TranslationPageStatus } from './TranslationPane';
 import { WorkspaceToolbar, workspaceFeedbackPlacement } from './WorkspaceToolbar';
 import { initialLifecycleState, lifecycleReducer } from './workspace-reducer';
 
 export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
+  const { preference: themePreference, resolvedTheme, setPreference: setThemePreference } = usePdfTheme();
   const [lifecycle, dispatch] = React.useReducer(lifecycleReducer, initialLifecycleState);
   const [source, setSource] = React.useState<PdfSourceDescriptor | null>(null);
   const [pdfBytes, setPdfBytes] = React.useState<Uint8Array | null>(null);
@@ -487,6 +489,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   return (
     <main
       className="pdf-workspace"
+      data-theme={resolvedTheme}
       data-renderer="pdfjs"
       data-pdf-render-page={activePage}
       data-translation-snapshot-count={snapshotRequestCount.current}
@@ -498,6 +501,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         scale={scale}
         progressLabel={feedback}
         agentOpen={agentOpen}
+        themePreference={themePreference}
         canRetryFailed={hasFailedPages}
         canStopAgent={agentBusy}
         translationMode={translationMode}
@@ -506,6 +510,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         onZoomOut={() => setScale((value) => Math.max(0.5, value - 0.1))}
         onZoomIn={() => setScale((value) => Math.min(3, value + 0.1))}
         onToggleAgent={() => setAgentOpen((open) => !open)}
+        onChangeTheme={setThemePreference}
         onRetryCurrent={retryCurrent}
         onRetryFailed={retryFailed}
         onRetryParsing={lifecycle.phase === 'failed' && source?.kind === 'remote'

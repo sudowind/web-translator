@@ -55,4 +55,13 @@ describe('PDF 富文本与覆盖层样式契约', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('scrollbar-width: thin');
   });
+
+  it('深色主题使用语义配色，并只对 PDF Canvas 应用柔和暗化', async () => {
+    const css = await readFile(resolve('entrypoints/pdf-workspace.content/style.css'), 'utf8');
+    expect(css).toContain(':root[data-web-translate-pdf-workspace="true"][data-pdf-theme="dark"]');
+    expect(css).toContain('--pdf-canvas-filter: brightness(.72) contrast(.92) saturate(.88) sepia(.04)');
+    expect(css).toMatch(/\.pdf-page-canvas-wrap canvas[^}]*filter:\s*var\(--pdf-canvas-filter\)/s);
+    expect(css).not.toMatch(/\.pdf-page-canvas-wrap\s*\{[^}]*filter:/s);
+    expect(css).toContain('color-scheme: dark');
+  });
 });
