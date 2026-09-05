@@ -3,7 +3,7 @@ import type { OpenAiSettings } from '../settings/schema';
 import type { AgentContext } from './context-builder';
 
 export class AgentProviderError extends Error {
-  readonly name = 'AgentProviderError';
+  override readonly name = 'AgentProviderError';
 
   constructor(readonly code: string) {
     super(code);

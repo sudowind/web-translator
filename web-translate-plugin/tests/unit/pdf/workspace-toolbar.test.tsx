@@ -17,6 +17,7 @@ const actions = {
   onZoomOut: vi.fn(),
   onZoomIn: vi.fn(),
   onToggleAgent: vi.fn(),
+  onChangeTheme: vi.fn(),
   onRetryCurrent: vi.fn(),
   onRetryFailed: vi.fn(),
   onStopAgent: vi.fn(),
@@ -34,6 +35,7 @@ describe('PDF 极简工具栏', () => {
       scale={1.1}
       progressLabel="已完成 4/15 页 · 翻译中 2 页 · 失败 0 页"
       agentOpen={false}
+      themePreference="system"
       canRetryFailed={false}
       canStopAgent={false}
       translationMode="on-demand"
@@ -73,7 +75,7 @@ describe('PDF 极简工具栏', () => {
       title="Long Paper" activePage={40} pageCount={76} scale={1}
       progressLabel="当前页已完成 · 已缓存 4/76 页 · 正在预取 0 页"
       agentOpen={false} canRetryFailed={false} canStopAgent={false}
-      translationMode="on-demand" {...actions}
+      translationMode="on-demand" themePreference="system" {...actions}
     />));
 
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
@@ -82,6 +84,26 @@ describe('PDF 极简工具栏', () => {
     expect(modeButton).toBeDefined();
     await act(async () => modeButton.click());
     expect(actions.onChangeTranslationMode).toHaveBeenCalledWith('full-document');
+    await act(async () => root.unmount());
+  });
+
+  it('更多菜单提供跟随系统、浅色和深色三种外观选择', async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => root.render(<WorkspaceToolbar
+      title="Theme Paper" activePage={1} pageCount={3} scale={1}
+      progressLabel="已完成 1/3 页"
+      agentOpen={false} canRetryFailed={false} canStopAgent={false}
+      translationMode="on-demand" themePreference="system" {...actions}
+    />));
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
+    const choices = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'));
+    expect(choices.map((button) => button.textContent?.replace('✓', ''))).toEqual(['跟随系统', '浅色', '深色']);
+    expect(choices.map((button) => button.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+    await act(async () => choices[2].click());
+    expect(actions.onChangeTheme).toHaveBeenCalledWith('dark');
     await act(async () => root.unmount());
   });
 });

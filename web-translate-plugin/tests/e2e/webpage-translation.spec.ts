@@ -68,6 +68,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
       const body = route.request().postDataJSON() as {
         messages: Array<{ content: string }>;
         response_format?: { type: string };
+        stream?: boolean;
       };
       if (!body.response_format) {
         await route.fulfill({
@@ -84,11 +85,14 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
         id,
         text: text === 'Hello' ? '你好' : `译文：${text.trim()}`,
       }));
+      expect(body.stream).toBe(true);
+      const content = JSON.stringify({ translations });
+      const middle = Math.floor(content.length / 2);
       await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          choices: [{ message: { content: JSON.stringify({ translations }) } }],
-        }),
+        contentType: 'text/event-stream',
+        body: [content.slice(0, middle), content.slice(middle)]
+          .map((delta) => `data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`)
+          .join('') + 'data: [DONE]\n\n',
       });
     });
 
@@ -96,6 +100,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     const extensionId = new URL(worker.url()).host;
     extensionPage = await context.newPage();
     await extensionPage.goto(`chrome-extension://${extensionId}/options.html`);
+    await extensionPage.getByRole('button', { name: 'AI 服务 模型与智能体' }).click();
     await extensionPage.getByLabel('LLM 接口地址', { exact: true }).fill('https://api.example.test/v1');
     await extensionPage.getByLabel('默认模型', { exact: true }).fill('test-model');
     await extensionPage.getByLabel('LLM API Key', { exact: true }).fill('test-key');
@@ -122,7 +127,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     const page = await context.newPage();
     await page.goto(`${origin}/article`);
     const enabled = await sendAuthorizedCommand(page, 'webpage:enable');
-    expect(enabled).toMatchObject({ ok: true, value: { enabled: true } });
+    expect(enabled, JSON.stringify(enabled)).toMatchObject({ ok: true, value: { enabled: true } });
 
     await expect(page.locator('#lead')).toHaveText('译文：Hello world');
     expect(requestBatches[0].slice(0, 2)).toEqual([

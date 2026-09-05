@@ -21,6 +21,12 @@ const mediaModel: DocumentModel = {
     ],
   }],
 };
+const arxivModel: DocumentModel = {
+  ...model,
+  id: 'arxiv:2510.12403',
+  sourceUrl: 'https://arxiv.org/pdf/2510.12403',
+  hash: 'arxiv:2510.12403',
+};
 const staleModel: DocumentModel = { ...model, schemaVersion: DOCUMENT_SCHEMA_VERSION - 1 };
 const openAiSettings = {
   apiKey: 'secret', baseUrl: 'https://api.test/v1', dialect: 'generic-openai' as const,
@@ -30,6 +36,213 @@ const openAiSettings = {
 };
 
 describe('后台 PDF 工作台服务', () => {
+  it('按显式版本 arXiv 标识直接恢复缓存且不读取 PDF 或发 HEAD', async () => {
+    const versioned = { ...arxivModel, id: 'arxiv:2510.12403v2', hash: 'arxiv:2510.12403v2' };
+    const loadSource = vi.fn();
+    const getSourceRevision = vi.fn();
+    const createMineru = vi.fn();
+    const service = makeService(undefined, {
+      loadSource,
+      getDocument: vi.fn(async (hash: string) => hash === versioned.hash ? versioned : undefined),
+      getSource: vi.fn(),
+      putSource: vi.fn(),
+      listDocumentsBySourceUrl: vi.fn(),
+      getSourceRevision,
+      createMineru,
+    });
+
+    await expect(service.handle({
+      type: 'pdf:document-resolve', sourceUrl: 'https://arxiv.org/pdf/2510.12403v2.pdf#page=4',
+    }, 7)).resolves.toEqual(versioned);
+    expect(loadSource).not.toHaveBeenCalled();
+    expect(getSourceRevision).not.toHaveBeenCalled();
+    expect(createMineru).not.toHaveBeenCalled();
+  });
+
+  it('无版本 arXiv 只校验响应头，修订变化时清除旧缓存', async () => {
+    const clearCache = vi.fn();
+    const putSource = vi.fn();
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(arxivModel),
+      getSource: vi.fn().mockResolvedValue({
+        id: arxivModel.hash, hash: arxivModel.hash, sourceUrl: arxivModel.sourceUrl,
+        revision: 'etag:"old"', updatedAt: 1,
+      }),
+      putSource,
+      listDocumentsBySourceUrl: vi.fn(),
+      getSourceRevision: vi.fn().mockResolvedValue('etag:"new"'),
+      clearCache,
+    });
+
+    await expect(service.handle({
+      type: 'pdf:document-resolve', sourceUrl: 'https://arxiv.org/abs/2510.12403',
+    }, 7)).resolves.toBeNull();
+    expect(clearCache).toHaveBeenCalledWith(arxivModel.hash);
+    expect(putSource).toHaveBeenCalledWith(expect.objectContaining({
+      id: arxivModel.hash, hash: arxivModel.hash, revision: 'etag:"new"',
+    }));
+  });
+
+  it('无版本 arXiv 修订探测失败时保留可用缓存', async () => {
+    const clearCache = vi.fn();
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(arxivModel),
+      getSource: vi.fn().mockResolvedValue({
+        id: arxivModel.hash, hash: arxivModel.hash, sourceUrl: arxivModel.sourceUrl,
+        revision: 'etag:"old"', updatedAt: 1,
+      }),
+      putSource: vi.fn(), listDocumentsBySourceUrl: vi.fn(),
+      getSourceRevision: vi.fn().mockResolvedValue(undefined), clearCache,
+    });
+
+    await expect(service.handle({
+      type: 'pdf:document-resolve', sourceUrl: arxivModel.sourceUrl,
+    }, 7)).resolves.toEqual(arxivModel);
+    expect(clearCache).not.toHaveBeenCalled();
+  });
+
+  it('升级前 arXiv 缓存可按源 URL 懒迁移且只做 HEAD', async () => {
+    const legacy = { ...arxivModel, id: 'sha256:legacy', hash: 'sha256:legacy' };
+    const putSource = vi.fn();
+    const listDocumentsBySourceUrl = vi.fn(async (url: string) => url === legacy.sourceUrl ? [legacy] : []);
+    const service = makeService(undefined, {
+      getDocument: vi.fn(), getSource: vi.fn(), putSource, listDocumentsBySourceUrl,
+      getSourceRevision: vi.fn().mockResolvedValue('etag:"current"'),
+    });
+
+    await expect(service.handle({
+      type: 'pdf:document-resolve', sourceUrl: legacy.sourceUrl,
+    }, 7)).resolves.toEqual(legacy);
+    expect(putSource).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'arxiv:2510.12403', hash: 'sha256:legacy', revision: 'etag:"current"',
+    }));
+  });
+
+  it('按 arXiv 来源清理时同时删除 legacy SHA 与稳定身份缓存', async () => {
+    const clearCache = vi.fn();
+    const service = makeService(undefined, {
+      getSource: vi.fn().mockResolvedValue({
+        id: 'arxiv:2510.12403', hash: 'sha256:legacy', sourceUrl: arxivModel.sourceUrl,
+        revision: 'etag:"current"', updatedAt: 1,
+      }),
+      clearCache,
+    });
+
+    await expect(service.handle({
+      type: 'pdf:cache-clear-source', sourceUrl: 'https://arxiv.org/abs/2510.12403',
+    }, 7)).resolves.toEqual({ cleared: true });
+    expect(clearCache.mock.calls).toEqual([
+      ['sha256:legacy'],
+      ['arxiv:2510.12403'],
+    ]);
+  });
+
+  it('拒绝用来源清理消息删除非 arXiv 文档', async () => {
+    const clearCache = vi.fn();
+    const service = makeService(undefined, { clearCache });
+    await expect(service.handle({
+      type: 'pdf:cache-clear-source', sourceUrl: 'https://example.test/p.pdf',
+    }, 7)).rejects.toMatchObject({ code: 'PDF_SOURCE_URL_INVALID' });
+    expect(clearCache).not.toHaveBeenCalled();
+  });
+
+  it('首次懒迁移尚未写入 alias 时清理来源也会删除旧文档且阻止回填', async () => {
+    const legacy = { ...arxivModel, id: 'sha256:legacy', hash: 'sha256:legacy' };
+    let stored: DocumentModel | undefined = legacy;
+    let releaseRevision!: () => void;
+    const revisionGate = new Promise<string>((resolve) => { releaseRevision = () => resolve('etag:"current"'); });
+    const getSourceRevision = vi.fn(() => revisionGate);
+    const putSource = vi.fn();
+    const clearCache = vi.fn(async (hash: string) => {
+      if (stored?.hash === hash) stored = undefined;
+    });
+    const service = makeService(undefined, {
+      getSource: vi.fn(), putSource, getSourceRevision, clearCache,
+      getDocument: vi.fn(async (hash: string) => stored?.hash === hash ? stored : undefined),
+      listDocumentsBySourceUrl: vi.fn(async (url: string) => stored?.sourceUrl === url ? [stored] : []),
+    });
+    const resolving = service.handle({ type: 'pdf:document-resolve', sourceUrl: legacy.sourceUrl }, 7);
+    await vi.waitFor(() => expect(getSourceRevision).toHaveBeenCalled());
+    await service.handle({ type: 'pdf:cache-clear-source', sourceUrl: legacy.sourceUrl }, 7);
+    releaseRevision();
+    await expect(resolving).resolves.toBeNull();
+    expect(clearCache).toHaveBeenCalledWith(legacy.hash);
+    expect(clearCache).toHaveBeenCalledWith(arxivModel.hash);
+    expect(putSource).not.toHaveBeenCalled();
+    await expect(service.handle({ type: 'pdf:document-get', hash: legacy.hash }, 8)).resolves.toBeNull();
+  });
+
+  it('升级前同 URL 存在多个 hash 时保守视为未命中', async () => {
+    const older = { ...arxivModel, id: 'sha256:old', hash: 'sha256:old' };
+    const newer = { ...arxivModel, id: 'sha256:new', hash: 'sha256:new' };
+    const service = makeService(undefined, {
+      getDocument: vi.fn(), getSource: vi.fn(), putSource: vi.fn(),
+      listDocumentsBySourceUrl: vi.fn(async (url: string) => url === arxivModel.sourceUrl ? [older, newer] : []),
+      getSourceRevision: vi.fn().mockResolvedValue('etag:"current"'),
+    });
+    await expect(service.handle({
+      type: 'pdf:document-resolve', sourceUrl: arxivModel.sourceUrl,
+    }, 7)).resolves.toBeNull();
+  });
+
+  it('旧索引读取迟于来源清理返回时不能复活已删除模型', async () => {
+    const legacy = { ...arxivModel, id: 'sha256:legacy', hash: 'sha256:legacy' };
+    let stored: DocumentModel | undefined = legacy;
+    let releaseRead!: () => void;
+    const readGate = new Promise<DocumentModel[]>((resolve) => { releaseRead = () => resolve([legacy]); });
+    const listDocumentsBySourceUrl = vi.fn(async (url: string) => stored?.sourceUrl === url ? [stored] : [])
+      .mockImplementationOnce(() => readGate);
+    const putSource = vi.fn();
+    const service = makeService(undefined, {
+      getSource: vi.fn(), putSource, listDocumentsBySourceUrl,
+      getDocument: vi.fn(async (hash: string) => stored?.hash === hash ? stored : undefined),
+      getSourceRevision: vi.fn().mockResolvedValue('etag:"current"'),
+      clearCache: vi.fn(async (hash: string) => { if (stored?.hash === hash) stored = undefined; }),
+    });
+    const resolving = service.handle({ type: 'pdf:document-resolve', sourceUrl: legacy.sourceUrl }, 7);
+    await vi.waitFor(() => expect(listDocumentsBySourceUrl).toHaveBeenCalled());
+    await service.handle({ type: 'pdf:cache-clear-source', sourceUrl: legacy.sourceUrl }, 8);
+    releaseRead();
+    await expect(resolving).resolves.toBeNull();
+    expect(putSource).not.toHaveBeenCalled();
+    await expect(service.handle({ type: 'pdf:document-get', hash: legacy.hash }, 9)).resolves.toBeNull();
+  });
+
+  it('arXiv resolve 等待 HEAD 时并发清缓存不会回填源映射或返回旧模型', async () => {
+    let releaseRevision!: () => void;
+    const revisionGate = new Promise<string>((resolve) => { releaseRevision = () => resolve('etag:"old"'); });
+    const getSourceRevision = vi.fn(() => revisionGate);
+    const putSource = vi.fn();
+    const service = makeService(undefined, {
+      getDocument: vi.fn().mockResolvedValue(arxivModel),
+      getSource: vi.fn().mockResolvedValue({
+        id: arxivModel.hash, hash: arxivModel.hash, sourceUrl: arxivModel.sourceUrl,
+        revision: 'etag:"old"', updatedAt: 1,
+      }),
+      putSource, listDocumentsBySourceUrl: vi.fn(), getSourceRevision, clearCache: vi.fn(),
+    });
+    const resolving = service.handle({ type: 'pdf:document-resolve', sourceUrl: arxivModel.sourceUrl }, 7);
+    await vi.waitFor(() => expect(getSourceRevision).toHaveBeenCalled());
+    await service.handle({ type: 'pdf:cache-clear', hash: arxivModel.hash }, 8);
+    releaseRevision();
+    await expect(resolving).resolves.toBeNull();
+    expect(putSource).not.toHaveBeenCalled();
+  });
+
+  it('使用可信发送者 URL 保存 PDF 阅读进度', async () => {
+    const recordHistory = vi.fn().mockResolvedValue(undefined);
+    const service = makeService(undefined, { recordHistory });
+
+    await expect(service.handle({
+      type: 'pdf:history-update', hash: source.hash, title: 'Paper', page: 3, pageCount: 8,
+    }, 7, 'https://example.test/p.pdf#page=3')).resolves.toEqual({ historyUpdated: true });
+
+    expect(recordHistory).toHaveBeenCalledWith(expect.objectContaining({
+      id: `pdf:${source.hash}`, url: 'https://example.test/p.pdf',
+      lastPage: 3, pageCount: 8, sourceLanguage: 'en', targetLanguage: 'zh-CN',
+    }));
+  });
+
   it('parse-start 不回传字节，公共 URL 失败后才由后台读取一次上传字节', async () => {
     const loadSource = vi.fn().mockResolvedValue(loadedSource);
     const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
@@ -514,6 +727,37 @@ describe('PDF workspace 生命周期修复波', () => {
     release();
     await Promise.allSettled([parsing, clearing]);
     expect(order).toEqual(['put-start', 'put-end', 'clear']);
+  });
+
+  it('arXiv document put 与清理并发时不回填源映射或 LRU', async () => {
+    const arxivSource = {
+      url: arxivModel.sourceUrl, hash: arxivModel.hash, title: arxivModel.title, size: 0, kind: 'remote' as const,
+    };
+    let stored: DocumentModel | undefined;
+    let releasePut!: () => void;
+    const putGate = new Promise<void>((resolve) => { releasePut = resolve; });
+    const putDocument = vi.fn(async (value: DocumentModel) => {
+      await putGate;
+      stored = value;
+    });
+    const clearCache = vi.fn(async () => { stored = undefined; });
+    const putSource = vi.fn();
+    const service = makeService({
+      createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }),
+      createUploadTask: vi.fn(),
+      waitForResult: vi.fn().mockResolvedValue({ state: 'done', fullZipUrl: 'https://cdn.test/r.zip' }),
+    }, {
+      getDocument: vi.fn(async () => stored), putDocument, clearCache, putSource,
+      getSource: vi.fn(), loadMineru: vi.fn().mockResolvedValue(arxivModel),
+    });
+    const parsing = service.handle({ type: 'pdf:parse-start', source: arxivSource, pageCount: 1, consent: false }, 7);
+    await vi.waitFor(() => expect(putDocument).toHaveBeenCalled());
+    const clearing = service.handle({ type: 'pdf:cache-clear', hash: arxivModel.hash }, 8);
+    releasePut();
+    await expect(parsing).rejects.toHaveProperty('name', 'AbortError');
+    await clearing;
+    expect(putSource).not.toHaveBeenCalled();
+    await expect(service.handle({ type: 'pdf:document-get', hash: arxivModel.hash }, 9)).resolves.toBeNull();
   });
 
   it('clear 排在已启动 translation put 后执行，resolve 后旧写不能重建', async () => {

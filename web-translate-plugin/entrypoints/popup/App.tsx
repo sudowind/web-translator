@@ -7,6 +7,7 @@ import type {
 } from '../../src/pdf-takeover/messages';
 import {
   sendPdfWorkspaceCommand,
+  requestPdfResumePermission,
   type PdfWorkspacePopupStatus,
 } from '../../src/pdf/popup-client';
 import {
@@ -104,9 +105,13 @@ export default function App() {
     if (!pdfStatus) return;
     setPdfBusy(true);
     try {
+      // Request optional site access directly within the user's click gesture.
+      const canResume = pdfStatus.enabled || await requestPdfResumePermission(pdfStatus.url);
       const next = await sendPdfWorkspaceCommand(pdfStatus.enabled ? 'disable' : 'enable');
       setPdfStatus(next);
-      setPdfFeedback(next.enabled ? 'PDF 工作台已启用；关闭后恢复原页面' : 'PDF 工作台已关闭并恢复原页面');
+      setPdfFeedback(next.enabled
+        ? canResume ? '已记住此 PDF，刷新或重新打开会恢复阅读；关闭可取消自动恢复' : '本次已启用；未授予站点权限，重新打开时可能需要手动启用'
+        : 'PDF 工作台已关闭；此文档不再自动开启');
     } catch (error) {
       setPdfFeedback(`操作失败：${errorText(error)}`);
     } finally {
@@ -120,7 +125,7 @@ export default function App() {
         <p className="eyebrow">页面工具</p>
         {pdfStatus?.eligible ? <>
           <h2 id="webpage-heading">PDF 翻译工作台</h2>
-          <p className="description">PDF.js 左栏独立阅读，解析完成后从第 1 页按顺序生成译文。</p>
+          <p className="description">记住此 PDF 的翻译状态与阅读位置。首次可能请求当前站点权限，仅对你启用过的 PDF 自动恢复。</p>
           <button className="primary" type="button" disabled={pdfBusy} onClick={() => void togglePdfWorkspace()}>
             {pdfBusy ? '处理中…' : pdfStatus.enabled ? '关闭 PDF 工作台' : '翻译此 PDF'}
           </button>
@@ -139,7 +144,7 @@ export default function App() {
           <p className="status" aria-live="polite">{pdfStatus === null ? pdfFeedback : webpageFeedback}</p>
         </>}
         <button className="text-button" type="button" onClick={() => void browser.runtime.openOptionsPage()}>
-          Provider 设置
+          打开阅读控制台
         </button>
       </section>
 

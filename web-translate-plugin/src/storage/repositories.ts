@@ -36,6 +36,34 @@ export interface ReadingRecord {
   page: number;
 }
 
+export interface StoredSource {
+  id: string;
+  hash: string;
+  sourceUrl: string;
+  revision?: string;
+  updatedAt: number;
+}
+
+export interface HistoryEntry {
+  id: string;
+  kind: 'pdf' | 'webpage';
+  url: string;
+  title: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  lastVisitedAt: number;
+  documentHash?: string;
+  lastPage?: number;
+  pageCount?: number;
+}
+
+export interface StorageSummary {
+  documents: number;
+  translations: number;
+  tasks: number;
+  history: number;
+}
+
 export function translationCacheKey(key: TranslationKey): string {
   return JSON.stringify([
     key.hash,
@@ -55,8 +83,20 @@ export const documentRepository = {
   async put(model: DocumentModel): Promise<void> {
     await (await dbPromise).put('documents', model);
   },
+  async listBySourceUrl(sourceUrl: string): Promise<DocumentModel[]> {
+    return (await dbPromise).getAllFromIndex('documents', 'by-source-url', sourceUrl);
+  },
   async delete(id: string): Promise<void> {
     await (await dbPromise).delete('documents', id);
+  },
+};
+
+export const sourceRepository = {
+  async get(id: string): Promise<StoredSource | undefined> {
+    return (await dbPromise).get('sources', id);
+  },
+  async put(source: StoredSource): Promise<void> {
+    await (await dbPromise).put('sources', source);
   },
 };
 
@@ -107,10 +147,51 @@ export const readingRepository = {
   },
 };
 
+export const historyRepository = {
+  async put(entry: HistoryEntry): Promise<void> {
+    const db = await dbPromise;
+    const existing = await db.get('history', entry.id);
+    await db.put('history', { ...existing, ...entry });
+  },
+  async get(id: string): Promise<HistoryEntry | undefined> {
+    return (await dbPromise).get('history', id);
+  },
+  async listRecent(limit = 200): Promise<HistoryEntry[]> {
+    const db = await dbPromise;
+    const entries: HistoryEntry[] = [];
+    let cursor = await db.transaction('history').store.index('by-last-visited')
+      .openCursor(undefined, 'prev');
+    while (cursor && entries.length < limit) {
+      entries.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+    return entries;
+  },
+  async delete(id: string): Promise<void> {
+    await (await dbPromise).delete('history', id);
+  },
+  async clear(): Promise<void> {
+    await (await dbPromise).clear('history');
+  },
+};
+
+export async function getStorageSummary(): Promise<StorageSummary> {
+  const db = await dbPromise;
+  const tx = db.transaction(['documents', 'translations', 'tasks', 'history']);
+  const [documents, translations, tasks, history] = await Promise.all([
+    tx.objectStore('documents').count(),
+    tx.objectStore('translations').count(),
+    tx.objectStore('tasks').count(),
+    tx.objectStore('history').count(),
+  ]);
+  await tx.done;
+  return { documents, translations, tasks, history };
+}
+
 export async function clearDocumentCache(hash: string): Promise<void> {
   const db = await dbPromise;
   const tx = db.transaction(
-    ['documents', 'translations', 'tasks', 'reading'],
+    ['documents', 'translations', 'tasks', 'reading', 'sources'],
     'readwrite',
   );
   await tx.objectStore('documents').delete(hash);
@@ -122,13 +203,19 @@ export async function clearDocumentCache(hash: string): Promise<void> {
       cursor = await cursor.continue();
     }
   }
+  const sources = tx.objectStore('sources');
+  let sourceCursor = await sources.index('by-hash').openKeyCursor(hash);
+  while (sourceCursor) {
+    await sources.delete(sourceCursor.primaryKey);
+    sourceCursor = await sourceCursor.continue();
+  }
   await tx.done;
 }
 
 export async function clearAllCache(): Promise<void> {
   const db = await dbPromise;
   const tx = db.transaction(
-    ['documents', 'translations', 'tasks', 'reading'],
+    ['documents', 'translations', 'tasks', 'reading', 'sources'],
     'readwrite',
   );
   await Promise.all([
@@ -136,6 +223,7 @@ export async function clearAllCache(): Promise<void> {
     tx.objectStore('translations').clear(),
     tx.objectStore('tasks').clear(),
     tx.objectStore('reading').clear(),
+    tx.objectStore('sources').clear(),
   ]);
   await tx.done;
 }

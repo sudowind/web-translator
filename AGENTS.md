@@ -1,5 +1,13 @@
 # 项目协作约定
 
+## 固定工作区与人工验收
+
+- 主工作区 `D:\Projects\web-translate` 固定使用 `release` 分支，作为人工验收与浏览器插件加载入口；不得为开发临时切回 dev 或 feature 分支。
+- `dev` 工作区为 `D:\Projects\web-translate-worktrees\dev`；各 feature 分支继续使用各自独立工作区。
+- 功能修复在所属开发分支提交，再以普通 merge 合入 release；集成冲突在 release 解决，不将 release 整体回灌 feature 分支。
+- 验收插件固定加载 `D:\Projects\web-translate\web-translate-plugin\.output\chrome-mv3`。每轮合并与构建后重载原扩展，不卸载、不清空配置，不将开发工作区产物覆盖到此目录。
+- 数据库升级后不要用较低数据库版本的旧分支覆盖验收插件；独立回测使用独立浏览器环境。完整流程见 release 分支的 `docs/release-validation-workflow.md`。
+
 ## 文档语言
 
 - 本项目中的所有设计规格（spec）和实施计划（plan）必须使用中文编写。
@@ -9,6 +17,23 @@
 
 ## 当前规格记录
 
+- PDF 翻译状态与阅读位置自动恢复：`docs/superpowers/specs/2026-09-04-pdf-auto-resume-design.md`
+- PDF 自动恢复实施计划：`docs/superpowers/plans/2026-09-04-pdf-auto-resume-plan.md`
+
+- PDF 可见页清晰度补全：`docs/superpowers/specs/2026-09-04-pdf-visible-page-sharpness-design.md`
+- PDF 可见页清晰度实施计划：`docs/superpowers/plans/2026-09-04-pdf-visible-page-sharpness-plan.md`
+
+- 翻译输出协议与能力配置：`docs/superpowers/specs/2026-09-04-translation-output-capabilities-design.md`
+- 翻译输出能力实施计划：`docs/superpowers/plans/2026-09-04-translation-output-capabilities-plan.md`
+
+- 百炼 Qwen 翻译结构化输出加固：`docs/superpowers/specs/2026-09-04-qwen-translation-structured-output-design.md`
+- 百炼 Qwen 翻译结构化输出实施计划：`docs/superpowers/plans/2026-09-04-qwen-translation-structured-output-plan.md`
+- arXiv PDF 标识缓存与快速恢复：`docs/superpowers/specs/2026-09-03-arxiv-pdf-identity-cache-fast-restore-design.md`
+- arXiv PDF 标识缓存与快速恢复实施计划：`docs/superpowers/plans/2026-09-03-arxiv-pdf-identity-cache-fast-restore-plan.md`
+- PDF 工作台夜间主题与原稿柔和暗化：`docs/superpowers/specs/2026-09-03-pdf-night-theme-soft-dimming-design.md`
+- PDF 工作台夜间主题与原稿柔和暗化实施计划：`docs/superpowers/plans/2026-09-03-pdf-night-theme-soft-dimming-plan.md`
+- PDF 紧凑对译布局与缩放清晰度：`docs/superpowers/specs/2026-09-03-pdf-compact-reading-layout-canvas-clarity-design.md`
+- PDF 紧凑对译布局与缩放清晰度实施计划：`docs/superpowers/plans/2026-09-03-pdf-compact-reading-layout-canvas-clarity-plan.md`
 - PDF 长文档按需翻译与性能优化：`docs/superpowers/specs/2026-09-03-pdf-long-document-on-demand-performance-design.md`
 - PDF 长文档按需翻译与性能优化实施计划：`docs/superpowers/plans/2026-09-03-pdf-long-document-on-demand-performance-plan.md`
 - PDF 工作台现代化与易用性收口：`docs/superpowers/specs/2026-07-23-pdf-ui-polish-design.md`

@@ -77,11 +77,40 @@ describe('OpenAI 兼容翻译客户端', () => {
       }),
     );
     expect(body.messages[0].content).toContain('Preserve Markdown structure');
+    expect(body.messages[0].content).toContain('"translations":[{"id":');
+    expect(body.messages[0].content).toContain('"text":');
+    expect(body.messages[0].content).toContain('Both id and text must be strings');
     expect(body.messages[0].content).toContain('Do not translate math expressions');
     expect(body.messages[0].content).toContain('For table and figure blocks, the input text is caption only');
     expect(body.messages[0].content).toContain('never output a table body or image content');
     expect(body.messages[0].content).not.toContain('table rows/columns');
     expect(JSON.parse(body.messages[1].content).blocks[1]).toEqual({ id: 'b2', kind: 'table', text: '| A | B |' });
+  });
+
+  it('显式严格 Schema 解析分片 SSE，仍按原始 ID 对齐', async () => {
+    const content = JSON.stringify({ translations: [{ id: 'b2', text: '**结果**' }, { id: 'b1', text: '公式 $x^2$' }] });
+    const midpoint = Math.floor(content.length / 2);
+    const events = [content.slice(0, midpoint), content.slice(midpoint)]
+      .map((chunk) => `data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`).join('');
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(events + 'data: [DONE]\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    }));
+    const client = new OpenAiTranslationClient({
+      ...settings, defaultModel: 'qwen3.8-max',
+      translation: { ...settings.translation, outputMode: 'json_schema' },
+      baseUrl: 'https://test-workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    }, fetcher);
+    await expect(client.translate({
+      sourceLanguage: 'en', targetLanguage: 'zh-CN',
+      blocks: [{ id: 'b1', text: 'Formula $x^2$' }, { id: 'b2', text: '**Results**' }],
+    })).resolves.toEqual([{ id: 'b1', text: '公式 $x^2$' }, { id: 'b2', text: '**结果**' }]);
+    expect(fetcher).toHaveBeenCalledOnce();
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      model: 'qwen3.8-max', stream: true, enable_thinking: false,
+      response_format: { type: 'json_schema', json_schema: { strict: true } },
+    });
+    expect(body.messages[0].content).toContain('Both id and text must be strings');
   });
 
   it.each([

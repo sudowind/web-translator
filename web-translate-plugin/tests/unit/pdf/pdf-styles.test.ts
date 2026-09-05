@@ -12,6 +12,11 @@ describe('PDF 富文本与覆盖层样式契约', () => {
     expect(css).toMatch(/\.translation-block\[data-pinned="true"\][^}]*box-shadow:\s*inset 2px 0 var\(--pdf-primary\)/s);
     expect(css).toMatch(/\.page-pair-pdf[^}]*border:\s*0/s);
     expect(css).toMatch(/\.page-pair-translation[^}]*border:\s*0/s);
+    expect(css).toMatch(/\.page-pair\s*\{[^}]*grid-template-columns:\s*var\(--pdf-page-width\) var\(--translation-page-width\)/s);
+    expect(css).toMatch(/\.page-pair\s*\{[^}]*gap:\s*var\(--page-pair-gutter\)/s);
+    expect(css).toMatch(/\.page-pair\s*\{[^}]*margin-inline:\s*auto/s);
+    expect(css).toMatch(/\.page-pair\[data-layout="stacked"\][^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+    expect(css).not.toContain('minmax(320px, .72fr)');
     expect(css).toMatch(/\.translation-media-placeholder[^}]*min-height:\s*5[02]px/s);
     expect(css).not.toMatch(/\.translation-media-placeholder[^}]*border:\s*1px dashed/s);
     expect(css).toMatch(/\.workspace-content\.agent-closed[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
@@ -49,5 +54,14 @@ describe('PDF 富文本与覆盖层样式契约', () => {
     expect(css).toMatch(/\.translation-page-body[^}]*overflow-x:\s*hidden/s);
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('scrollbar-width: thin');
+  });
+
+  it('深色主题使用语义配色，并只对 PDF Canvas 应用柔和暗化', async () => {
+    const css = await readFile(resolve('entrypoints/pdf-workspace.content/style.css'), 'utf8');
+    expect(css).toContain(':root[data-web-translate-pdf-workspace="true"][data-pdf-theme="dark"]');
+    expect(css).toContain('--pdf-canvas-filter: brightness(.72) contrast(.92) saturate(.88) sepia(.04)');
+    expect(css).toMatch(/\.pdf-page-canvas-wrap canvas[^}]*filter:\s*var\(--pdf-canvas-filter\)/s);
+    expect(css).not.toMatch(/\.pdf-page-canvas-wrap\s*\{[^}]*filter:/s);
+    expect(css).toContain('color-scheme: dark');
   });
 });

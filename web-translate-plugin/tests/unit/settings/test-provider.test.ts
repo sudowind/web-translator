@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
+
+beforeEach(() => fakeBrowser.reset());
 
 import {
   dispatchSettingsTestLlm,
@@ -112,7 +115,7 @@ describe('LLM 独立配置测试', () => {
     };
 
     await expect(testLlmConfiguration(incompleteAgent, 'connection-test', clients)).resolves.toEqual({ connected: true });
-    await expect(testLlmConfiguration(incompleteAgent, 'translation', clients)).resolves.toEqual({ connected: true });
+    await expect(testLlmConfiguration(incompleteAgent, 'translation', clients)).resolves.toEqual({ connected: true, outputFormat: 'json_schema', downgraded: false });
   });
 
   it.each([
@@ -141,7 +144,7 @@ describe('LLM 独立配置测试', () => {
     expect(message).not.toContain('接口地址');
   });
 
-  it('后台仅允许精确 options 页面调用', async () => {
+  it('后台仅允许 options 页面调用，并允许控制台分区 Fragment', async () => {
     const run = vi.fn().mockResolvedValue({ connected: true });
     const message = { type: 'settings:test-llm', purpose: 'agent', settings };
     const optionsUrl = 'chrome-extension://extension-id/options.html';
@@ -150,6 +153,10 @@ describe('LLM 独立配置测试', () => {
       dispatchSettingsTestLlm(message, { id: 'extension-id', url: optionsUrl }, optionsUrl, run),
     ).resolves.toEqual({ ok: true, value: { connected: true } });
     expect(run).toHaveBeenCalledWith(settings, 'agent');
+
+    await expect(
+      dispatchSettingsTestLlm(message, { id: 'extension-id', url: `${optionsUrl}#providers` }, optionsUrl, run),
+    ).resolves.toEqual({ ok: true, value: { connected: true } });
 
     await expect(
       dispatchSettingsTestLlm(

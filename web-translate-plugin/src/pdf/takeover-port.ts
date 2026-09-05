@@ -1,12 +1,12 @@
 interface TakeoverBrowserApi {
   tabs: {
     get(tabId: number): Promise<{ url?: string }>;
-    sendMessage(tabId: number, message: { type: 'pdf-workspace:disable' | 'pdf-workspace:status' }): Promise<unknown>;
+    sendMessage(tabId: number, message: { type: 'pdf-workspace:disable' | 'pdf-workspace:status' }, options?: { documentId: string }): Promise<unknown>;
     reload(tabId: number): Promise<void>;
   };
   scripting: {
-    insertCSS(details: { target: { tabId: number }; files: string[] }): Promise<void>;
-    executeScript(details: { target: { tabId: number }; files?: string[]; func?: () => string }): Promise<unknown>;
+    insertCSS(details: { target: { tabId: number; documentIds?: string[] }; files: string[] }): Promise<void>;
+    executeScript(details: { target: { tabId: number; documentIds?: string[] }; files?: string[]; func?: (...args: any[]) => unknown; args?: unknown[] }): Promise<unknown>;
   };
 }
 
@@ -50,13 +50,26 @@ export class ChromePdfTakeoverAdapter implements PdfTakeoverPort {
     };
   }
 
-  async status(tabId: number): Promise<boolean> {
+  async status(tabId: number, documentId?: string): Promise<boolean> {
     try {
-      const response = await this.api.tabs.sendMessage(tabId, { type: 'pdf-workspace:status' }) as { ok?: boolean; value?: { enabled?: boolean } };
+      const response = await this.api.tabs.sendMessage(tabId, { type: 'pdf-workspace:status' }, documentId ? { documentId } : undefined) as { ok?: boolean; value?: { enabled?: boolean } };
       return response?.ok === true && response.value?.enabled === true;
     } catch {
       return false;
     }
+  }
+
+  async mountRemembered(tabId: number, expectedUrl: string): Promise<boolean> {
+    const [execution] = await this.api.scripting.executeScript({
+      target: { tabId },
+      func: (url: string) => location.href === url && document.contentType.toLowerCase().includes('application/pdf'),
+      args: [expectedUrl],
+    }) as Array<{ result?: boolean; documentId?: string }>;
+    if (execution?.result !== true || !execution.documentId) return false;
+    const target = { tabId, documentIds: [execution.documentId] };
+    await this.api.scripting.insertCSS({ target, files: ['/content-scripts/pdf-workspace.css'] });
+    await this.api.scripting.executeScript({ target, files: ['/content-scripts/pdf-workspace.js'] });
+    return true;
   }
 
   async probePdfContentType(tabId: number): Promise<boolean> {

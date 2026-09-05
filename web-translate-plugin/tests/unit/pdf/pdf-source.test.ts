@@ -22,7 +22,7 @@ describe('PDF 源读取', () => {
     expect(loaded.bytes).toEqual(pdf);
     expect(loaded).not.toHaveProperty('bytesBase64');
     expect(fetcher).toHaveBeenCalledWith('https://example.test/paper.pdf?x=1#p=2', {
-      credentials: 'omit', cache: 'no-store', signal: undefined,
+      credentials: 'omit', cache: 'default', signal: undefined,
     });
   });
 
@@ -79,5 +79,18 @@ describe('PDF 源读取', () => {
     expect(loaded.bytes.buffer).toBe(large.buffer);
     expect(loaded.descriptor.size).toBe(large.byteLength);
     expect(JSON.stringify(loaded.descriptor)).not.toMatch(/bytes|base64/i);
+  });
+
+  it('arXiv 完整读取回退仍使用规范论文键，不计算内容哈希', async () => {
+    const digest = vi.spyOn(crypto.subtle, 'digest');
+    const loaded = await loadPdfSource(
+      'https://arxiv.org/pdf/2510.12403.pdf#page=2',
+      vi.fn().mockResolvedValue(response(pdf)),
+    );
+    expect(loaded.descriptor).toMatchObject({
+      url: 'https://arxiv.org/pdf/2510.12403', hash: 'arxiv:2510.12403', title: '2510.12403.pdf',
+    });
+    expect(digest).not.toHaveBeenCalled();
+    digest.mockRestore();
   });
 });

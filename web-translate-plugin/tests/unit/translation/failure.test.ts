@@ -4,6 +4,11 @@ import { TranslationProviderError } from '../../../src/providers/openai/client';
 import { classifyTranslationFailure, formatTranslationFailure } from '../../../src/translation/failure';
 
 describe('翻译失败诊断', () => {
+  it('输出协议不支持时要求修改配置，不标记为可直接重试', () => {
+    expect(classifyTranslationFailure(new TranslationProviderError('TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED'), {
+      attempts: 1, durationMs: 500, model: 'any-model',
+    })).toMatchObject({ category: 'configuration', retryable: false, summary: expect.stringContaining('输出模式') });
+  });
   it('保留超时和 HTTP 限流错误', () => {
     expect(classifyTranslationFailure(
       new TranslationProviderError('TRANSLATION_TIMEOUT'),

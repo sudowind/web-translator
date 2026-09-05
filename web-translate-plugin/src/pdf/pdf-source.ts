@@ -1,4 +1,5 @@
 import type { PdfSourceDescriptor } from './messages';
+import { resolveArxivSource } from './arxiv-source';
 
 export interface LoadedPdfSource {
   descriptor: PdfSourceDescriptor;
@@ -6,7 +7,7 @@ export interface LoadedPdfSource {
 }
 
 export class PdfSourceError extends Error {
-  readonly name = 'PdfSourceError';
+  override readonly name = 'PdfSourceError';
 
   constructor(readonly code: string) {
     super(code);
@@ -41,14 +42,13 @@ export async function loadPdfSource(
   }
   if (!bytes) throw new PdfSourceError('PDF_FETCH_FAILED');
   if (!hasPdfSignature(bytes)) throw new PdfSourceError('PDF_SIGNATURE_INVALID');
-  const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
-  const hash = Array.from(new Uint8Array(digest), (value) =>
-    value.toString(16).padStart(2, '0')).join('');
-  const title = resolvePdfTitle(url, sourceResponse);
+  const arxiv = resolveArxivSource(rawUrl);
+  const hash = arxiv?.key ?? await sha256(bytes);
+  const title = arxiv?.title ?? resolvePdfTitle(url, sourceResponse);
   return {
     descriptor: {
-      url: rawUrl,
-      hash: `sha256:${hash}`,
+      url: arxiv?.pdfUrl ?? rawUrl,
+      hash,
       title,
       size: bytes.byteLength,
       kind,
@@ -124,9 +124,15 @@ async function safeFetch(
   signal?.throwIfAborted();
   try {
     const request = fetcher;
-    return await request(url, { credentials, cache: 'no-store', signal });
+    return await request(url, { credentials, cache: credentials === 'omit' ? 'default' : 'no-store', signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     return null;
   }
+}
+
+async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
+  const hash = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+  return `sha256:${hash}`;
 }

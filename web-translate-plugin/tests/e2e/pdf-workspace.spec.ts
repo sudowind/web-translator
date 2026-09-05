@@ -23,6 +23,7 @@ declare const chrome: {
 const extensionPath = resolve('.output/chrome-mv3');
 const mineruResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-paper.zip';
 const mineruLongResultUrl = 'https://cdn-mineru.openxlab.org.cn/pdf/e2e-long-paper.zip';
+const arxivFixtureUrl = 'https://arxiv.org/pdf/2510.99999';
 
 function createTwoPagePdf(label = 'Public'): Buffer {
   const streams = [
@@ -167,7 +168,10 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     batchInitializations: 0,
     uploads: 0,
     batchDataId: '',
+    arxivPdfMethods: [] as string[],
   };
+  let holdArxivPdf = false;
+  let releaseArxivPdfRequests: Array<() => void> = [];
   let translationFailureMode: 'none' | 'mixed' = 'none';
   let translationDelayMs = 0;
   let releaseAgentFinal: (() => void) | undefined;
@@ -332,6 +336,33 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
         `--load-extension=${extensionCopy}`,
       ],
     });
+    await context.route(`${arxivFixtureUrl}*`, async (route) => {
+      const method = route.request().method();
+      observed.arxivPdfMethods.push(method);
+      if (method === 'HEAD') {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'content-type': 'application/pdf',
+            'content-length': String(pdf.byteLength),
+            etag: '"arxiv-fixture-v1"',
+          },
+        });
+        return;
+      }
+      if (holdArxivPdf && !route.request().isNavigationRequest()) {
+        await new Promise<void>((resolveHeld) => releaseArxivPdfRequests.push(resolveHeld));
+      }
+      await route.fulfill({
+        status: 200,
+        headers: {
+          'content-type': 'application/pdf',
+          'content-length': String(pdf.byteLength),
+          'accept-ranges': 'bytes',
+        },
+        body: pdf,
+      });
+    });
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
     await context.route(mineruResultUrl, (route) => route.fulfill({
       status: 200,
@@ -388,6 +419,8 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   });
 
   test.afterEach(() => {
+    holdArxivPdf = false;
+    for (const release of releaseArxivPdfRequests.splice(0)) release();
     translationDelayMs = 0;
     translationFailureMode = 'none';
   });
@@ -475,6 +508,73 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage).toHaveScreenshot('editorial-workspace-agent-closed.png', {
       animations: 'disabled',
     });
+
+    await pdfPage.setViewportSize({ width: 2560, height: 1271 });
+    await pdfPage.evaluate(() => window.scrollTo(0, 150));
+    const anchorProgressBeforeZoom = await pdfPage.locator('[data-page-pair="1"]').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return (68 - rect.top) / rect.height;
+    });
+    for (let step = 0; step < 7; step += 1) await pdfPage.getByRole('button', { name: '放大' }).click();
+    await expect(pdfPage.locator('.paired-page-stream')).toHaveAttribute('data-render-scale', '1.80');
+    await expect(pdfPage.locator('[data-page-pair="1"] .pdf-page-canvas-wrap')).toHaveAttribute('data-rendering', 'false');
+    const anchorError = await pdfPage.locator('[data-page-pair="1"]').evaluate((element, previousProgress) => {
+      const rect = element.getBoundingClientRect();
+      return Math.abs(((68 - rect.top) / rect.height) - previousProgress) * rect.height;
+    }, anchorProgressBeforeZoom);
+    expect(anchorError).toBeLessThanOrEqual(8);
+    await pdfPage.evaluate(() => window.scrollTo(0, 0));
+    const compactClosed = await pdfPage.evaluate(() => {
+      const stream = document.querySelector('.paired-page-stream')!.getBoundingClientRect();
+      const pair = document.querySelector('[data-page-pair="1"]')!.getBoundingClientRect();
+      const pdf = document.querySelector('[data-page-pair="1"] .page-pair-pdf')!.getBoundingClientRect();
+      const translation = document.querySelector('[data-page-pair="1"] .page-pair-translation')!.getBoundingClientRect();
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-page-pair="1"] canvas[data-active="true"]')!;
+      const canvasRect = canvas.getBoundingClientRect();
+      return {
+        mode: document.querySelector('[data-page-pair="1"]')!.getAttribute('data-layout'),
+        gutter: translation.left - pdf.right,
+        translationWidth: translation.width,
+        outerMarginDifference: Math.abs(pair.left - stream.left - (stream.right - pair.right)),
+        horizontalOverflow: document.documentElement.scrollWidth - innerWidth,
+        bitmapDensity: canvas.width / canvasRect.width,
+      };
+    });
+    expect(compactClosed.mode).toBe('paired');
+    expect(compactClosed.gutter).toBeGreaterThanOrEqual(12);
+    expect(compactClosed.gutter).toBeLessThanOrEqual(21);
+    expect(compactClosed.translationWidth).toBeLessThanOrEqual(720.5);
+    expect(compactClosed.outerMarginDifference).toBeLessThanOrEqual(2);
+    expect(compactClosed.horizontalOverflow).toBeLessThanOrEqual(1);
+    expect(compactClosed.bitmapDensity).toBeGreaterThanOrEqual(1.49);
+    await expect(pdfPage).toHaveScreenshot('compact-reading-2560-180.png', { animations: 'disabled' });
+
+    const wideAgentToggle = pdfPage.getByRole('button', { name: '论文智能体' });
+    await wideAgentToggle.click();
+    await expect(pdfPage.locator('.agent-panel')).toBeVisible();
+    const compactOpen = await pdfPage.evaluate(() => {
+      const pair = document.querySelector('[data-page-pair="1"]')!.getBoundingClientRect();
+      const pdf = document.querySelector('[data-page-pair="1"] .page-pair-pdf')!.getBoundingClientRect();
+      const translation = document.querySelector('[data-page-pair="1"] .page-pair-translation')!.getBoundingClientRect();
+      const agent = document.querySelector('.agent-panel')!.getBoundingClientRect();
+      return {
+        mode: document.querySelector('[data-page-pair="1"]')!.getAttribute('data-layout'),
+        gutter: translation.left - pdf.right,
+        translationWidth: translation.width,
+        overlap: Math.max(0, pair.right - agent.left),
+      };
+    });
+    expect(compactOpen.mode).toBe('paired');
+    expect(compactOpen.gutter).toBeGreaterThanOrEqual(12);
+    expect(compactOpen.gutter).toBeLessThanOrEqual(21);
+    expect(compactOpen.translationWidth).toBeLessThanOrEqual(720.5);
+    expect(compactOpen.overlap).toBe(0);
+    await expect(pdfPage).toHaveScreenshot('compact-reading-2560-180-agent-open.png', { animations: 'disabled' });
+    await pdfPage.getByRole('button', { name: '收起' }).click();
+
+    for (let step = 0; step < 7; step += 1) await pdfPage.getByRole('button', { name: '缩小' }).click();
+    await expect(pdfPage.locator('.paired-page-stream')).toHaveAttribute('data-render-scale', '1.10');
+    await pdfPage.setViewportSize({ width: 1440, height: 1000 });
     await pageOne.evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await expect(pageOne).toHaveScreenshot('rich-translation-page.png', { animations: 'disabled' });
     const richTranslationBody = pageOne.locator('.translation-page-body');
@@ -578,6 +678,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
 
     for (const viewport of [{ width: 800, height: 800 }, { width: 375, height: 760 }]) {
       await pdfPage.setViewportSize(viewport);
+      await pdfPage.evaluate(() => window.scrollTo(0, 0));
       const responsiveLayout = await pdfPage.evaluate(() => {
         const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect();
         const agent = document.querySelector('.agent-panel')!.getBoundingClientRect();
@@ -598,6 +699,30 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     }
     await pdfPage.setViewportSize({ width: 1440, height: 1000 });
 
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '深色' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'dark');
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(() => pdfPage.locator('canvas[data-active="true"]').first().evaluate(
+      (canvas) => getComputedStyle(canvas).filter,
+    )).toContain('brightness(0.72)');
+    await pdfPage.evaluate(() => window.scrollTo(0, 0));
+    await expect(pdfPage).toHaveScreenshot('pdf-workspace-dark.png', { animations: 'disabled' });
+
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '浅色' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'light');
+    await expect.poll(() => pdfPage.locator('canvas[data-active="true"]').first().evaluate(
+      (canvas) => getComputedStyle(canvas).filter,
+    )).toBe('none');
+
+    await pdfPage.emulateMedia({ colorScheme: 'dark' });
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '跟随系统' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'dark');
+    await pdfPage.emulateMedia({ colorScheme: 'light' });
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'light');
+
     const restoredPageLoaded = pdfPage.waitForEvent('load');
     await pdfPage.getByLabel('更多操作').click();
     await expect(pdfPage.getByRole('menu')).toBeVisible();
@@ -612,6 +737,49 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
     await expect(pdfPage).toHaveURL(sourceUrl);
     await pdfPage.close();
+  });
+
+  test('非整数缩放与 DPR 变化后，全部可见 PDF 页达到最终密度且无 CSS 二次缩放', async () => {
+    const pdfPage = await context.newPage();
+    const cdp = await context.newCDPSession(pdfPage);
+    try {
+      await pdfPage.setViewportSize({ width: 1600, height: 1900 });
+      await pdfPage.goto(`${origin}/download?id=public&clarity=1`);
+      await enableWorkspace(pdfPage);
+      for (const deviceScaleFactor of [1, 1.25, 2, 3]) {
+        // CDP 仅改 density 不派发 resize/media change；同时改 viewport 验证真实事件链。
+        // 无 resize 的 media change 路径由组件回归单独覆盖。
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1600 + Math.round(deviceScaleFactor * 4), height: 1900, deviceScaleFactor, mobile: false });
+        await pdfPage.evaluate(() => window.scrollTo(0, 0));
+        await expect.poll(() => pdfPage.evaluate(() => window.devicePixelRatio)).toBe(deviceScaleFactor);
+        // 两页同时可见；第二页不能因不是主导页而一直停留在预览密度。
+        for (const number of [1, 2]) {
+          const wrap = pdfPage.locator(`[data-page-pair="${number}"] .pdf-page-canvas-wrap`);
+          await expect(wrap).toBeInViewport();
+          const expected = Math.max(1.5, deviceScaleFactor);
+          await expect.poll(async () => Number(await wrap.getAttribute('data-output-scale'))).toBeCloseTo(expected, 2);
+          await expect(wrap).toHaveAttribute('data-rendering', 'false');
+          const measure = await wrap.evaluate((element) => {
+            const canvas = element.querySelector<HTMLCanvasElement>('canvas[data-active="true"]')!;
+            const rect = canvas.getBoundingClientRect();
+            const css = getComputedStyle(canvas);
+            return { density: canvas.width / rect.width, pixels: canvas.width * canvas.height,
+              widthError: Math.abs(rect.width - parseFloat(canvas.style.width)),
+              heightError: Math.abs(rect.height - parseFloat(canvas.style.height)),
+              maxWidth: css.maxWidth, transform: css.transform };
+          });
+          expect(measure.density).toBeGreaterThanOrEqual(expected - 0.01);
+          expect(measure.pixels).toBeLessThanOrEqual(8_388_608 + 5000);
+          expect(measure.widthError).toBeLessThan(0.02);
+          expect(measure.heightError).toBeLessThan(0.02);
+          expect(measure.maxWidth).toBe('none');
+          expect(measure.transform).toBe('none');
+        }
+      }
+    } finally {
+      await cdp.detach();
+      await pdfPage.close();
+    }
   });
 
   test('76 页长文档按需翻译、限制正文挂载并支持模式切换和缓存恢复', async () => {
@@ -637,7 +805,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage.locator('[data-page-pair]')).toHaveCount(76);
     await expect(pdfPage.locator('[data-translation-page]')).toHaveCount(76);
     await expect(pdfPage.locator('[data-page-pair="40"]')).toBeInViewport();
-    await expect(pdfPage.locator('[data-page-pair="40"] canvas')).toBeVisible();
+    await expect(pdfPage.locator('[data-page-pair="40"] canvas[data-active="true"]')).toBeVisible();
     const firstReadableMs = await pdfPage.evaluate(() => performance.now() -
       (window as typeof window & { __pdfLongMetrics: { startedAt: number } }).__pdfLongMetrics.startedAt);
     await expect.poll(() => observed.translationPages.length).toBe(4);
@@ -684,12 +852,14 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     });
 
     const initialRequestCount = observed.translationPages.length;
-    await pdfPage.evaluate(async () => {
-      for (const page of [10, 20, 30]) {
-        document.querySelector<HTMLElement>(`[data-page-pair="${page}"]`)!.scrollIntoView({ block: 'start' });
-        await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
-      }
-    });
+    for (const page of [10, 20, 30]) {
+      await pdfPage.evaluate((targetPage) => {
+        document.querySelector<HTMLElement>(`[data-page-pair="${targetPage}"]`)!.scrollIntoView({ block: 'start' });
+      }, page);
+      // Observe each intended page before the next scroll; a single RAF can coalesce
+      // IntersectionObserver updates into a direct 40 -> 30 upward movement.
+      await pdfPage.waitForFunction((targetPage) => document.querySelector('main[data-renderer="pdfjs"]')?.getAttribute('data-pdf-render-page') === String(targetPage), page, { polling: 'raf' });
+    }
     await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '30');
     await pdfPage.waitForTimeout(100);
     expect(observed.translationPages).toHaveLength(initialRequestCount);
@@ -733,7 +903,115 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await cachedPage.close();
   });
 
-  test('真实 arXiv 76 页样本可由内容脚本读取并保持原 URL 恢复', async () => {
+  test('记住 PDF 翻译状态，刷新和新标签页自动恢复阅读位置，关闭后不再自动开启', async () => {
+    test.setTimeout(90_000);
+    const sourceUrl = `${origin}/download?id=long&resume=1`;
+    const pdfPage = await context.newPage();
+    await pdfPage.goto(sourceUrl);
+    await enableWorkspace(pdfPage);
+    await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    // Release integration: remembered reading must also retain the night-mode preference.
+    await pdfPage.getByLabel('更多操作').click();
+    await pdfPage.getByRole('menuitemradio', { name: '深色' }).click();
+    await expect(pdfPage.locator('html')).toHaveAttribute('data-pdf-theme', 'dark');
+    await pdfPage.getByRole('button', { name: '放大', exact: true }).click();
+    await expect(pdfPage.getByLabel('当前缩放比例')).toHaveText('120%');
+    await pdfPage.getByLabel('跳转页码').fill('40');
+    await pdfPage.getByLabel('跳转页码').press('Enter');
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '40');
+    await expect(pdfPage.locator('[data-translation-page="40"]')).toHaveAttribute('data-status', 'done');
+    await expect.poll(() => pdfPage.locator('[data-page-pair="40"]').evaluate((element) => element.getBoundingClientRect().top)).toBeCloseTo(68, 0);
+    await pdfPage.evaluate(() => {
+      const rect = document.querySelector('[data-page-pair="40"]')!.getBoundingClientRect();
+      window.scrollBy(0, rect.top - 68 + rect.height * 0.25);
+    });
+    await pdfPage.waitForTimeout(800);
+    const progress = async (page: Page) => page.locator('[data-page-pair="40"]').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return (68 - rect.top) / rect.height;
+    });
+    expect(await progress(pdfPage)).toBeCloseTo(0.25, 1);
+    const providerCount = observed.translationPages.length;
+    const parseCount = observed.urlTasks.length;
+
+    // No enableWorkspace call after reload: this is the persisted auto-resume path.
+    await pdfPage.reload();
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-pdf-render-page', '40', { timeout: 30_000 });
+    await expect(pdfPage.getByLabel('跳转页码')).toHaveValue('40');
+    await expect(pdfPage.getByLabel('当前缩放比例')).toHaveText('120%');
+    await expect(pdfPage.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(() => progress(pdfPage)).toBeCloseTo(0.25, 1);
+    await expect(pdfPage.locator('[data-translation-page="40"]')).toHaveAttribute('data-status', 'done');
+    await pdfPage.waitForTimeout(700);
+    expect(observed.translationPages).toHaveLength(providerCount);
+    expect(observed.urlTasks).toHaveLength(parseCount);
+    await pdfPage.close();
+
+    const reopened = await context.newPage();
+    await reopened.goto(sourceUrl);
+    await expect(reopened.getByLabel('跳转页码')).toHaveValue('40', { timeout: 30_000 });
+    await expect(reopened.locator('main[data-renderer="pdfjs"]')).toHaveAttribute('data-theme', 'dark');
+    await expect.poll(() => progress(reopened)).toBeCloseTo(0.25, 1);
+    await reopened.getByLabel('更多操作').click();
+    await reopened.getByRole('menuitemradio', { name: '跟随系统' }).click();
+    await reopened.close();
+
+    const explicitPage = await context.newPage();
+    await explicitPage.goto(`${sourceUrl}#page=2`);
+    await expect(explicitPage.getByLabel('跳转页码')).toHaveValue('2', { timeout: 30_000 });
+    await explicitPage.bringToFront();
+    const [tab] = await extensionPage.evaluate(() => chrome.tabs.query({ active: true, currentWindow: true }));
+    await extensionPage.evaluate(async (tabId) => chrome.scripting.executeScript({
+      target: { tabId }, func: () => chrome.runtime.sendMessage({ type: 'pdf-workspace:disable' }),
+    }), tab.id!);
+    await expect(explicitPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
+    await explicitPage.reload();
+    await explicitPage.waitForTimeout(700);
+    await expect(explicitPage.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
+    await explicitPage.close();
+
+    const unrelated = await context.newPage();
+    await unrelated.goto(`${origin}/download?id=public&resume=unrelated`);
+    await unrelated.waitForTimeout(700);
+    await expect(unrelated.locator('main[data-renderer="pdfjs"]')).toHaveCount(0);
+    await unrelated.close();
+  });
+
+  test('arXiv 二次打开先恢复缓存，版本检查只用 HEAD 且不等待 PDF.js', async () => {
+    test.setTimeout(120_000);
+    observed.arxivPdfMethods.length = 0;
+    observed.urlTasks.length = 0;
+    observed.translationPages.length = 0;
+    const firstPage = await context.newPage();
+    await firstPage.goto(arxivFixtureUrl);
+    await enableWorkspace(firstPage);
+    await expect(firstPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await expect(firstPage.locator('[data-translation-page="2"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    expect(observed.urlTasks).toEqual([arxivFixtureUrl]);
+    const providerPageCount = observed.translationPages.length;
+    const mineruTaskCount = observed.urlTasks.length;
+    await firstPage.close();
+
+    const cachedPage = await context.newPage();
+    holdArxivPdf = true;
+    await cachedPage.goto(arxivFixtureUrl);
+    await expect(cachedPage.locator('main[data-renderer="pdfjs"]')).toBeVisible({ timeout: 30_000 });
+    await expect(cachedPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await expect(cachedPage.locator('canvas')).toHaveCount(0);
+    expect(observed.urlTasks).toHaveLength(mineruTaskCount);
+    expect(observed.translationPages).toHaveLength(providerPageCount);
+    expect(observed.arxivPdfMethods.filter((method) => method === 'HEAD').length).toBeGreaterThanOrEqual(2);
+
+    holdArxivPdf = false;
+    for (const release of releaseArxivPdfRequests.splice(0)) release();
+    await expect(cachedPage.locator('[data-pdf-page="1"] canvas[data-active="true"]')).toBeVisible({ timeout: 30_000 });
+    await cachedPage.getByLabel('更多操作').click();
+    await cachedPage.getByRole('menuitem', { name: '清理本文缓存' }).click();
+    await expect.poll(() => observed.urlTasks.length).toBe(mineruTaskCount + 1);
+    await cachedPage.close();
+  });
+
+  test('真实 arXiv 76 页样本可由 PDF.js URL 路径读取并保持原 URL 恢复', async () => {
     test.skip(process.env.PDF_ARXIV_FEASIBILITY !== '1', '仅用于一次性真实浏览器源读取门禁');
     test.setTimeout(180_000);
     const sourceUrl = 'https://arxiv.org/pdf/2510.12403';
@@ -743,7 +1021,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await expect(pdfPage).toHaveURL(sourceUrl);
     await expect(pdfPage.locator('.workspace-title')).toContainText('2510.12403', { timeout: 90_000 });
     await expect(pdfPage.locator('.workspace-page-total')).toHaveText('/ 76', { timeout: 60_000 });
-    await expect(pdfPage.locator('[data-pdf-page="1"] canvas')).toBeVisible();
+    await expect(pdfPage.locator('[data-pdf-page="1"] canvas[data-active="true"]')).toBeVisible();
 
     const restored = pdfPage.waitForEvent('load');
     await pdfPage.getByLabel('更多操作').click();

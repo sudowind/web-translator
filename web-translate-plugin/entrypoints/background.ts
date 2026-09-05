@@ -18,6 +18,7 @@ import {
 } from '../src/pdf/popup-client';
 import { ChromePdfTakeoverAdapter } from '../src/pdf/takeover-port';
 import { PdfWorkspaceService } from '../src/pdf/workspace-service';
+import { arxivSourceKeyMatches, resolveArxivSource, samePdfSource } from '../src/pdf/arxiv-source';
 import { getSettings } from '../src/settings/store';
 import {
   dispatchSettingsTestLlm,
@@ -26,13 +27,28 @@ import {
 } from '../src/settings/test-provider';
 import { WebpageTranslationService } from '../src/webpage/translation-service';
 import { PageTranslationError } from '../src/translation/translate-page';
+import { dispatchDashboardMessage, isDashboardCandidate } from '../src/dashboard/messages';
+import { clearAllCache, getStorageSummary, historyRepository } from '../src/storage/repositories';
+import { PdfAutoResumeController } from '../src/pdf/auto-resume';
+import { PdfReadingStateStore, isPdfReadingMessage } from '../src/pdf/reading-state';
+import { handlePdfReadingMessage } from '../src/pdf/reading-state-handler';
 
 export default defineBackground(() => {
   console.info('PDF takeover probe ready');
-  const webpageTranslation = new WebpageTranslationService(getSettings);
+  const optionsUrl = normalizeExtensionPageUrl(browser.runtime.getURL('/options.html'));
+  const webpageTranslation = new WebpageTranslationService(
+    getSettings,
+    undefined,
+    (entry) => historyRepository.put(entry),
+  );
   const pdfWorkspace = new PdfWorkspaceService();
   const pdfTakeover = new ChromePdfTakeoverAdapter();
-  const enabledPdfTabs = new Set<number>();
+  const pdfReading = new PdfReadingStateStore();
+  const pdfResume = new PdfAutoResumeController(pdfReading, {
+    getTab: (tabId) => browser.tabs.get(tabId),
+    status: (tabId) => pdfTakeover.status(tabId),
+    mountRemembered: (tabId, url) => pdfTakeover.mountRemembered(tabId, url),
+  });
   void pdfWorkspace.resumePending().catch(() => undefined);
 
   async function getActiveTab() {
@@ -120,30 +136,55 @@ export default defineBackground(() => {
     const tab = sender.tab?.id !== undefined && sender.tab.url
       ? { id: sender.tab.id, url: sender.tab.url }
       : await getActiveTab();
-    const mounted = await pdfTakeover.status(tab.id);
-    const eligible = mounted || isLikelyPdfUrl(tab.url) || await pdfTakeover.probePdfContentType(tab.id).catch(() => false);
-    if (message.type === 'pdf-workspace:enable') {
-      if (!eligible) throw new Error('PDF_NOT_ELIGIBLE');
-      if (!mounted) await pdfTakeover.mount(tab.id);
-    } else if (message.type === 'pdf-workspace:disable' && mounted) {
-      pdfWorkspace.dispose(tab.id);
-      await pdfTakeover.restore(tab.id);
-    }
-    const enabled = message.type === 'pdf-workspace:disable' ? false : await pdfTakeover.status(tab.id);
-    return { eligible, enabled, url: tab.url };
+    if (message.type !== 'pdf-workspace:status') pdfResume.invalidate(tab.id);
+    return pdfResume.serialize(tab.id, async () => {
+      const currentTab = await browser.tabs.get(tab.id);
+      if (currentTab.url !== tab.url) throw new Error('PDF_URL_CHANGED');
+      const mounted = await pdfTakeover.status(tab.id);
+      const eligible = mounted || isLikelyPdfUrl(tab.url) || await pdfTakeover.probePdfContentType(tab.id).catch(() => false);
+      if (message.type === 'pdf-workspace:enable') {
+        if (!eligible) throw new Error('PDF_NOT_ELIGIBLE');
+        if (!mounted) await pdfTakeover.mount(tab.id);
+        if (!currentTab.incognito) await pdfReading.setEnabled(tab.url, true);
+      } else if (message.type === 'pdf-workspace:disable') {
+        if (!currentTab.incognito) await pdfReading.setEnabled(tab.url, false);
+        if (mounted) {
+          pdfWorkspace.dispose(tab.id);
+          await pdfTakeover.restore(tab.id);
+        }
+      }
+      const enabled = message.type === 'pdf-workspace:disable' ? false : await pdfTakeover.status(tab.id);
+      return { eligible, enabled, url: tab.url };
+    });
   }
 
   browser.tabs.onRemoved.addListener((tabId) => {
     pdfWorkspace.dispose(tabId);
-    enabledPdfTabs.delete(tabId);
+    pdfResume.forget(tabId);
   });
-  browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (!changeInfo.url) return;
-    pdfWorkspace.dispose(tabId);
-    enabledPdfTabs.delete(tabId);
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url || changeInfo.status === 'loading') {
+      pdfWorkspace.dispose(tabId);
+      pdfResume.invalidate(tabId);
+    }
+    if (changeInfo.status === 'complete' && tab.url && !tab.incognito) {
+      void pdfResume.restore(tabId, tab.url).catch(() => undefined);
+    }
   });
 
   browser.runtime.onMessage.addListener((message: unknown, _, sendResponse) => {
+    if (isPdfReadingMessage(message)) {
+      void handlePdfReadingMessage(message, _, {
+        getTab: (tabId) => browser.tabs.get(tabId),
+        status: (tabId, documentId) => pdfTakeover.status(tabId, documentId),
+        capture: (tabId) => pdfResume.capture(tabId),
+        store: pdfReading,
+      }).then(
+        (value) => sendResponse({ ok: true, value }),
+        (error: unknown) => sendResponse({ ok: false, error: safePdfError(error) }),
+      );
+      return true;
+    }
     if (isPdfWorkspacePopupMessage(message)) {
       void handlePdfWorkspacePopup(message, _).then(
         (value) => sendResponse({ ok: true, value }),
@@ -159,10 +200,23 @@ export default defineBackground(() => {
         sendResponse({ ok: false, error: 'PDF_MESSAGE_SENDER_INVALID' } satisfies PdfMessageResponse);
         return undefined;
       }
-      void pdfWorkspace.handle(message, tabId).then(
+      void pdfWorkspace.handle(message, tabId, senderUrl).then(
         (value) => sendResponse({ ok: true, value } satisfies PdfMessageResponse),
         (error: unknown) => sendResponse(safePdfMessageError(error)),
       );
+      return true;
+    }
+
+    if (isDashboardCandidate(message)) {
+      void dispatchDashboardMessage(message, _, optionsUrl, {
+        listHistory: () => historyRepository.listRecent(),
+        getHistory: (id) => historyRepository.get(id),
+        deleteHistory: (id) => historyRepository.delete(id),
+        clearHistory: () => historyRepository.clear(),
+        clearCache: clearAllCache,
+        getSummary: getStorageSummary,
+        openUrl: async (url) => { await browser.tabs.create({ url }); },
+      }).then(sendResponse);
       return true;
     }
 
@@ -170,7 +224,7 @@ export default defineBackground(() => {
       void dispatchSettingsTestLlm(
         message,
         _,
-        normalizeExtensionPageUrl(browser.runtime.getURL('/options.html')),
+        optionsUrl,
       ).then(sendResponse);
       return true;
     }
@@ -204,7 +258,11 @@ export default defineBackground(() => {
 
 function messageMatchesSender(message: PdfMessage, senderUrl: string): boolean {
   if (message.type === 'pdf:parse-start') {
-    return message.source.url === senderUrl;
+    return arxivSourceKeyMatches(message.source.url, message.source.hash) &&
+      samePdfSource(message.source.url, senderUrl);
+  }
+  if (message.type === 'pdf:document-resolve' || message.type === 'pdf:cache-clear-source') {
+    return samePdfSource(message.sourceUrl, senderUrl);
   }
   return true;
 }
@@ -229,8 +287,7 @@ function isLikelyPdfUrl(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    return url.pathname.toLowerCase().endsWith('.pdf') ||
-      (url.hostname === 'arxiv.org' && url.pathname.startsWith('/pdf/'));
+    return url.pathname.toLowerCase().endsWith('.pdf') || resolveArxivSource(rawUrl) !== null;
   } catch {
     return false;
   }

@@ -88,7 +88,7 @@ describe('逐页翻译', () => {
     expect(retrying).toHaveBeenCalledTimes(3);
     expect(sleep.mock.calls).toEqual([[1000], [2000]]);
 
-    for (const code of ['TRANSLATION_TIMEOUT', 'TRANSLATION_JSON_INVALID', 'TRANSLATION_ID_MISSING']) {
+    for (const code of ['TRANSLATION_TIMEOUT', 'TRANSLATION_JSON_INVALID', 'TRANSLATION_ID_MISSING', 'TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED']) {
       const translate = vi.fn().mockRejectedValue(new TranslationProviderError(code));
       await expect(translatePage(
         { translate }, page,

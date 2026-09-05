@@ -19,15 +19,21 @@ import {
 import { OperationEpoch } from './operation-epoch';
 import { PairedPageViewer } from './PairedPageViewer';
 import { loadPdfSource } from './pdf-source';
+import { describeArxivPdfSource } from './arxiv-source';
 import { initialPageFromUrl } from './source-page';
+import { usePdfTheme } from './theme';
+import type { PdfReadingPosition } from './reading-state';
 import type { TranslationPageStatus } from './TranslationPane';
 import { WorkspaceToolbar, workspaceFeedbackPlacement } from './WorkspaceToolbar';
 import { initialLifecycleState, lifecycleReducer } from './workspace-reducer';
 
-export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
+export function PdfWorkspace({ sourceUrl, initialReading }: { sourceUrl: string; initialReading?: PdfReadingPosition }) {
+  const { preference: themePreference, resolvedTheme, setPreference: setThemePreference } = usePdfTheme();
   const [lifecycle, dispatch] = React.useReducer(lifecycleReducer, initialLifecycleState);
   const [source, setSource] = React.useState<PdfSourceDescriptor | null>(null);
   const [pdfBytes, setPdfBytes] = React.useState<Uint8Array | null>(null);
+  const [pdfUrl, setPdfUrl] = React.useState<string | null>(null);
+  const [sourcePrepared, setSourcePrepared] = React.useState(false);
   const [model, setModel] = React.useState<DocumentModel | null>(null);
   const [translationsByPage, setTranslationsByPage] = React.useState(
     new Map<number, ReadonlyMap<string, TranslationResult>>(),
@@ -35,9 +41,10 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const [pageStatus, setPageStatus] = React.useState(new Map<number, TranslationPageStatus>());
   const [pageFailures, setPageFailures] = React.useState(new Map<number, TranslationFailure>());
   const [pageAttempts, setPageAttempts] = React.useState(new Map<number, number>());
-  const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl));
-  const [navigationPage, setNavigationPage] = React.useState(() => initialPageFromUrl(sourceUrl));
-  const [scale, setScale] = React.useState(1.1);
+  const [activePage, setActivePage] = React.useState(() => initialPageFromUrl(sourceUrl, initialReading?.page ?? 1));
+  const [navigationPage, setNavigationPage] = React.useState(() => initialPageFromUrl(sourceUrl, initialReading?.page ?? 1));
+  const [navigationProgress, setNavigationProgress] = React.useState(() => initialPageFromUrl(sourceUrl, 0) > 0 ? 0 : initialReading?.progress ?? 0);
+  const [scale, setScale] = React.useState(initialReading?.scale ?? 1.1);
   const [translationMode, setTranslationMode] = React.useState<TranslationMode>('full-document');
   const [feedback, setFeedback] = React.useState('正在读取 PDF 字节');
   const [documentPageCount, setDocumentPageCount] = React.useState(0);
@@ -56,9 +63,11 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   const pendingAgentDelta = React.useRef('');
   const agentFlushTimer = React.useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const activePageRef = React.useRef(activePage);
+  const modelRef = React.useRef<DocumentModel | null>(model);
   const readingDirectionRef = React.useRef<ReadingDirection>(0);
   const snapshotRequestCount = React.useRef(0);
   activePageRef.current = activePage;
+  modelRef.current = model;
   const highlightedBlockId = previewBlockId ?? pinnedBlockId;
   const pageCount = model?.pageCount ?? documentPageCount;
   const feedbackPlacement = workspaceFeedbackPlacement(lifecycle.phase);
@@ -104,15 +113,49 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }, []);
 
   React.useEffect(() => {
+    operationEpoch.current.advance();
     dispatch({ type: 'load-started' });
     setSource(null);
     setPdfBytes(null);
+    setPdfUrl(null);
+    setSourcePrepared(false);
+    setDocumentPageCount(0);
+    setModel(null);
+    modelRef.current = null;
+    setTranslationsByPage(new Map());
+    setPageStatus(new Map());
+    parseStarted.current = false;
     let cancelled = false;
     const controller = new AbortController();
+    const arxivSource = describeArxivPdfSource(sourceUrl);
+    if (arxivSource) {
+      setSource(arxivSource);
+      setPdfUrl(arxivSource.url);
+      setFeedback('正在检查本地缓存；PDF 原文独立加载');
+      void sendPdfMessage({ type: 'pdf:document-resolve', sourceUrl }).then((value) => {
+        if (cancelled || value === null) return;
+        if (!isDocument(value)) throw new Error('PDF_DOCUMENT_INVALID');
+        parseStarted.current = true;
+        modelRef.current = value;
+        setModel(value);
+        dispatch({ type: 'cache-restored' });
+        setFeedback('已恢复解析缓存，正在恢复译文；PDF 原文独立加载');
+      }).catch(() => {
+        if (!cancelled) setFeedback('缓存检查不可用，正在准备 PDF 页面');
+      }).finally(() => {
+        if (!cancelled) setSourcePrepared(true);
+      });
+      return () => {
+        cancelled = true;
+        controller.abort();
+        void sendPdfMessage({ type: 'pdf:cancel' }).catch(() => undefined);
+      };
+    }
     void loadPdfSource(sourceUrl, globalThis.fetch, controller.signal).then(({ descriptor, bytes }) => {
       if (cancelled) return;
       setSource(descriptor);
       setPdfBytes(bytes);
+      setSourcePrepared(true);
       setFeedback('PDF.js 正在准备页面；左栏无需等待解析');
     }).catch(() => {
       if (!cancelled) {
@@ -141,6 +184,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     }).then((value) => {
       if (!operationEpoch.current.isCurrent(epoch)) return;
       if (!isDocument(value)) throw new Error('PDF_DOCUMENT_INVALID');
+      modelRef.current = value;
       setModel(value);
       dispatch({ type: 'parse-done' });
       setFeedback('解析完成，正在从第 1 页开始翻译');
@@ -156,12 +200,20 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     if (!source) return;
     setDocumentPageCount(pageCount);
     dispatch({ type: 'source-loaded', sourceKind: source.kind });
+    if (modelRef.current) {
+      dispatch({ type: 'cache-restored' });
+      return;
+    }
     if (source.kind === 'authenticated') {
       setFeedback('需要明确同意后才能把此 PDF 上传到 MinerU；左栏仍可阅读');
       return;
     }
-    startParse(pageCount, false);
-  }, [source, startParse]);
+  }, [source]);
+
+  React.useEffect(() => {
+    if (!sourcePrepared || !source || source.kind !== 'remote' || documentPageCount < 1 || model) return;
+    startParse(documentPageCount, false);
+  }, [documentPageCount, model, source, sourcePrepared, startParse]);
 
   React.useEffect(() => {
     if (!model) return;
@@ -262,12 +314,35 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     }
   }, [activePage, model, pageStatus, translationMode]);
 
+  React.useEffect(() => {
+    if (!source || pageCount < 1) return;
+    const timer = globalThis.setTimeout(() => {
+      void sendPdfMessage({
+        type: 'pdf:history-update', hash: model?.hash ?? source.hash,
+        title: model?.title ?? source.title, page: Math.min(activePage, pageCount), pageCount,
+      }).catch(() => undefined);
+    }, 350);
+    return () => globalThis.clearTimeout(timer);
+  }, [activePage, model?.hash, model?.title, pageCount, source]);
+
   const onPageVisible = React.useCallback((page: number) => {
     const previous = activePageRef.current;
     readingDirectionRef.current = page === previous ? readingDirectionRef.current : page > previous ? 1 : -1;
     activePageRef.current = page;
     setActivePage(page);
   }, []);
+
+  const saveReadingPosition = React.useCallback((page: number, progress: number) => {
+    void browser.runtime.sendMessage({ type: 'pdf:reading-save', page, progress, scale }).catch(() => undefined);
+  }, [scale]);
+
+  React.useEffect(() => {
+    if (pageCount < 1 || activePageRef.current <= pageCount) return;
+    activePageRef.current = pageCount;
+    setActivePage(pageCount);
+    setNavigationPage(pageCount);
+    setNavigationProgress(0);
+  }, [pageCount]);
 
   const navigateToPage = React.useCallback((page: number) => {
     const pageCount = model?.pageCount ?? documentPageCount;
@@ -278,6 +353,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
     activePageRef.current = target;
     setActivePage(target);
     setNavigationPage(target);
+    setNavigationProgress(0);
     const scheduler = schedulerRef.current;
     if (scheduler?.getMode() === 'on-demand') {
       const requested = scheduler.requestNavigationWindow(target, readingDirectionRef.current);
@@ -341,17 +417,22 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   }
 
   async function clearCache() {
-    if (!source) return;
+    const hash = model?.hash ?? source?.hash;
+    if (!hash) return;
     operationEpoch.current.advance();
-    await sendPdfMessage({ type: 'pdf:cache-clear', hash: source.hash });
+    await sendPdfMessage(pdfUrl
+      ? { type: 'pdf:cache-clear-source', sourceUrl }
+      : { type: 'pdf:cache-clear', hash });
+    modelRef.current = null;
     setModel(null);
     setTranslationsByPage(new Map());
     setPageStatus(new Map());
     setPageFailures(new Map());
     setPageAttempts(new Map());
     parseStarted.current = false;
+    setSourcePrepared(true);
     dispatch({ type: 'cache-cleared' });
-    setFeedback('缓存已清除');
+    setFeedback(source?.kind === 'remote' ? '缓存已清除，正在重新解析' : '缓存已清除');
   }
 
   async function askAgent(question: string) {
@@ -423,17 +504,19 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
   return (
     <main
       className="pdf-workspace"
+      data-theme={resolvedTheme}
       data-renderer="pdfjs"
       data-pdf-render-page={activePage}
       data-translation-snapshot-count={snapshotRequestCount.current}
     >
       <WorkspaceToolbar
-        title={source?.title ?? 'PDF 翻译工作台'}
+        title={model?.title ?? source?.title ?? 'PDF 翻译工作台'}
         activePage={activePage}
         pageCount={pageCount}
         scale={scale}
         progressLabel={feedback}
         agentOpen={agentOpen}
+        themePreference={themePreference}
         canRetryFailed={hasFailedPages}
         canStopAgent={agentBusy}
         translationMode={translationMode}
@@ -442,6 +525,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
         onZoomOut={() => setScale((value) => Math.max(0.5, value - 0.1))}
         onZoomIn={() => setScale((value) => Math.min(3, value + 0.1))}
         onToggleAgent={() => setAgentOpen((open) => !open)}
+        onChangeTheme={setThemePreference}
         onRetryCurrent={retryCurrent}
         onRetryFailed={retryFailed}
         onRetryParsing={lifecycle.phase === 'failed' && source?.kind === 'remote'
@@ -462,12 +546,14 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               <p>此 PDF 需要认证。点击同意后，文件字节将发送到第三方 MinerU 解析服务。</p>
               <button className="upload-consent-action" type="button" disabled={documentPageCount < 1} onClick={() => startParse(documentPageCount, true)}>同意并上传到 MinerU</button>
             </div>}
-          {source && pdfBytes
+          {source && (pdfBytes || pdfUrl)
             ? <PairedPageViewer
-              bytes={pdfBytes}
+              bytes={pdfBytes ?? undefined}
+              url={pdfUrl ?? undefined}
               scale={scale}
               activePage={activePage}
               navigationPage={navigationPage}
+              navigationProgress={navigationProgress}
               model={model}
               translationsByPage={translationsByPage}
               translationMode={translationMode}
@@ -478,6 +564,7 @@ export function PdfWorkspace({ sourceUrl }: { sourceUrl: string }) {
               pinnedBlockId={pinnedBlockId}
               onDocumentReady={onDocumentReady}
               onPageVisible={onPageVisible}
+              onReadingPositionChange={saveReadingPosition}
               onRetryPage={retryPage}
               onRequestPage={requestPage}
               onCopyFailure={copyFailure}

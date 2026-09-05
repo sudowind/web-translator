@@ -14,7 +14,7 @@ export type MineruTaskResult =
   | { state: 'failed'; error: string };
 
 export class MineruError extends Error {
-  readonly name = 'MineruError';
+  override readonly name = 'MineruError';
 
   constructor(readonly code: string, readonly status?: number) {
     super(code);

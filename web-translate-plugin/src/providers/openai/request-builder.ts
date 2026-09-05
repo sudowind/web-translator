@@ -5,6 +5,7 @@ import {
   type ProviderDialect,
   type ReasoningSettings,
 } from '../../settings/schema';
+import { buildTranslationResponseFormat } from './translation-format';
 
 export type LlmPurpose = 'connection-test' | 'translation' | 'agent';
 
@@ -36,7 +37,7 @@ export function buildChatRequest(input: BuildChatRequestInput): BuiltChatRequest
   if (purpose === 'connection-test') body.max_tokens = 16;
   if (purpose === 'agent') body.stream = true;
   if (purpose === 'translation') {
-    body.response_format = { type: 'json_object' };
+    body.response_format = buildTranslationResponseFormat(settings);
     body.stream = true;
   }
   applyReasoning(body, settings.dialect, reasoning);

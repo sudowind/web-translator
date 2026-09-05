@@ -18,7 +18,7 @@ interface TranslationLanguages {
 }
 
 export class PageTranslationError extends Error {
-  readonly name = 'PageTranslationError';
+  override readonly name = 'PageTranslationError';
 
   constructor(readonly failure: TranslationFailure) {
     super(failure.code);
