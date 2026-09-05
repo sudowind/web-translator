@@ -1,12 +1,14 @@
 # 项目协作约定
 
-## 固定工作区与人工验收
+## 主工作区、开发周期与人工验收
 
-- 主工作区 `D:\Projects\web-translate` 固定使用 `release` 分支，作为人工验收与浏览器插件加载入口；不得为开发临时切回 dev 或 feature 分支。
-- `dev` 工作区为 `D:\Projects\web-translate-worktrees\dev`；各 feature 分支继续使用各自独立工作区。
+- 主工作区 `D:\Projects\web-translate` 是稳定版本与人工验收共用入口：一轮开发尚未开始或已经发布完成时使用 `master`；进入集成与人工验收阶段后切换为 `release`。不得在同一轮验收尚未结束时临时切回 `master`、`dev` 或 feature 分支。
+- 开启新一轮开发前，先确认主工作区干净、`master` 已快进到 `origin/master`、上一轮 `release` 已进入 `master`；再将 `release` 快进到最新 `master` 并在主工作区检出。不得通过 reset、强推或重建分支抹去未合并的 release 历史。
+- 每项新开发需求原则上从最新 `master` 创建独立 feature 分支及 worktree。现有 `dev` 工作区为 `D:\Projects\web-translate-worktrees\dev`，仅在任务明确归属 dev 时继续使用；不得把 dev 当作所有新 feature 的默认基线。
 - 功能修复在所属开发分支提交，再以普通 merge 合入 release；集成冲突在 release 解决，不将 release 整体回灌 feature 分支。
 - 验收插件固定加载 `D:\Projects\web-translate\web-translate-plugin\.output\chrome-mv3`。每轮合并与构建后重载原扩展，不卸载、不清空配置，不将开发工作区产物覆盖到此目录。
-- 数据库升级后不要用较低数据库版本的旧分支覆盖验收插件；独立回测使用独立浏览器环境。完整流程见 release 分支的 `docs/release-validation-workflow.md`。
+- 人工验收通过后，推送 `release` 并创建 `release` 到 `master` 的 PR；PR 合并且远端检查通过后，主工作区切回并快进最新 `master`。已进入 `master`、工作区干净且不再返工的 feature worktree 可以清理；删除 worktree、分支或远端引用仍需用户明确授权。
+- 数据库升级后不要用较低数据库版本的旧分支覆盖验收插件；独立回测使用独立浏览器环境。完整流程见仓库中的 `docs/release-validation-workflow.md`。
 
 ## 文档语言
 
