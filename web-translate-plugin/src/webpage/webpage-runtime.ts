@@ -2,12 +2,14 @@ import { isEligiblePage } from './eligibility';
 import type { WebpageBackgroundMessage } from './messages';
 import { MutationTranslationController } from './mutation-controller';
 import { BilingualController } from './bilingual-controller';
+import { WebpageProgressView } from './progress-view';
 
 export interface WebpageRuntimeStatus {
   enabled: boolean;
   count: number;
   translated?: number;
   failed?: number;
+  translating?: number;
   reason?: 'PAGE_NOT_ELIGIBLE';
 }
 interface RuntimeOptions {
@@ -24,6 +26,7 @@ interface ActiveSession {
   sessionId: string;
   styleElement: HTMLStyleElement | null;
   running: boolean;
+  progress: WebpageProgressView;
 }
 export class WebpageTranslationRuntime {
   private session: ActiveSession | null = null;
@@ -51,14 +54,17 @@ export class WebpageTranslationRuntime {
         }
         if (!document.body) { void this.disable(); return; }
         session.controller.reconcile(document.body);
+        session.progress.update(session.controller.status());
         void this.pump(session);
       }),
       sessionId: this.options.createSessionId?.() ?? crypto.randomUUID(),
       styleElement: this.installStyle(),
       running: false,
+      progress: new WebpageProgressView(document, () => void this.disable()),
     };
     this.session = session;
     session.controller.reconcile();
+    session.progress.update(session.controller.status());
     session.observer.start();
     // Return promptly so slow providers do not block the popup's disable action.
     void this.pump(session);
@@ -72,6 +78,7 @@ export class WebpageTranslationRuntime {
     this.session = null;
     session.observer.stop();
     session.controller.clear();
+    session.progress.destroy();
     session.styleElement?.remove();
     try {
       await this.options.sendMessage({ type: 'translation:cancel', sessionId: session.sessionId });
@@ -85,6 +92,7 @@ export class WebpageTranslationRuntime {
     try {
       while (session.active) {
         const batch = session.controller.takeBatch();
+        session.progress.update(session.controller.status());
         if (!batch.length) return;
         try {
           const response = await this.options.sendMessage({
@@ -100,11 +108,13 @@ export class WebpageTranslationRuntime {
             response.some((value) => !value || typeof value.text !== 'string' ||
               !batch.some((record) => record.id === value.id))) throw new Error('WEBPAGE_RESPONSE_INVALID');
           for (const record of batch) session.controller.apply(record, response.find((value) => value.id === record.id).text);
+          session.progress.update(session.controller.status());
         } catch {
           if (!session.active) return;
           session.observer.flush();
           if (!session.active) return;
           for (const record of batch) session.controller.fail(record);
+          session.progress.update(session.controller.status());
         }
       }
     } finally { session.running = false; }

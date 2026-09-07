@@ -20,3 +20,10 @@ it('超长语义块明确失败并不阻塞其他段落', () => {
   expect(document.querySelector('[data-web-translate-state="failed"]')?.textContent).toContain('过长');
   controller.clear();
 });
+it('MDN 类页面可见正文优先于导航，首批最多三块', () => {
+  document.body.innerHTML = '<nav><p>Menu</p><p>Account</p></nav><main><h1>Article</h1><p>Introduction</p><p>Content</p><p>More</p></main>';
+  const controller = new BilingualController(document.body, () => {});
+  controller.reconcile();
+  expect(controller.takeBatch().map(r => r.block.text)).toEqual(['Article', 'Introduction', 'Content']);
+  controller.clear();
+});

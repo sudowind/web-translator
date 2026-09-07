@@ -113,6 +113,22 @@ describe('网页对照生命周期', () => {
     expect(outputs()).toHaveLength(0); expect(document.body.textContent).toBe('Latest');
     expect(send.mock.calls.at(-1)?.[0].type).toBe('translation:cancel');
   });
+  it('服务尚未响应时即时显示进度，可从页面停止且迟到响应不恢复 UI', async () => {
+    document.body.innerHTML = '<main><p>Waiting article</p></main>';
+    let finish!: (value: unknown) => void;
+    const send = vi.fn(async (message: WebpageBackgroundMessage): Promise<unknown> => translate(message));
+    send.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    setup(send); await runtime.enable();
+    const host = document.querySelector('[data-web-translate-progress]')!;
+    expect(host.shadowRoot!.textContent).toContain('正在翻译 · 已完成 0/1 段');
+    expect(outputs()).toHaveLength(0);
+    host.shadowRoot!.querySelector('button')!.click();
+    expect(document.querySelector('[data-web-translate-progress]')).toBeNull();
+    expect(runtime.status().enabled).toBe(false);
+    finish(translate(send.mock.calls[0][0])); await settled();
+    expect(outputs()).toHaveLength(0);
+    expect(document.body.textContent).toBe('Waiting article');
+  });
   it('网络或格式失败仅影响当前段，点击可重试', async () => {
     document.body.innerHTML = '<p>Hello <strong>world</strong></p>';
     const send = vi.fn(async (message: WebpageBackgroundMessage): Promise<unknown> => translate(message));

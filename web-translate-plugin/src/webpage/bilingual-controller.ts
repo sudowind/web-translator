@@ -11,6 +11,7 @@ export interface BilingualRecord {
 export class BilingualController {
   private records = new Map<Node, BilingualRecord>();
   private sequence = 0;
+  private hasStarted = false;
 
   constructor(private root: HTMLElement, private readonly onRetry: () => void) {}
 
@@ -45,26 +46,39 @@ export class BilingualController {
   status() {
     const values = [...this.records.values()];
     return { count: values.length, translated: values.filter((record) => record.state === 'done').length,
+      translating: values.filter((record) => record.state === 'loading').length,
       failed: values.filter((record) => record.state === 'failed').length };
   }
 
   takeBatch(): BilingualRecord[] {
     const view = this.root.ownerDocument.defaultView!;
-    const visible = (record: BilingualRecord) => {
-      const rect = record.block.container.getBoundingClientRect();
-      return rect.bottom >= 0 && rect.top <= view.innerHeight;
+    const priority = (record: BilingualRecord) => {
+      const { container, nodes } = record.block;
+      const range = container.ownerDocument.createRange();
+      range.setStartBefore(nodes[0]); range.setEndAfter(nodes.at(-1)!);
+      const rect = typeof range.getBoundingClientRect === 'function'
+        ? range.getBoundingClientRect() : container.getBoundingClientRect();
+      const visible = rect.bottom >= 0 && rect.top <= view.innerHeight;
+      const article = container.closest('main,article,[role="main"]') &&
+        !container.closest('nav,aside,header,footer');
+      return (visible ? 0 : 2) + (article ? 0 : 1);
     };
     const pending = [...this.records.values()].filter((record) => record.state === 'pending')
-      .sort((a, b) => Number(visible(b)) - Number(visible(a)));
+      .map(record => ({ record, priority: priority(record) }))
+      .sort((a, b) => a.priority - b.priority).map(({ record }) => record);
+    // Keep the first result small; later batches balance throughput with visible feedback.
+    const limit = this.hasStarted ? 8 : 3;
+    const characterBudget = this.hasStarted ? 6_000 : 1_800;
     const batch: BilingualRecord[] = [];
     let length = 0;
     for (const record of pending) {
       if (record.block.text.length > 10_000) { this.fail(record, '此段过长，暂无法整块翻译'); continue; }
-      if (batch.length >= 20 || (batch.length > 0 && length + record.block.text.length > 12_000)) break;
+      if (batch.length >= limit || (batch.length > 0 && length + record.block.text.length > characterBudget)) break;
       length += record.block.text.length;
       record.state = 'loading';
       batch.push(record);
     }
+    if (batch.length) this.hasStarted = true;
     return batch;
   }
 
