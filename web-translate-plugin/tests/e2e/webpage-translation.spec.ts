@@ -13,6 +13,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
   let origin: string;
   let authorizedExtensionPath: string;
   const requestBatches: string[][] = [];
+  let holdTranslation: Promise<void> | undefined;
 
   test.beforeAll(async () => {
     fixtureServer = createServer((request, response) => {
@@ -89,6 +90,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
         blocks: Array<{ id: string; text: string }>;
       };
       requestBatches.push(request.blocks.map(({ text }) => text));
+      if (holdTranslation) await holdTranslation;
       const translations = request.blocks.map(({ id, text }) => ({
         id,
         text: text === 'Hello' ? '你好' : `译文：${text.trim()}`,
@@ -204,6 +206,24 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     await page.locator('#action').click();
     expect(await page.evaluate(() => (window as unknown as { clickCount: number }).clickCount)).toBe(2);
     await page.close();
+  });
+
+  test('慢服务仍立即显示进度，页面按钮可关闭翻译', async () => {
+    let release!: () => void;
+    holdTranslation = new Promise<void>(resolve => { release = resolve; });
+    const page = await context.newPage();
+    try {
+      await page.goto(`${origin}/article`);
+      await sendAuthorizedCommand(page, 'webpage:enable');
+      await expect(page.getByRole('status')).toContainText('正在翻译 · 已完成 0/');
+      await expect(page.locator('[data-web-translate-block]')).toHaveCount(0);
+      await page.getByRole('button', { name: '关闭翻译', exact: true }).click();
+      await expect(page.locator('[data-web-translate-progress]')).toHaveCount(0);
+      await expect(page.locator('[data-web-translate-block]')).toHaveCount(0);
+    } finally {
+      release(); holdTranslation = undefined;
+      await page.close();
+    }
   });
 
   test('敏感页面返回结构化不可启用状态', async () => {

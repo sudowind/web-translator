@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { webpageProgressText } from '../../src/webpage/progress-view';
 
 import type { TakeoverProbeResult } from '../../src/pdf-takeover/contracts';
 import type {
@@ -61,10 +62,23 @@ export default function App() {
     void sendWebpageCommand('webpage:status')
       .then((status) => {
         setWebpageEnabled(status.enabled);
-        if (status.enabled) setWebpageFeedback(`区块对照已启用 · 已完成 ${status.translated ?? 0}/${status.count} 段 · 失败 ${status.failed ?? 0} 段`);
+        if (status.enabled) setWebpageFeedback(webpageProgressText(status));
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!webpageEnabled) return;
+    let disposed = false;
+    const timer = setInterval(() => {
+      void sendWebpageCommand('webpage:status').then((status) => {
+        if (disposed) return;
+        setWebpageEnabled(status.enabled);
+        setWebpageFeedback(status.enabled ? webpageProgressText(status) : '网页翻译已关闭');
+      }).catch(() => undefined);
+    }, 1_000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [webpageEnabled]);
 
   async function runProbe() {
     setRunning(true);
