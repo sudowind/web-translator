@@ -28,4 +28,11 @@
 
 本轮不进入 iframe、Shadow DOM 或 Canvas 内部；不复制表单控件。单块超过 10,000 字符时不拆散语义块，显示超长提示。
 
-最终 release 门禁结果在集成后补记。
+## release 最终门禁
+
+- 功能提交：`dddef25`；普通合并后的代码验收基线：`153f99b`。
+- `npm run check`：通过；74 个文件、512 项测试通过。总耗时 25.27 秒，其中 Vitest 16.09 秒、WXT 构建 2.898 秒；类型检查及生产产物权限检查均通过。
+- `npm run test:e2e -- webpage-translation.spec.ts`：固定 release 生产构建上 2 项通过，6.1 秒。
+- 固定构建目录：`D:\Projects\web-translate\web-translate-plugin\.output\chrome-mv3`。主工作区保持 release。
+- 尝试通过 computer-use 访问 Chrome 重载原扩展时，工具返回 `Computer Use app approval timed out`；未执行重载。请用户在扩展管理页重载原扩展后刷新网页，人工验收真实 Provider 与 action Popup。
+- 本次仅本地集成，未推送、未创建 PR、未删除工作区或分支。本文及计划的后续记录提交不改变已验证代码，按仓库约定不重复全量命令。
