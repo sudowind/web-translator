@@ -1,0 +1,14 @@
+[data-web-translate-block] {
+  display: block;
+  overflow-wrap: anywhere;
+}
+[data-web-translate-state="failed"] > button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 0.2em 0.5em;
+  cursor: pointer;
+}
+

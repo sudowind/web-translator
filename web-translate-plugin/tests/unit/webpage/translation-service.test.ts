@@ -54,6 +54,7 @@ describe('WebpageTranslationService', () => {
 
     expect(translate).toHaveBeenCalledWith(
       {
+        format: 'webpage-inline',
         blocks: [{ id: 'b1', text: 'Hello' }],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',

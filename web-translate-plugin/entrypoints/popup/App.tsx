@@ -61,7 +61,7 @@ export default function App() {
     void sendWebpageCommand('webpage:status')
       .then((status) => {
         setWebpageEnabled(status.enabled);
-        if (status.enabled) setWebpageFeedback(`已翻译 ${status.count} 个文本块`);
+        if (status.enabled) setWebpageFeedback(`区块对照已启用 · 已完成 ${status.translated ?? 0}/${status.count} 段 · 失败 ${status.failed ?? 0} 段`);
       })
       .catch(() => undefined);
   }, []);
@@ -91,8 +91,8 @@ export default function App() {
         status.reason === 'PAGE_NOT_ELIGIBLE'
           ? '此页面包含敏感内容、属于 PDF 或不支持注入，无法启用'
           : status.enabled
-            ? `已翻译 ${status.count} 个文本块；悬停译文可查看原文`
-            : '已关闭并恢复页面原文',
+            ? `区块对照已启用，共 ${status.count} 段；译文将显示在原文下方，失败段可点击重试`
+            : '已关闭并移除译文，原文保留',
       );
     } catch (error) {
       setWebpageFeedback(webpagePopupErrorText(error));
@@ -132,14 +132,14 @@ export default function App() {
           <p className="status" aria-live="polite">{pdfFeedback}</p>
         </> : <>
           <h2 id="webpage-heading">普通网页翻译</h2>
-          <p className="description">由你主动启用；关闭后恢复本页全部原文。</p>
+          <p className="description">保留原文，在段落下方显示格式对应的译文。</p>
           <button
             className="primary"
             type="button"
             disabled={webpageBusy}
             onClick={() => void toggleWebpage()}
           >
-            {webpageBusy ? '处理中…' : webpageEnabled ? '关闭并恢复原文' : '翻译当前网页'}
+            {webpageBusy ? '处理中…' : webpageEnabled ? '关闭对照翻译' : '翻译当前网页'}
           </button>
           <p className="status" aria-live="polite">{pdfStatus === null ? pdfFeedback : webpageFeedback}</p>
         </>}

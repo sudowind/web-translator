@@ -1,17 +1,15 @@
-import type { TranslationResult } from '../providers/openai/contracts';
 import { isEligiblePage } from './eligibility';
 import type { WebpageBackgroundMessage } from './messages';
 import { MutationTranslationController } from './mutation-controller';
-import { scanTextNodes } from './scan-text';
-import { TranslationController } from './translation-controller';
-import { ViewportQueue } from './viewport-queue';
+import { BilingualController } from './bilingual-controller';
 
 export interface WebpageRuntimeStatus {
   enabled: boolean;
   count: number;
+  translated?: number;
+  failed?: number;
   reason?: 'PAGE_NOT_ELIGIBLE';
 }
-
 interface RuntimeOptions {
   document: Document;
   url: URL;
@@ -19,24 +17,21 @@ interface RuntimeOptions {
   createSessionId?: () => string;
   styleText?: string;
 }
-
 interface ActiveSession {
   active: boolean;
-  controller: TranslationController;
-  count: number;
+  controller: BilingualController;
   observer: MutationTranslationController;
   sessionId: string;
   styleElement: HTMLStyleElement | null;
+  running: boolean;
 }
-
 export class WebpageTranslationRuntime {
   private session: ActiveSession | null = null;
-
   constructor(private readonly options: RuntimeOptions) {}
 
   status(): WebpageRuntimeStatus {
     return this.session?.active
-      ? { enabled: true, count: this.session.count }
+      ? { enabled: true, ...this.session.controller.status() }
       : { enabled: false, count: 0 };
   }
 
@@ -46,34 +41,28 @@ export class WebpageTranslationRuntime {
     if (!document.body || !isEligiblePage(url, document)) {
       return { enabled: false, count: 0, reason: 'PAGE_NOT_ELIGIBLE' };
     }
-
-    const blocks = scanTextNodes(document.body);
-    const controller = new TranslationController(blocks);
     const session: ActiveSession = {
       active: true,
-      controller,
-      count: blocks.length,
-      observer: null as unknown as MutationTranslationController,
+      controller: new BilingualController(document.body, () => void this.pump(session)),
+      observer: new MutationTranslationController(document.documentElement, () => {
+        if (!session.active) return;
+        if (!isEligiblePage(new URL(document.location?.href || url.href), document)) {
+          void this.disable(); return;
+        }
+        if (!document.body) { void this.disable(); return; }
+        session.controller.reconcile(document.body);
+        void this.pump(session);
+      }),
       sessionId: this.options.createSessionId?.() ?? crypto.randomUUID(),
       styleElement: this.installStyle(),
+      running: false,
     };
-    session.observer = new MutationTranslationController(document.body, (roots) => {
-      void this.translateRoots(session, roots).catch(() => undefined);
-    });
     this.session = session;
+    session.controller.reconcile();
     session.observer.start();
-
-    try {
-      await this.translateBlocks(session, blocks);
-      return this.session === session ? this.status() : { enabled: false, count: 0 };
-    } catch (error) {
-      const wasCanceled = !session.active || isAbortError(error);
-      if (session.active) await this.disable();
-      if (wasCanceled) {
-        return { enabled: false, count: 0 };
-      }
-      throw error;
-    }
+    // Return promptly so slow providers do not block the popup's disable action.
+    void this.pump(session);
+    return this.status();
   }
 
   async disable(): Promise<WebpageRuntimeStatus> {
@@ -82,47 +71,43 @@ export class WebpageTranslationRuntime {
     session.active = false;
     this.session = null;
     session.observer.stop();
-    session.controller.restore();
+    session.controller.clear();
     session.styleElement?.remove();
     try {
-      await this.options.sendMessage({
-        type: 'translation:cancel',
-        sessionId: session.sessionId,
-      });
-    } catch {
-      // 页面恢复不应依赖后台确认；Service Worker 会在可达时处理中止。
-    }
+      await this.options.sendMessage({ type: 'translation:cancel', sessionId: session.sessionId });
+    } catch { /* Local cleanup must not depend on the service worker. */ }
     return { enabled: false, count: 0 };
   }
 
-  private async translateRoots(
-    session: ActiveSession,
-    roots: Node[],
-  ): Promise<void> {
-    if (!session.active || this.session !== session) return;
-    const blocks = roots.flatMap((root) => scanTextNodes(root));
-    if (blocks.length === 0) return;
-    const added = session.controller.add(blocks);
-    if (added.length === 0) return;
-    session.count += added.length;
-    await this.translateBlocks(session, added);
-  }
-
-  private async translateBlocks(
-    session: ActiveSession,
-    blocks: ReturnType<typeof scanTextNodes>,
-  ): Promise<void> {
-    const queue = new ViewportQueue(blocks);
-    while (queue.size > 0 && session.active && this.session === session) {
-      const batch = queue.takeBatch(20);
-      const response = await this.options.sendMessage({
-        type: 'translation:blocks',
-        sessionId: session.sessionId,
-        blocks: batch.map(({ id, original: text }) => ({ id, text })),
-      });
-      if (!session.active || this.session !== session) return;
-      session.controller.apply(response as TranslationResult[]);
-    }
+  private async pump(session: ActiveSession): Promise<void> {
+    if (!session.active || session.running) return;
+    session.running = true;
+    try {
+      while (session.active) {
+        const batch = session.controller.takeBatch();
+        if (!batch.length) return;
+        try {
+          const response = await this.options.sendMessage({
+            type: 'translation:blocks', sessionId: session.sessionId,
+            blocks: batch.map(({ id, block }) => ({ id, text: block.text })),
+          });
+          if (!session.active) return;
+          // Reject stale source snapshots even before the mutation debounce fires.
+          session.observer.flush();
+          if (!session.active) return;
+          if (!Array.isArray(response) || response.length !== batch.length ||
+            new Set(response.map((value) => value?.id)).size !== batch.length ||
+            response.some((value) => !value || typeof value.text !== 'string' ||
+              !batch.some((record) => record.id === value.id))) throw new Error('WEBPAGE_RESPONSE_INVALID');
+          for (const record of batch) session.controller.apply(record, response.find((value) => value.id === record.id).text);
+        } catch {
+          if (!session.active) return;
+          session.observer.flush();
+          if (!session.active) return;
+          for (const record of batch) session.controller.fail(record);
+        }
+      }
+    } finally { session.running = false; }
   }
 
   private installStyle(): HTMLStyleElement | null {
@@ -134,8 +119,4 @@ export class WebpageTranslationRuntime {
     (this.options.document.head ?? this.options.document.documentElement).append(style);
     return style;
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError';
 }
