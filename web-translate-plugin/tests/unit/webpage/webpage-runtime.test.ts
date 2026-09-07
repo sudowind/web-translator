@@ -16,6 +16,58 @@ function setup(send = vi.fn(async (message: WebpageBackgroundMessage): Promise<u
 beforeEach(() => { document.body.innerHTML = ''; });
 afterEach(async () => { await runtime?.disable(); });
 describe('网页对照生命周期', () => {
+  it('完整流式块立即显示，网络中断仅失败缺失块，失效批次撤回且关闭忽略迟到消息', async () => {
+    document.body.innerHTML = '<main><p>One</p><p>Two</p></main>';
+    let reject!: (reason: Error) => void;
+    const send = vi.fn(async (message: WebpageBackgroundMessage): Promise<unknown> => translate(message));
+    send.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    setup(send); await runtime.enable();
+    const message = send.mock.calls[0][0]; if (message.type !== 'translation:blocks') throw new Error('wrong request');
+    const event = { type: 'translation:progress' as const, sessionId: message.sessionId, batchId: message.blocks[0].id, result: { id: message.blocks[0].id, text: '第一段' } };
+    runtime.acceptProgress(event); expect(outputs()[0].textContent).toBe('第一段');
+    reject(new Error('network')); await settled();
+    expect(runtime.status()).toMatchObject({ translated: 1, failed: 1 });
+    await runtime.disable(); runtime.acceptProgress(event); expect(outputs()).toHaveLength(0);
+  });
+  it('隐藏标签页不发新请求，恢复及滚动稳定后重新计算范围', async () => {
+    document.body.innerHTML = '<p>Reading</p>';
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    const send = setup();
+    try {
+      await runtime.enable(); expect(send).not.toHaveBeenCalled();
+      document.dispatchEvent(new Event('scroll'));
+      hidden.mockReturnValue(false); document.dispatchEvent(new Event('visibilitychange'));
+      expect(send).not.toHaveBeenCalled();
+      await new Promise(resolve => setTimeout(resolve, 450)); expect(send).toHaveBeenCalledOnce();
+    } finally { hidden.mockRestore(); }
+  });
+  it('协议撤回后主题变化不恢复无效译文或覆盖重试按钮', async () => {
+    document.body.innerHTML = '<p>Original</p>';
+    let finish!: (value: unknown) => void;
+    const send = vi.fn(async (message: WebpageBackgroundMessage): Promise<unknown> => translate(message));
+    send.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    setup(send); await runtime.enable();
+    const message = send.mock.calls[0][0]; if (message.type !== 'translation:blocks') throw new Error('wrong request');
+    const event = { type: 'translation:progress' as const, sessionId: message.sessionId, batchId: message.blocks[0].id };
+    runtime.acceptProgress({ ...event, result: { id: message.blocks[0].id, text: 'Invalidated' } });
+    runtime.acceptProgress({ ...event, invalid: true });
+    document.querySelector('p')!.style.color = 'red'; await settled();
+    expect(outputs()[0].textContent).not.toContain('Invalidated');
+    expect(outputs()[0].querySelector('button')).not.toBeNull();
+    finish(translate(message)); await settled(); expect(runtime.status().failed).toBe(1);
+  });
+  it('撤回事件丢失时最终协议错误仍撤回已显示块', async () => {
+    document.body.innerHTML = '<p>Original</p>';
+    let reject!: (value: Error) => void;
+    const send = vi.fn(async (message: WebpageBackgroundMessage): Promise<unknown> => translate(message));
+    send.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    setup(send); await runtime.enable();
+    const message = send.mock.calls[0][0]; if (message.type !== 'translation:blocks') throw new Error('wrong request');
+    runtime.acceptProgress({ type: 'translation:progress', sessionId: message.sessionId, batchId: message.blocks[0].id, result: { id: message.blocks[0].id, text: '撤回' } });
+    reject(new Error('TRANSLATION_ID_DUPLICATE')); await settled();
+    expect(runtime.status()).toMatchObject({ translated: 0, failed: 1 });
+    expect(outputs()[0].querySelector('button')).not.toBeNull();
+  });
   it('整块翻译不修改原文与事件，重复启用不重复请求，关闭仅删除译文', async () => {
     document.body.innerHTML = '<p>Hello <strong>world</strong> <a href="#next">next</a></p><button>Action</button>';
     const original = document.body.innerHTML;

@@ -3,16 +3,20 @@ export interface WebpageProgress {
   translated?: number;
   failed?: number;
   translating?: number;
+  mode?: 'reading' | 'article';
+  paused?: boolean;
+  metrics?: string;
 }
 
 export function webpageProgressText(status: WebpageProgress): string {
   const done = status.translated ?? 0;
   const failed = status.failed ?? 0;
   if (status.count === 0) return '未找到可翻译的正文';
+  if (status.paused) return `已暂停新请求 · 已完成 ${done}/${status.count} 段`;
   if (done + failed >= status.count) return failed
     ? `翻译结束 · 完成 ${done}/${status.count} 段 · 失败 ${failed} 段，可在原文处重试`
     : `翻译完成 · ${done} 段`;
-  return `正在翻译 · 已完成 ${done}/${status.count} 段` +
+  return `${status.mode === 'reading' && !status.translating ? '随阅读翻译 · 等待滚动' : '正在翻译'} · 已完成 ${done}/${status.count} 段` +
     (failed ? ` · 失败 ${failed} 段` : '');
 }
 
@@ -23,8 +27,10 @@ export class WebpageProgressView {
   private timer?: ReturnType<typeof setInterval>;
   private status: WebpageProgress = { count: 0 };
   private waitingSince = Date.now();
+  private modeButton?: HTMLButtonElement;
+  private metrics?: HTMLElement;
 
-  constructor(document: Document, onClose: () => void) {
+  constructor(document: Document, onClose: () => void, options?: { onMode: () => void; onClearCache: () => Promise<void> }) {
     this.host = document.createElement('div');
     this.host.dataset.webTranslateUi = '';
     this.host.dataset.webTranslateProgress = '';
@@ -42,13 +48,30 @@ export class WebpageProgressView {
     close.type = 'button'; close.textContent = '关闭翻译';
     close.addEventListener('click', onClose);
     panel.append(this.text, close); shadow.append(style, panel);
+    if (options) {
+      panel.style.flexWrap = 'wrap';
+      this.modeButton = document.createElement('button'); this.modeButton.type = 'button';
+      this.modeButton.textContent = '翻译整篇正文'; this.modeButton.addEventListener('click', options.onMode);
+      const clear = document.createElement('button'); clear.type = 'button'; clear.textContent = '清除此页缓存';
+      clear.addEventListener('click', () => {
+        clear.disabled = true;
+        void options.onClearCache().then(() => { clear.textContent = '此页缓存已清除'; }, () => { clear.textContent = '清除失败，点击重试'; }).finally(() => { clear.disabled = false; });
+      });
+      const details = document.createElement('details'); details.style.flexBasis = '100%';
+      const summary = document.createElement('summary'); summary.textContent = '性能统计';
+      this.metrics = document.createElement('div'); details.append(summary, this.metrics);
+      panel.append(this.modeButton, clear, details);
+    }
     document.documentElement.append(this.host);
   }
 
   update(status: WebpageProgress): void {
-    if (status.translated !== this.status.translated || status.failed !== this.status.failed) this.waitingSince = Date.now();
+    if (status.translated !== this.status.translated || status.failed !== this.status.failed ||
+      (status.translating && !this.status.translating)) this.waitingSince = Date.now();
     this.status = status;
-    const pending = status.count > (status.translated ?? 0) + (status.failed ?? 0);
+    if (this.modeButton) this.modeButton.textContent = status.mode === 'article' ? '切回随阅读翻译' : '翻译整篇正文';
+    if (this.metrics) this.metrics.textContent = status.metrics ?? '';
+    const pending = status.mode ? Boolean(status.translating) : status.count > (status.translated ?? 0) + (status.failed ?? 0);
     if (pending && !this.timer) this.timer = setInterval(() => this.render(), 1_000);
     if (!pending && this.timer) { clearInterval(this.timer); this.timer = undefined; }
     this.render();
@@ -61,7 +84,7 @@ export class WebpageProgressView {
   }
 
   private render(): void {
-    const pending = this.status.count > (this.status.translated ?? 0) + (this.status.failed ?? 0);
+    const pending = this.status.mode ? Boolean(this.status.translating) : this.status.count > (this.status.translated ?? 0) + (this.status.failed ?? 0);
     const seconds = Math.floor((Date.now() - this.waitingSince) / 1000);
     const waiting = pending && seconds >= 10 ? ` · 等待翻译服务返回（${Math.floor(seconds / 5) * 5} 秒）` : '';
     const next = webpageProgressText(this.status) + waiting;

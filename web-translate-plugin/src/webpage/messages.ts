@@ -17,6 +17,7 @@ export interface TranslationCancelMessage {
 }
 
 export type WebpageBackgroundMessage =
+  | { type: 'translation:clear-cache'; sessionId: string }
   | TranslationBlocksMessage
   | TranslationCancelMessage;
 
@@ -67,7 +68,30 @@ export function isTranslationCancelMessage(
 export function isWebpageBackgroundMessage(
   value: unknown,
 ): value is WebpageBackgroundMessage {
-  return isTranslationBlocksMessage(value) || isTranslationCancelMessage(value);
+  return isTranslationBlocksMessage(value) || isTranslationCancelMessage(value) || isTranslationClearCacheMessage(value);
+}
+
+export function isTranslationClearCacheMessage(value: unknown): value is Extract<WebpageBackgroundMessage, {type: 'translation:clear-cache'}> {
+  return hasExactKeys(value, ['type', 'sessionId']) && value.type === 'translation:clear-cache' && isSessionId(value.sessionId);
+}
+
+export interface WebpageProgressEvent {
+  type: 'translation:progress';
+  sessionId: string;
+  batchId: string;
+  result?: { id: string; text: string };
+  cached?: boolean;
+  invalid?: boolean;
+  timing?: { ttftMs?: number; durationMs: number };
+}
+export function isWebpageProgressEvent(value: unknown): value is WebpageProgressEvent {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as WebpageProgressEvent;
+  const time = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  return v.type === 'translation:progress' && isSessionId(v.sessionId) && isSessionId(v.batchId) &&
+    (v.cached === undefined || typeof v.cached === 'boolean') && (v.invalid === undefined || typeof v.invalid === 'boolean') &&
+    (v.result === undefined || (isSessionId(v.result?.id) && typeof v.result.text === 'string' && v.result.text.length <= 100_000)) &&
+    (v.timing === undefined || (time(v.timing?.durationMs) && (v.timing.ttftMs === undefined || time(v.timing.ttftMs))));
 }
 
 function isSessionId(value: unknown): value is string {
