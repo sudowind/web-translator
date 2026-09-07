@@ -18,7 +18,7 @@ export class BilingualController {
   reconcile(root = this.root): void {
     this.root = root;
     const next = new Map<Node, BilingualRecord>();
-    for (const block of scanSemanticBlocks(this.root)) {
+    for (const block of scanSemanticBlocks(this.root, true)) {
       let record = this.records.get(block.key);
       if (record && (record.block.signature !== block.signature ||
         record.block.nodes.length !== block.nodes.length ||
@@ -50,7 +50,7 @@ export class BilingualController {
       failed: values.filter((record) => record.state === 'failed').length };
   }
 
-  takeBatch(): BilingualRecord[] {
+  takeBatch(mode: 'reading' | 'article' = 'reading', direction = 1): BilingualRecord[] {
     const view = this.root.ownerDocument.defaultView!;
     const priority = (record: BilingualRecord) => {
       const { container, nodes } = record.block;
@@ -59,12 +59,16 @@ export class BilingualController {
       const rect = typeof range.getBoundingClientRect === 'function'
         ? range.getBoundingClientRect() : container.getBoundingClientRect();
       const visible = rect.bottom >= 0 && rect.top <= view.innerHeight;
+      const nearby = direction >= 0 ? rect.bottom >= 0 && rect.top <= view.innerHeight * 2
+        : rect.bottom >= -view.innerHeight && rect.top <= view.innerHeight;
+      if (mode === 'reading' && !nearby) return Infinity;
       const article = container.closest('main,article,[role="main"]') &&
-        !container.closest('nav,aside,header,footer');
+        !container.closest('nav,aside,footer');
       return (visible ? 0 : 2) + (article ? 0 : 1);
     };
     const pending = [...this.records.values()].filter((record) => record.state === 'pending')
       .map(record => ({ record, priority: priority(record) }))
+      .filter(entry => Number.isFinite(entry.priority))
       .sort((a, b) => a.priority - b.priority).map(({ record }) => record);
     // Keep the first result small; later batches balance throughput with visible feedback.
     const limit = this.hasStarted ? 8 : 3;
@@ -98,6 +102,7 @@ export class BilingualController {
   fail(record: BilingualRecord, message = '此段翻译失败，请重试'): void {
     if (!this.current(record)) return;
     record.state = 'failed';
+    record.output = undefined;
     const node = this.host(record);
     node.dataset.webTranslateState = 'failed';
     const button = node.ownerDocument.createElement('button');

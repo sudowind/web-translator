@@ -1,7 +1,8 @@
 import { isEligiblePage } from './eligibility';
-import type { WebpageBackgroundMessage } from './messages';
+import type { WebpageBackgroundMessage, WebpageProgressEvent } from './messages';
 import { MutationTranslationController } from './mutation-controller';
-import { BilingualController } from './bilingual-controller';
+import { BilingualController, type BilingualRecord } from './bilingual-controller';
+import { summarizeTiming, type TimingSample } from './timing';
 import { WebpageProgressView } from './progress-view';
 
 export interface WebpageRuntimeStatus {
@@ -10,6 +11,7 @@ export interface WebpageRuntimeStatus {
   translated?: number;
   failed?: number;
   translating?: number;
+  mode?: 'reading' | 'article';
   reason?: 'PAGE_NOT_ELIGIBLE';
 }
 interface RuntimeOptions {
@@ -27,6 +29,17 @@ interface ActiveSession {
   styleElement: HTMLStyleElement | null;
   running: boolean;
   progress: WebpageProgressView;
+  mode: 'reading' | 'article';
+  direction: number;
+  scrolling: boolean;
+  cleanup: () => void;
+  batch: BilingualRecord[];
+  invalid: boolean;
+  samples: TimingSample[];
+  cached: Set<string>;
+  started: number;
+  firstBlockMs?: number;
+  framePending?: boolean;
 }
 export class WebpageTranslationRuntime {
   private session: ActiveSession | null = null;
@@ -34,7 +47,7 @@ export class WebpageTranslationRuntime {
 
   status(): WebpageRuntimeStatus {
     return this.session?.active
-      ? { enabled: true, ...this.session.controller.status() }
+      ? { enabled: true, mode: this.session.mode, ...this.session.controller.status() }
       : { enabled: false, count: 0 };
   }
 
@@ -54,17 +67,36 @@ export class WebpageTranslationRuntime {
         }
         if (!document.body) { void this.disable(); return; }
         session.controller.reconcile(document.body);
-        session.progress.update(session.controller.status());
+        this.update(session);
         void this.pump(session);
       }),
       sessionId: this.options.createSessionId?.() ?? crypto.randomUUID(),
       styleElement: this.installStyle(),
       running: false,
-      progress: new WebpageProgressView(document, () => void this.disable()),
+      progress: new WebpageProgressView(document, () => void this.disable(), {
+        onMode: () => { session.mode = session.mode === 'reading' ? 'article' : 'reading'; this.update(session); void this.pump(session); },
+        onClearCache: async () => { await this.options.sendMessage({ type: 'translation:clear-cache', sessionId: session.sessionId }); },
+      }),
+      mode: 'reading', direction: 1, scrolling: false, cleanup: () => undefined,
+      batch: [], invalid: false, samples: [], cached: new Set(), started: performance.now(),
     };
     this.session = session;
     session.controller.reconcile();
-    session.progress.update(session.controller.status());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let previousY = document.defaultView?.scrollY ?? 0;
+    const onScroll = () => {
+      const y = document.defaultView?.scrollY ?? 0;
+      if (y !== previousY) session.direction = y > previousY ? 1 : -1;
+      previousY = y; session.scrolling = true;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { session.scrolling = false; void this.pump(session); }, 400);
+      this.update(session);
+    };
+    const onVisibility = () => { this.update(session); void this.pump(session); };
+    document.addEventListener('scroll', onScroll, true);
+    document.addEventListener('visibilitychange', onVisibility);
+    session.cleanup = () => { if (timer) clearTimeout(timer); document.removeEventListener('scroll', onScroll, true); document.removeEventListener('visibilitychange', onVisibility); };
+    this.update(session);
     session.observer.start();
     // Return promptly so slow providers do not block the popup's disable action.
     void this.pump(session);
@@ -77,6 +109,7 @@ export class WebpageTranslationRuntime {
     session.active = false;
     this.session = null;
     session.observer.stop();
+    session.cleanup();
     session.controller.clear();
     session.progress.destroy();
     session.styleElement?.remove();
@@ -91,8 +124,10 @@ export class WebpageTranslationRuntime {
     session.running = true;
     try {
       while (session.active) {
-        const batch = session.controller.takeBatch();
-        session.progress.update(session.controller.status());
+        if (this.options.document.hidden || session.scrolling) { this.update(session); return; }
+        const batch = session.controller.takeBatch(session.mode, session.direction);
+        session.batch = batch; session.invalid = false;
+        this.update(session);
         if (!batch.length) return;
         try {
           const response = await this.options.sendMessage({
@@ -106,18 +141,60 @@ export class WebpageTranslationRuntime {
           if (!Array.isArray(response) || response.length !== batch.length ||
             new Set(response.map((value) => value?.id)).size !== batch.length ||
             response.some((value) => !value || typeof value.text !== 'string' ||
-              !batch.some((record) => record.id === value.id))) throw new Error('WEBPAGE_RESPONSE_INVALID');
+              !batch.some((record) => record.id === value.id))) { session.invalid = true; throw new Error('WEBPAGE_RESPONSE_INVALID'); }
+          if (session.invalid) throw new Error('WEBPAGE_RESPONSE_INVALID');
           for (const record of batch) session.controller.apply(record, response.find((value) => value.id === record.id).text);
-          session.progress.update(session.controller.status());
-        } catch {
+          this.update(session);
+        } catch (error) {
           if (!session.active) return;
           session.observer.flush();
           if (!session.active) return;
-          for (const record of batch) session.controller.fail(record);
-          session.progress.update(session.controller.status());
+          // The terminal response also carries protocol failure if the progress event was lost.
+          if (error instanceof Error && /^(TRANSLATION_(ID_|JSON_|SCHEMA_|RESPONSE_)|WEBPAGE_(RESPONSE_|INLINE_))/.test(error.message)) session.invalid = true;
+          for (const record of batch) if (session.invalid || record.state !== 'done') session.controller.fail(record);
+          this.update(session);
+        } finally {
+          session.batch = [];
         }
       }
     } finally { session.running = false; }
+  }
+
+  acceptProgress(event: WebpageProgressEvent): void {
+    const session = this.session;
+    if (!session?.active || event.sessionId !== session.sessionId || event.batchId !== session.batch[0]?.id) return;
+    session.observer.flush();
+    if (!session.active) return;
+    if (event.invalid) {
+      session.invalid = true;
+      for (const record of session.batch) { session.controller.fail(record, '译文校验失败，请重试'); session.cached.delete(record.id); }
+    }
+    if (event.timing) { session.samples.push(event.timing); if (session.samples.length > 100) session.samples.shift(); }
+    if (event.result && !session.invalid) {
+      const record = session.batch.find(record => record.id === event.result!.id);
+      if (record) {
+        session.controller.apply(record, event.result.text);
+        if (event.cached && record.state === 'done') session.cached.add(record.id);
+      }
+    }
+    this.update(session);
+  }
+
+  private update(session: ActiveSession): void {
+    const status = session.controller.status();
+    if (status.translated && session.firstBlockMs === undefined && !session.framePending) {
+      session.framePending = true;
+      this.options.document.defaultView?.requestAnimationFrame(() => {
+        session.framePending = false;
+        if (session.active && session.controller.status().translated) {
+          session.firstBlockMs = performance.now() - session.started; this.update(session);
+        }
+      });
+    }
+    session.progress.update({ ...status, mode: session.mode,
+      paused: this.options.document.hidden || session.scrolling,
+      metrics: `${session.firstBlockMs === undefined ? '首段尚未显示' : `首段 ${(session.firstBlockMs / 1000).toFixed(2)}s`} · 缓存命中 ${session.cached.size} 段 · ${summarizeTiming(session.samples)}`,
+    });
   }
 
   private installStyle(): HTMLStyleElement | null {

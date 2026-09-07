@@ -23,7 +23,7 @@ export interface SemanticBlock {
   signature: string;
 }
 
-export function scanSemanticBlocks(root: HTMLElement): SemanticBlock[] {
+export function scanSemanticBlocks(root: HTMLElement, articleOnly = false): SemanticBlock[] {
   const blocks: SemanticBlock[] = [];
   const styleCache = new Map<Element, CSSStyleDeclaration>();
   const style = (element: Element) => {
@@ -35,6 +35,7 @@ export function scanSemanticBlocks(root: HTMLElement): SemanticBlock[] {
     return value;
   };
   const excluded = (element: Element): boolean => {
+    if (articleOnly && element.matches('nav,aside,footer,[role="navigation"],[role="complementary"],[role="contentinfo"],[role="banner"],[data-ad],[data-ad-slot],header:not(main header,article header,[role="main"] header)')) return true;
     if (element.matches(`${EXCLUDED},${OWNED_SELECTOR}`) || element.hasAttribute('hidden') ||
       element.getAttribute('aria-hidden') === 'true' || element.hasAttribute('inert')) return true;
     const editable = element.closest('[contenteditable]');
@@ -64,6 +65,10 @@ export function scanSemanticBlocks(root: HTMLElement): SemanticBlock[] {
           return node.textContent ?? '';
         }
         if (!(node instanceof HTMLElement) || excluded(node)) return '';
+        // Decorative wrappers with identical inherited presentation need no paid marker tokens.
+        if (node.tagName === 'SPAN' && node.parentElement && textStyle(node) === textStyle(node.parentElement)) {
+          return Array.from(node.childNodes).map(child => serialize(child, parent)).join('');
+        }
         const tag = INLINE_TAGS.has(node.tagName) ? node.tagName.toLowerCase() : 'span';
         const slot: InlineSlot = { tag, style: textStyle(node), parent };
         if (tag === 'a') {
@@ -97,7 +102,14 @@ export function scanSemanticBlocks(root: HTMLElement): SemanticBlock[] {
     }
     flush();
   }
-  collect(root);
+  const content = articleOnly ? Array.from(root.querySelectorAll<HTMLElement>('main,[role="main"]')) : [];
+  if (articleOnly && !content.length) content.push(...root.querySelectorAll<HTMLElement>('article'));
+  for (const target of content.length ? content.filter(node => !content.some(other => other !== node && other.contains(node))) : [root]) {
+    let parent: HTMLElement | null = target;
+    let skip = false;
+    while (parent && root.contains(parent)) { if (excluded(parent)) { skip = true; break; } parent = parent.parentElement; }
+    if (!skip) collect(target);
+  }
   return blocks;
 }
 

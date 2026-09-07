@@ -26,6 +26,7 @@ import {
   normalizeExtensionPageUrl,
 } from '../src/settings/test-provider';
 import { WebpageTranslationService } from '../src/webpage/translation-service';
+import { IndexedWebpageCache } from '../src/webpage/translation-cache';
 import { PageTranslationError } from '../src/translation/translate-page';
 import { dispatchDashboardMessage, isDashboardCandidate } from '../src/dashboard/messages';
 import { clearAllCache, getStorageSummary, historyRepository } from '../src/storage/repositories';
@@ -40,6 +41,7 @@ export default defineBackground(() => {
     getSettings,
     undefined,
     (entry) => historyRepository.put(entry),
+    { cache: new IndexedWebpageCache(), emit: (tabId, event) => browser.tabs.sendMessage(tabId, event, { frameId: 0 }) },
   );
   const pdfWorkspace = new PdfWorkspaceService();
   const pdfTakeover = new ChromePdfTakeoverAdapter();
@@ -159,10 +161,12 @@ export default defineBackground(() => {
   }
 
   browser.tabs.onRemoved.addListener((tabId) => {
+    webpageTranslation.dispose(tabId);
     pdfWorkspace.dispose(tabId);
     pdfResume.forget(tabId);
   });
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'loading' || changeInfo.url) webpageTranslation.dispose(tabId);
     if (changeInfo.url || changeInfo.status === 'loading') {
       pdfWorkspace.dispose(tabId);
       pdfResume.invalidate(tabId);
@@ -298,6 +302,6 @@ function isWebpageTranslationCandidate(message: unknown): boolean {
     typeof message === 'object' &&
     message !== null &&
     'type' in message &&
-    (message.type === 'translation:blocks' || message.type === 'translation:cancel')
+    (message.type === 'translation:blocks' || message.type === 'translation:cancel' || message.type === 'translation:clear-cache')
   );
 }

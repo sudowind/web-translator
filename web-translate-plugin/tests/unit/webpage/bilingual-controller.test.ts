@@ -27,3 +27,19 @@ it('MDN 类页面可见正文优先于导航，首批最多三块', () => {
   expect(controller.takeBatch().map(r => r.block.text)).toEqual(['Article', 'Introduction', 'Content']);
   controller.clear();
 });
+it('只派发阅读窗口，滚动后重新选择，整篇模式仍排除站点导航', () => {
+  document.body.innerHTML = '<header>Site menu</header><nav>Links</nav><main><article><header><h1>Title</h1></header><p>Near</p><p>Far</p></article><aside>Related</aside></main><footer>Legal</footer>';
+  const far = document.querySelectorAll('p')[1];
+  const rect = vi.spyOn(far, 'getBoundingClientRect').mockReturnValue({ top: 10000, bottom: 10100 } as DOMRect);
+  const controller = new BilingualController(document.body, () => {});
+  controller.reconcile(); expect(controller.status().count).toBe(3);
+  expect(controller.takeBatch().map(r => r.block.text)).toEqual(['Title', 'Near']);
+  expect(controller.takeBatch()).toEqual([]);
+  rect.mockReturnValue({ top: -400, bottom: -300 } as DOMRect);
+  expect(controller.takeBatch('reading', 1)).toEqual([]);
+  expect(controller.takeBatch('reading', -1).map(r => r.block.text)).toEqual(['Far']);
+  controller.clear(); controller.reconcile();
+  rect.mockReturnValue({ top: 10000, bottom: 10100 } as DOMRect);
+  expect(controller.takeBatch('article').map(r => r.block.text)).toContain('Far');
+  controller.clear();
+});

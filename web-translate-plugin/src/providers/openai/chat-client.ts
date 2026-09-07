@@ -30,6 +30,7 @@ export class OpenAiChatClient {
     input: CompleteChatInput,
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
+    onRequestStart?: () => void,
   ): Promise<string> {
     signal?.throwIfAborted();
     const { body, timeoutMs } = buildChatRequest({ ...input, settings: this.settings });
@@ -49,6 +50,7 @@ export class OpenAiChatClient {
 
     try {
       const fetcher = this.fetcher;
+      onRequestStart?.();
       const response = await fetcher(
         `${this.settings.baseUrl.replace(/\/+$/, '')}/chat/completions`,
         {

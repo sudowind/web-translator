@@ -11,7 +11,7 @@ describe('语义块和安全行内格式', () => {
   });
   it('通用容器内的直接文字与嵌套段落均不丢失或重复', () => {
     document.body.innerHTML = '<div>Before <span>inline</span><section><p>Nested</p></section>After</div>';
-    expect(scanSemanticBlocks(document.body).map(b => b.text)).toEqual(['Before ⟦wt:0⟧inline⟦/wt:0⟧', 'Nested', 'After']);
+    expect(scanSemanticBlocks(document.body).map(b => b.text)).toEqual(['Before inline', 'Nested', 'After']);
   });
   it('跳过隐藏区、输入区、代码块、控件与插件节点', () => {
     document.body.innerHTML = '<div hidden><p>Hidden</p></div><div style="display:none">Invisible</div><div contenteditable>Editable</div><pre>Code</pre><button>Submit</button><svg><text>SVG</text></svg><span data-web-translate-ui>Own</span><p>Visible</p>';

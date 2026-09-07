@@ -14,9 +14,25 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
   let authorizedExtensionPath: string;
   const requestBatches: string[][] = [];
   let holdTranslation: Promise<void> | undefined;
+  let finishStream: (() => void) | undefined;
+  let streamRequests = 0;
 
   test.beforeAll(async () => {
     fixtureServer = createServer((request, response) => {
+      if (request.url === '/v1/chat/completions') {
+        let body = '';
+        request.on('data', chunk => { body += chunk; });
+        request.on('end', () => {
+          streamRequests++;
+          const blocks = JSON.parse(JSON.parse(body).messages[1].content).blocks as Array<{id: string; text: string}>;
+          const results = blocks.map(block => ({ id: block.id, text: `流式：${block.text}` }));
+          const send = (content: string) => response.write(`data: ${JSON.stringify({ choices: [{delta: {content}}] })}\n\n`);
+          response.setHeader('Content-Type', 'text/event-stream'); response.flushHeaders();
+          send('{"translations":[' + JSON.stringify(results[0]));
+          finishStream = () => { send(results.slice(1).map(result => ',' + JSON.stringify(result)).join('') + ']}'); response.end('data: [DONE]\n\n'); finishStream = undefined; };
+        });
+        return;
+      }
       response.setHeader('Content-Type', 'text/html; charset=utf-8');
       if (request.url?.startsWith('/login')) {
         response.end('<!doctype html><html><body><input type="password"><p>Sensitive English</p></body></html>');
@@ -142,6 +158,8 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     expect(enabled, JSON.stringify(enabled)).toMatchObject({ ok: true, value: { enabled: true } });
     const leadTranslation = page.locator('#lead > [data-web-translate-block]');
     await expect(leadTranslation).toHaveText('译文：Hello bold world, read the link.');
+    expect(requestBatches.flat().some(text => text.startsWith('Bottom English'))).toBe(false);
+    await page.getByRole('button', { name: '翻译整篇正文', exact: true }).click();
     await expect(page.locator('[data-web-translate-state="done"]')).toHaveCount(26);
     expect(requestBatches.flat().filter(text => text.includes('bold world'))).toHaveLength(1);
     expect(requestBatches[0][0]).toBe('Article title');
@@ -213,7 +231,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     holdTranslation = new Promise<void>(resolve => { release = resolve; });
     const page = await context.newPage();
     try {
-      await page.goto(`${origin}/article`);
+      await page.goto(`${origin}/slow-article`);
       await sendAuthorizedCommand(page, 'webpage:enable');
       await expect(page.getByRole('status')).toContainText('正在翻译 · 已完成 0/');
       await expect(page.locator('[data-web-translate-block]')).toHaveCount(0);
@@ -226,6 +244,24 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     }
   });
 
+  test('随滚动预取正文，返回已读区域不重复请求', async () => {
+    requestBatches.length = 0;
+    const page = await context.newPage();
+    await page.goto(`${origin}/reading-article`);
+    await sendAuthorizedCommand(page, 'webpage:enable');
+    await expect(page.locator('#quote [data-web-translate-state="done"]')).toHaveCount(1);
+    await expect(page.getByRole('status')).toContainText('等待滚动');
+    expect(requestBatches.flat().some(text => text.startsWith('Bottom English'))).toBe(false);
+    await page.locator('.below').scrollIntoViewIfNeeded();
+    await expect(page.locator('.below [data-web-translate-state="done"]').first()).toBeVisible();
+    await expect(page.getByRole('status')).not.toContainText('正在翻译');
+    const count = requestBatches.length;
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(550);
+    expect(requestBatches.length).toBe(count);
+    await page.close();
+  });
+
   test('敏感页面返回结构化不可启用状态', async () => {
     const page = await context.newPage();
     await page.goto(`${origin}/login`);
@@ -236,6 +272,42 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     });
     await expect(page.locator('p')).toHaveText('Sensitive English');
     await page.close();
+  });
+
+  test('真实分段 SSE 在 HTTP 结束前显示首块，重开命中缓存，清理后重新请求', async () => {
+    // Isolated, pre-authorized test extension only; this does not exercise native permission UI.
+    const previous = await extensionPage.evaluate(async baseUrl => {
+      const api = (globalThis as any).chrome;
+      const key = 'webpage-translation-settings';
+      const current = (await api.storage.local.get(key))[key];
+      await api.storage.local.set({ [key]: { ...current, openAi: { ...current.openAi, baseUrl } } });
+      return current;
+    }, `${origin}/v1`);
+    const page = await context.newPage();
+    try {
+      await page.goto(`${origin}/stream-article`);
+      await page.evaluate(() => { document.querySelector('main')!.innerHTML = '<p id="first">First</p><p id="second">Second</p>'; });
+      await sendAuthorizedCommand(page, 'webpage:enable');
+      await expect(page.locator('#first [data-web-translate-state="done"]')).toHaveText('流式：First');
+      await expect(page.locator('#second [data-web-translate-block]')).toHaveCount(0);
+      expect(finishStream).toBeDefined(); finishStream!();
+      await expect(page.locator('[data-web-translate-state="done"]')).toHaveCount(2);
+      await page.getByText('性能统计', { exact: true }).click();
+      await expect(page.locator('[data-web-translate-progress]')).toContainText(/TTFT 中位/);
+      const count = streamRequests;
+      await sendAuthorizedCommand(page, 'webpage:disable'); await sendAuthorizedCommand(page, 'webpage:enable');
+      await expect(page.locator('[data-web-translate-state="done"]')).toHaveCount(2);
+      expect(streamRequests).toBe(count);
+      await page.getByRole('button', { name: '清除此页缓存', exact: true }).click();
+      await expect(page.getByRole('button', { name: '此页缓存已清除' })).toBeVisible();
+      await sendAuthorizedCommand(page, 'webpage:disable'); await sendAuthorizedCommand(page, 'webpage:enable');
+      await expect(page.locator('#first [data-web-translate-state="done"]')).toHaveText('流式：First');
+      expect(streamRequests).toBe(count + 1); finishStream!();
+      await expect(page.locator('[data-web-translate-state="done"]')).toHaveCount(2);
+    } finally {
+      finishStream?.(); await page.close();
+      await extensionPage.evaluate(async value => { await (globalThis as any).chrome.storage.local.set({ 'webpage-translation-settings': value }); }, previous);
+    }
   });
 
   async function sendAuthorizedCommand(page: Page, type: 'webpage:enable' | 'webpage:disable') {
