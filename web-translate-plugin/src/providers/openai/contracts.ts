@@ -7,6 +7,7 @@ export interface TranslationBlockInput {
 }
 
 export interface TranslationRequest {
+  format?: 'webpage-inline';
   blocks: TranslationBlockInput[];
   sourceLanguage: string;
   targetLanguage: string;

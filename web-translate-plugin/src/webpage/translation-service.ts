@@ -65,6 +65,7 @@ export class WebpageTranslationService {
       const translations = await this.createClient(settings.openAi).translate(
         {
           blocks: message.blocks,
+          format: 'webpage-inline',
           sourceLanguage: settings.sourceLanguage,
           targetLanguage: settings.targetLanguage,
         },

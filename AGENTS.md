@@ -19,6 +19,9 @@
 
 ## 当前规格记录
 
+- 网页语义块对照翻译：`docs/superpowers/specs/2026-09-07-webpage-bilingual-design.md`
+- 网页语义块对照翻译实施计划：`docs/superpowers/plans/2026-09-07-webpage-bilingual-plan.md`
+
 - PDF 翻译状态与阅读位置自动恢复：`docs/superpowers/specs/2026-09-04-pdf-auto-resume-design.md`
 - PDF 自动恢复实施计划：`docs/superpowers/plans/2026-09-04-pdf-auto-resume-plan.md`
 

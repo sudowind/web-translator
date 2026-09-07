@@ -25,10 +25,18 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
         { length: 21 },
         (_, index) => `<p>Bottom English ${index + 1}</p>`,
       ).join('');
-      response.end(`<!doctype html><html><head><style>.below{margin-top:1400px}</style></head><body>
-        <main><p id="lead">Hello world</p><button id="action">Add dynamic English</button><section class="below">${below}</section></main>
+      response.end(`<!doctype html><html><head><style>
+        .below{margin-top:1400px} #lead{font-family:Georgia,serif;font-size:19px;line-height:31px;color:rgb(32,58,77)}
+        #lead strong{font-weight:700} #lead em{font-style:italic} #lead a{color:rgb(90,40,140)}
+        html[data-theme="dark"] #lead{color:rgb(230,230,230)}
+        </style></head><body>
+        <main><h1 id="title">Article title</h1><p id="lead">Hello <strong>bold world</strong>, <em>read</em> <a href="#destination">the link</a>.</p>
+        <ul id="list"><li>Parent item<ul><li>Nested item</li></ul></li></ul><blockquote><p id="quote">A quoted passage</p></blockquote>
+        <button id="action">Add dynamic English</button><section class="below">${below}</section><div id="destination"></div></main>
         <script>
           window.clickCount = 0;
+          window.linkCount = 0;
+          document.querySelector('#lead a').addEventListener('click', () => { window.linkCount += 1; });
           document.querySelector('#action').addEventListener('click', () => {
             window.clickCount += 1;
             const node = document.createElement('p');
@@ -123,38 +131,76 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
     }
   });
 
-  test('静态与动态文本原位翻译、首屏优先、查看原文、事件保留并完整恢复', async () => {
+  test('语义块对照、计算样式、链接、动态更新和完整清理', async () => {
+    requestBatches.length = 0;
     const page = await context.newPage();
     await page.goto(`${origin}/article`);
+    const originalLead = await page.locator('#lead').innerHTML();
     const enabled = await sendAuthorizedCommand(page, 'webpage:enable');
     expect(enabled, JSON.stringify(enabled)).toMatchObject({ ok: true, value: { enabled: true } });
-
-    await expect(page.locator('#lead')).toHaveText('译文：Hello world');
-    expect(requestBatches[0].slice(0, 2)).toEqual([
-      'Hello world',
-      'Add dynamic English',
-    ]);
-    expect(await page.locator('#lead').getAttribute('data-web-translate-original')).toBe(
-      'Hello world',
-    );
-    await page.locator('#lead').hover();
-    expect(
-      await page.locator('#lead').evaluate((element) =>
-        getComputedStyle(element, '::after').content,
-      ),
-    ).toContain('Hello world');
-
+    const leadTranslation = page.locator('#lead > [data-web-translate-block]');
+    await expect(leadTranslation).toHaveText('译文：Hello bold world, read the link.');
+    await expect(page.locator('[data-web-translate-state="done"]')).toHaveCount(26);
+    expect(requestBatches.flat().filter(text => text.includes('bold world'))).toHaveLength(1);
+    expect(requestBatches[0][0]).toBe('Article title');
+    await expect(leadTranslation.locator('strong')).toHaveText('bold world');
+    await expect(leadTranslation.locator('em')).toHaveText('read');
+    await expect(leadTranslation.locator('a')).toHaveAttribute('href', `${origin}/article#destination`);
+    const styles = await page.locator('#lead').evaluate(element => {
+      const translated = element.querySelector('[data-web-translate-block]')!;
+      const properties = ['fontFamily', 'fontSize', 'color', 'lineHeight'] as const;
+      const read = (node: Element) => properties.map(p => getComputedStyle(node)[p]);
+      return { original: read(element), translated: read(translated),
+        bold: getComputedStyle(translated.querySelector('strong')!).fontWeight,
+        italic: getComputedStyle(translated.querySelector('em')!).fontStyle,
+        link: getComputedStyle(translated.querySelector('a')!).color,
+        originalLink: getComputedStyle(element.querySelector('a')!).color };
+    });
+    expect(styles.translated).toEqual(styles.original);
+    expect(styles.bold).toBe('700'); expect(styles.italic).toBe('italic');
+    expect(styles.link).toBe(styles.originalLink);
+    const beforeTheme = requestBatches.length;
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await expect(leadTranslation).toHaveCSS('color', 'rgb(230, 230, 230)');
+    await page.evaluate(() => { delete document.documentElement.dataset.theme; });
+    await expect(leadTranslation).toHaveCSS('color', 'rgb(32, 58, 77)');
+    expect(requestBatches.length).toBe(beforeTheme);
+    await page.screenshot({ path: test.info().outputPath('bilingual-page.png') });
+    expect(await page.locator('#lead').evaluate(element => {
+      const clone = element.cloneNode(true) as Element;
+      clone.querySelector('[data-web-translate-block]')!.remove();
+      return clone.innerHTML;
+    })).toBe(originalLead);
+    await expect(page.locator('#list > li > [data-web-translate-block]')).toHaveText('译文：Parent item');
+    await expect(page.locator('#list ul li > [data-web-translate-block]')).toHaveText('译文：Nested item');
+    await leadTranslation.locator('a').click();
+    await expect(page).toHaveURL(/#destination$/);
+    await page.locator('#lead > a').click();
+    expect(await page.evaluate(() => (window as unknown as { linkCount: number }).linkCount)).toBe(1);
     await page.locator('#action').click();
-    await expect(page.locator('#dynamic')).toHaveText('译文：Dynamic English text');
+    await expect(page.locator('#dynamic > [data-web-translate-block]')).toHaveText('译文：Dynamic English text');
     expect(await page.evaluate(() => (window as unknown as { clickCount: number }).clickCount)).toBe(1);
-
+    // A website changes an existing Text node, rather than appending a new element.
+    await page.locator('#dynamic').evaluate(element => { element.firstChild!.textContent = 'Updated English text'; });
+    await expect(page.locator('#dynamic > [data-web-translate-block]')).toHaveText('译文：Updated English text');
+    await expect(page.locator('#dynamic > [data-web-translate-block]')).toHaveCount(1);
+    await page.locator('#quote').evaluate(element => { element.replaceChildren(document.createTextNode('Replaced quote')); });
+    await expect(page.locator('#quote > [data-web-translate-block]')).toHaveText('译文：Replaced quote');
+    const requestCount = requestBatches.length;
+    await sendAuthorizedCommand(page, 'webpage:enable');
+    await page.locator('#dynamic').evaluate(element => { document.querySelector('main')!.prepend(element); });
+    await expect(page.locator('main > #dynamic > [data-web-translate-block]')).toHaveText('译文：Updated English text');
+    // Wait for observer debounce before checking request stability.
+    await page.waitForTimeout(250);
+    expect(requestBatches.length).toBe(requestCount);
+    await page.locator('#quote').evaluate(element => element.remove());
+    await expect(page.locator('#quote')).toHaveCount(0);
     const disabled = await sendAuthorizedCommand(page, 'webpage:disable');
     expect(disabled).toMatchObject({ ok: true, value: { enabled: false } });
-    await expect(page.locator('#lead')).toHaveText('Hello world');
-    await expect(page.locator('#action')).toHaveText('Add dynamic English');
-    await expect(page.locator('#dynamic')).toHaveText('Dynamic English text');
-    expect(await page.locator('[data-web-translate-original]').count()).toBe(0);
-
+    await expect(page.locator('[data-web-translate-block]')).toHaveCount(0);
+    await expect(page.locator('[data-web-translate-style]')).toHaveCount(0);
+    expect(await page.locator('#lead').innerHTML()).toBe(originalLead);
+    await expect(page.locator('#dynamic')).toHaveText('Updated English text');
     await page.locator('#action').click();
     expect(await page.evaluate(() => (window as unknown as { clickCount: number }).clickCount)).toBe(2);
     await page.close();
@@ -180,7 +226,7 @@ test.describe('普通网页翻译授权后技术路径（不代表 action Popup 
       const [tab] = await chromeApi.tabs.query({ url });
       if (tab.id === undefined) throw new Error('目标标签页缺少 id');
       return tab.id;
-    }, page.url());
+    }, page.url().split('#')[0]);
     if (type === 'webpage:enable') {
       await extensionPage.evaluate(async (id) => {
         const chromeApi = (globalThis as unknown as {

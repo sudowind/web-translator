@@ -49,9 +49,15 @@ export class OpenAiTranslationClient {
               content:
                 `Translate each block from ${request.sourceLanguage} to ${request.targetLanguage}. ` +
                 TRANSLATION_OUTPUT_INSTRUCTIONS +
-                'Preserve Markdown structure, inline/display math delimiters and code fences. ' +
+                (request.format === 'webpage-inline'
+                  ? 'Each block is one complete webpage passage. Translate the entire passage coherently. ' +
+                    'Preserve every inline marker ⟦wt:N⟧, ⟦/wt:N⟧ and ⟦wt:N/⟧ exactly once. ' +
+                    'Translate text inside paired markers; keep their nesting and parent relationships. ' +
+                    'Markers may move with their translated phrases. Self-closing markers represent protected content. ' +
+                    'Return plain text with these markers only: no Markdown, HTML, commentary or code fences.'
+                  : 'Preserve Markdown structure, inline/display math delimiters and code fences. ' +
                 'Do not translate math expressions. For table and figure blocks, the input text is caption only. ' +
-                'Translate it as plain Markdown; never output a table body or image content.',
+                'Translate it as plain Markdown; never output a table body or image content.'),
             },
             { role: 'user', content: JSON.stringify({ blocks: request.blocks }) },
           ],
