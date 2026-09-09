@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
+import { dbPromise } from '../../../src/storage/db';
 import {
   clearAllCache,
   clearDocumentCache,
@@ -32,6 +33,26 @@ beforeEach(async () => {
 });
 
 describe('PDF IndexedDB 仓储', () => {
+  it('旧解析缓存补齐历史标题，晚到文件名不覆盖，清缓存后仍保留', async () => {
+    const legacy = { ...model, title: '2510.12403v1.pdf', pages: [{ ...model.pages[0], blocks: [{ id: 'title', pageId: model.pages[0].id, order: 0, kind: 'heading' as const, headingLevel: 1, text: 'A Reliable Paper\nTitle' }] }] };
+    const entry = { id: 'pdf:paper', kind: 'pdf' as const, url: model.sourceUrl, title: legacy.title, sourceLanguage: 'en', targetLanguage: 'zh-CN', lastVisitedAt: 123, documentHash: model.hash, lastPage: 73, pageCount: 76 };
+    const db = await dbPromise;
+    await db.put('documents', legacy); await db.put('history', entry);
+    expect((await documentRepository.get(model.hash))?.title).toBe('A Reliable Paper Title');
+    expect((await documentRepository.listBySourceUrl(model.sourceUrl))[0].title).toBe('A Reliable Paper Title');
+    expect((await historyRepository.listRecent())[0]).toMatchObject({ title: 'A Reliable Paper Title', lastPage: 73, lastVisitedAt: 123 });
+    await clearAllCache();
+    await historyRepository.put({ ...entry, lastVisitedAt: 124 });
+    expect(await historyRepository.get(entry.id)).toMatchObject({ title: 'A Reliable Paper Title', lastPage: 73, lastVisitedAt: 124 });
+  });
+  it('新解析保存时立即更新已有历史，网页标题不受影响', async () => {
+    const entry = { id: 'pdf:paper', kind: 'pdf' as const, url: model.sourceUrl, title: 'paper.pdf', sourceLanguage: 'en', targetLanguage: 'zh', lastVisitedAt: 1, documentHash: model.hash };
+    await historyRepository.put(entry);
+    await documentRepository.put({ ...model, pages: [{ ...model.pages[0], blocks: [{ id: 'title', pageId: model.pages[0].id, order: 0, kind: 'heading', text: 'Parsed Paper Title' }] }] });
+    expect((await (await dbPromise).get('history', entry.id))?.title).toBe('Parsed Paper Title');
+    await historyRepository.put({ ...entry, kind: 'webpage', id: 'webpage:paper', title: 'Website title' });
+    expect((await historyRepository.get('webpage:paper'))?.title).toBe('Website title');
+  });
   it('缓存键隔离所有维度且不会因分隔符碰撞', () => {
     const base = { hash: 'h', page: 1, source: 'en', target: 'zh-CN', provider: 'openai', model: 'm1', schema: 1 };
     for (const changed of [

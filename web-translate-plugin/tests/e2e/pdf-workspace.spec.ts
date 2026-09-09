@@ -462,13 +462,18 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await enableWorkspace(pdfPage);
 
     await expect(pdfPage).toHaveURL(sourceUrl);
-    await expect(pdfPage.locator('.workspace-title')).toHaveText('public.pdf');
+    await expect(pdfPage.locator('.workspace-title')).toHaveText(/^(public\.pdf|Paper title)$/);
     await expect(pdfPage.locator('[data-pdf-page="1"]')).toBeVisible();
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'translating', { timeout: 30_000 });
     const scrollTopBeforeTranslation = await pdfPage.evaluate(() => window.scrollY);
     await expect(pdfPage.locator('[data-translation-page="1"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
     expect(Math.abs((await pdfPage.evaluate(() => window.scrollY)) - scrollTopBeforeTranslation)).toBeLessThanOrEqual(1);
     await expect(pdfPage.locator('[data-translation-page="2"]')).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
+    await expect(pdfPage.locator('.workspace-title')).toHaveText('Paper title');
+    const dashboard = await context.newPage();
+    await dashboard.goto(extensionPage.url().replace('/popup.html', '/options.html'));
+    await expect(dashboard.getByRole('heading', { name: 'Paper title', exact: true })).toBeVisible();
+    await dashboard.close(); await pdfPage.bringToFront();
     await expect.poll(() => observed.urlTasks.length).toBe(1);
     expect(observed.urlTasks[0]).toBe(sourceUrl);
     await expect.poll(() => observed.translationPages.length).toBeGreaterThanOrEqual(2);
