@@ -1,4 +1,6 @@
 import { DOCUMENT_SCHEMA_VERSION, type DocumentModel, type DocumentPage } from '../document/model';
+import { isFallbackTitle } from '../document/title';
+import { readArxivTitle } from './arxiv-title';
 import { OpenAiPaperAgentClient } from '../agent/client';
 import { buildAgentContext } from '../agent/context-builder';
 import { MineruClient } from '../providers/mineru/client';
@@ -58,6 +60,7 @@ interface MineruPort {
 }
 
 interface Dependencies {
+  readPaperTitle?(sourceUrl: string): Promise<string | undefined>;
   loadSource(url: string, signal?: AbortSignal): Promise<LoadedPdfSource>;
   getDocument(hash: string): Promise<DocumentModel | undefined>;
   listDocumentsBySourceUrl?(sourceUrl: string): Promise<DocumentModel[]>;
@@ -82,6 +85,7 @@ interface Dependencies {
 }
 
 const defaults: Dependencies = {
+  readPaperTitle: readArxivTitle,
   loadSource: (url, signal) => loadPdfSource(url, globalThis.fetch, signal),
   getDocument: (hash) => documentRepository.get(hash),
   listDocumentsBySourceUrl: (sourceUrl) => documentRepository.listBySourceUrl(sourceUrl),
@@ -117,10 +121,48 @@ export class PdfWorkspaceService {
   private readonly generations = new Map<string, number>();
   private readonly cacheClears = new Map<string, Promise<unknown>>();
   private readonly documents = new Map<string, DocumentModel>();
+  private readonly titleRequests = new Map<string, Promise<string | undefined>>();
+  private globalGeneration = 0;
+  private fullCacheClear: Promise<void> = Promise.resolve();
 
   constructor(private readonly dependencies: Dependencies = defaults) {}
 
+  clearAllCache(clear: () => Promise<void>): Promise<void> {
+    this.globalGeneration++;
+    this.documents.clear();
+    const pendingWrites = [...this.mutationTails.values()];
+    const operation = this.fullCacheClear.catch(() => undefined).then(async () => {
+      await Promise.allSettled(pendingWrites);
+      await clear();
+    });
+    this.fullCacheClear = operation.catch(() => undefined);
+    return operation;
+  }
+
   async handle(message: PdfMessage, tabId: number, senderUrl?: string): Promise<PdfMessageValue> {
+    if (message.type === 'pdf:document-title') {
+      const model = await this.getDocument(message.hash);
+      if (!model) return null;
+      if (!isFallbackTitle(model.title)) return { title: model.title };
+      const generation = this.generation(model.hash);
+      const requestKey = `${model.hash}:${generation}`;
+      let request = this.titleRequests.get(requestKey);
+      if (!request) {
+        request = this.dependencies.readPaperTitle?.(model.sourceUrl) ?? Promise.resolve(undefined);
+        this.titleRequests.set(requestKey, request);
+      }
+      let title: string | undefined;
+      try { title = await request; } catch { return null; }
+      finally { if (this.titleRequests.get(requestKey) === request) this.titleRequests.delete(requestKey); }
+      if (!title || isFallbackTitle(title) || title.length > 300 || generation !== this.generation(model.hash)) return null;
+      const updated = { ...model, title };
+      const saved = await this.enqueueMutation(model.hash, generation, async () => {
+        await this.dependencies.putDocument(updated); return true;
+      });
+      if (saved !== true || generation !== this.generation(model.hash)) return null;
+      this.rememberDocument(updated);
+      return { title };
+    }
     if (message.type === 'pdf:cancel') {
       this.dispose(tabId);
       return { cancelled: true };
@@ -428,11 +470,11 @@ export class PdfWorkspaceService {
   }
 
   private generation(hash: string): number {
-    return this.generations.get(hash) ?? 0;
+    return (this.generations.get(hash) ?? 0) + this.globalGeneration;
   }
 
   private invalidate(hash: string): void {
-    this.generations.set(hash, this.generation(hash) + 1);
+    this.generations.set(hash, (this.generations.get(hash) ?? 0) + 1);
   }
 
   private async putTask(hash: string, generation: number, task: StoredTask): Promise<void> {
@@ -485,6 +527,7 @@ export class PdfWorkspaceService {
   }
 
   private async getDocument(hash: string): Promise<DocumentModel | undefined> {
+    await this.fullCacheClear;
     const generation = this.generation(hash);
     await this.cacheClears.get(hash);
     if (generation !== this.generation(hash)) return this.getDocument(hash);

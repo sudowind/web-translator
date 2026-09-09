@@ -1037,6 +1037,49 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
     await pdfPage.close();
   });
 
+  test('旧缓存标题为普通段落时异步补齐官方标题，第73页恢复不等待元数据且不重解析', async () => {
+    const sourceUrl = 'https://arxiv.org/pdf/2510.12403#page=73';
+    const hash = 'arxiv:2510.12403';
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let metadataRequests = 0;
+    await context.route('https://arxiv.org/pdf/2510.12403*', route => route.fulfill({
+      contentType: 'application/pdf', headers: { etag: '"title-fixture"' }, body: route.request().method() === 'HEAD' ? Buffer.alloc(0) : longPdf,
+    }));
+    await context.route('https://arxiv.org/abs/2510.12403', async route => {
+      metadataRequests++; await held;
+      await route.fulfill({ contentType: 'text/html', body: '<head><meta name="citation_title" content="Robot Learning: A Tutorial"/><meta name="citation_arxiv_id" content="2510.12403"/></head>' });
+    });
+    await extensionPage.evaluate(async ({ hash, sourceUrl }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open('web-translate'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+      });
+      const pages = Array.from({ length: 76 }, (_, index) => ({ id: `legacy-p${index}`, index, blocks: index === 0 ? [{ id: 'legacy-title', pageId: 'legacy-p0', order: 0, kind: 'paragraph', text: 'Robot Learning: A Tutorial' }] : [] }));
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(['documents', 'history'], 'readwrite');
+        tx.objectStore('documents').put({ id: hash, hash, sourceUrl, schemaVersion: 4, title: '2510.12403v1.pdf', pageCount: 76, pages });
+        tx.objectStore('history').put({ id: `pdf:${hash}`, kind: 'pdf', documentHash: hash, title: '2510.12403v1.pdf', url: sourceUrl, sourceLanguage: 'en', targetLanguage: 'zh-CN', lastVisitedAt: Date.now(), lastPage: 73, pageCount: 76 });
+        tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+      }); db.close();
+    }, { hash, sourceUrl });
+    const parseCount = observed.urlTasks.length;
+    const page = await context.newPage();
+    try {
+      await page.goto(sourceUrl); await enableWorkspace(page);
+      await expect(page.locator('[data-pdf-page="73"] canvas[data-active="true"]')).toBeVisible();
+      await expect(page.locator('.workspace-title')).toHaveText('2510.12403v1.pdf');
+      release(); await expect(page.locator('.workspace-title')).toHaveText('Robot Learning: A Tutorial');
+      expect(observed.urlTasks.length).toBe(parseCount);
+      const dashboard = await context.newPage();
+      await dashboard.goto(extensionPage.url().replace('/popup.html', '/options.html'));
+      await expect(dashboard.getByRole('heading', { name: 'Robot Learning: A Tutorial', exact: true })).toBeVisible();
+      await dashboard.close();
+      await page.reload(); await enableWorkspace(page);
+      await expect(page.locator('.workspace-title')).toHaveText('Robot Learning: A Tutorial');
+      expect(metadataRequests).toBe(1); expect(observed.urlTasks.length).toBe(parseCount);
+    } finally { release(); await page.close(); }
+  });
+
   test('翻译失败显示默认收起的脱敏诊断并保留自动重试次数', async () => {
     translationFailureMode = 'mixed';
     observed.translationPages.length = 0;
