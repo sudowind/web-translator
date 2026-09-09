@@ -1,3 +1,5 @@
+import { dispatchLibraryMessage, isLibraryCandidate } from '../src/library/messages';
+import { libraryRepository } from '../src/library/repository';
 import { classifyPdfTarget } from '../src/pdf-takeover/detect-pdf';
 import { readPdfBytes } from '../src/pdf-takeover/fetch-pdf';
 import {
@@ -207,6 +209,22 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isLibraryCandidate(message)) {
+      void dispatchLibraryMessage(message, _, optionsUrl, {
+        repository: libraryRepository,
+        listHistory: () => historyRepository.listRecent(),
+        openUrl: async (url) => { await browser.tabs.create({ url }); },
+        verifyWorkspace: async (sender) => {
+          const tabId = sender.tab?.id;
+          if (tabId === undefined || sender.frameId !== 0 || !sender.documentId || !sender.url) return false;
+          const isCurrent = pdfResume.capture(tabId);
+          const tab = await browser.tabs.get(tabId);
+          return tab.url === sender.url && !tab.incognito && isCurrent() &&
+            await pdfTakeover.status(tabId, sender.documentId) && isCurrent();
+        },
+      }).then(sendResponse);
+      return true;
+    }
     if (isDashboardCandidate(message)) {
       void dispatchDashboardMessage(message, _, optionsUrl, {
         listHistory: () => historyRepository.listRecent(),

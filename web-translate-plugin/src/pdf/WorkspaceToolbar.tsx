@@ -16,6 +16,7 @@ export function workspaceFeedbackPlacement(
 
 export interface WorkspaceToolbarProps {
   title: string;
+  bookmarkControl?: React.ReactNode;
   activePage: number;
   pageCount: number;
   scale: number;
@@ -42,6 +43,7 @@ export interface WorkspaceToolbarProps {
 
 export function WorkspaceToolbar({
   title,
+  bookmarkControl,
   activePage,
   pageCount,
   scale,
@@ -87,6 +89,7 @@ export function WorkspaceToolbar({
       </div>
       <span className="workspace-progress" aria-live="polite">{progressLabel}</span>
       <div className="workspace-toolbar-actions">
+        {bookmarkControl}
         <button
           type="button"
           className="workspace-agent-toggle"
