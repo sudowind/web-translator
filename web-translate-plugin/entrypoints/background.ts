@@ -1,3 +1,5 @@
+import { dispatchLibraryMessage, isLibraryCandidate } from '../src/library/messages';
+import { libraryRepository } from '../src/library/repository';
 import { classifyPdfTarget } from '../src/pdf-takeover/detect-pdf';
 import { readPdfBytes } from '../src/pdf-takeover/fetch-pdf';
 import {
@@ -26,6 +28,7 @@ import {
   normalizeExtensionPageUrl,
 } from '../src/settings/test-provider';
 import { WebpageTranslationService } from '../src/webpage/translation-service';
+import { IndexedWebpageCache } from '../src/webpage/translation-cache';
 import { PageTranslationError } from '../src/translation/translate-page';
 import { dispatchDashboardMessage, isDashboardCandidate } from '../src/dashboard/messages';
 import { clearAllCache, getStorageSummary, historyRepository } from '../src/storage/repositories';
@@ -40,6 +43,7 @@ export default defineBackground(() => {
     getSettings,
     undefined,
     (entry) => historyRepository.put(entry),
+    { cache: new IndexedWebpageCache(), emit: (tabId, event) => browser.tabs.sendMessage(tabId, event, { frameId: 0 }) },
   );
   const pdfWorkspace = new PdfWorkspaceService();
   const pdfTakeover = new ChromePdfTakeoverAdapter();
@@ -159,10 +163,12 @@ export default defineBackground(() => {
   }
 
   browser.tabs.onRemoved.addListener((tabId) => {
+    webpageTranslation.dispose(tabId);
     pdfWorkspace.dispose(tabId);
     pdfResume.forget(tabId);
   });
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'loading' || changeInfo.url) webpageTranslation.dispose(tabId);
     if (changeInfo.url || changeInfo.status === 'loading') {
       pdfWorkspace.dispose(tabId);
       pdfResume.invalidate(tabId);
@@ -207,13 +213,29 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (isLibraryCandidate(message)) {
+      void dispatchLibraryMessage(message, _, optionsUrl, {
+        repository: libraryRepository,
+        listHistory: () => historyRepository.listRecent(),
+        openUrl: async (url) => { await browser.tabs.create({ url }); },
+        verifyWorkspace: async (sender) => {
+          const tabId = sender.tab?.id;
+          if (tabId === undefined || sender.frameId !== 0 || !sender.documentId || !sender.url) return false;
+          const isCurrent = pdfResume.capture(tabId);
+          const tab = await browser.tabs.get(tabId);
+          return tab.url === sender.url && !tab.incognito && isCurrent() &&
+            await pdfTakeover.status(tabId, sender.documentId) && isCurrent();
+        },
+      }).then(sendResponse);
+      return true;
+    }
     if (isDashboardCandidate(message)) {
       void dispatchDashboardMessage(message, _, optionsUrl, {
         listHistory: () => historyRepository.listRecent(),
         getHistory: (id) => historyRepository.get(id),
         deleteHistory: (id) => historyRepository.delete(id),
         clearHistory: () => historyRepository.clear(),
-        clearCache: clearAllCache,
+        clearCache: () => pdfWorkspace.clearAllCache(clearAllCache),
         getSummary: getStorageSummary,
         openUrl: async (url) => { await browser.tabs.create({ url }); },
       }).then(sendResponse);
@@ -298,6 +320,6 @@ function isWebpageTranslationCandidate(message: unknown): boolean {
     typeof message === 'object' &&
     message !== null &&
     'type' in message &&
-    (message.type === 'translation:blocks' || message.type === 'translation:cancel')
+    (message.type === 'translation:blocks' || message.type === 'translation:cancel' || message.type === 'translation:clear-cache')
   );
 }

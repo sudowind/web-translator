@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { webpageProgressText } from '../../src/webpage/progress-view';
+import { BrandLogo } from '../../src/brand/BrandLogo';
 
 import type { TakeoverProbeResult } from '../../src/pdf-takeover/contracts';
 import type {
@@ -34,7 +36,7 @@ export default function App() {
   const [webpageEnabled, setWebpageEnabled] = useState(false);
   const [webpageBusy, setWebpageBusy] = useState(false);
   const [webpageFeedback, setWebpageFeedback] = useState(
-    '普通网页翻译默认关闭',
+    '译文将显示在原文下方',
   );
   const [pdfStatus, setPdfStatus] = useState<PdfWorkspacePopupStatus | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -53,7 +55,7 @@ export default function App() {
   useEffect(() => {
     void sendPdfWorkspaceCommand('status').then((status) => {
       setPdfStatus(status);
-      setPdfFeedback(status.enabled ? 'PDF 工作台已启用' : status.eligible ? '可翻译此 PDF' : '当前页面不是支持的 PDF');
+      setPdfFeedback(status.enabled ? '对照阅读已开启' : status.eligible ? '已识别 PDF · 可以开始翻译' : '');
     }, (error: unknown) => setPdfFeedback(`PDF 状态读取失败：${errorText(error)}`));
   }, []);
 
@@ -61,10 +63,23 @@ export default function App() {
     void sendWebpageCommand('webpage:status')
       .then((status) => {
         setWebpageEnabled(status.enabled);
-        if (status.enabled) setWebpageFeedback(`已翻译 ${status.count} 个文本块`);
+        if (status.enabled) setWebpageFeedback(webpageProgressText(status));
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!webpageEnabled) return;
+    let disposed = false;
+    const timer = setInterval(() => {
+      void sendWebpageCommand('webpage:status').then((status) => {
+        if (disposed) return;
+        setWebpageEnabled(status.enabled);
+        setWebpageFeedback(status.enabled ? webpageProgressText(status) : '网页翻译已关闭');
+      }).catch(() => undefined);
+    }, 1_000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [webpageEnabled]);
 
   async function runProbe() {
     setRunning(true);
@@ -91,8 +106,8 @@ export default function App() {
         status.reason === 'PAGE_NOT_ELIGIBLE'
           ? '此页面包含敏感内容、属于 PDF 或不支持注入，无法启用'
           : status.enabled
-            ? `已翻译 ${status.count} 个文本块；悬停译文可查看原文`
-            : '已关闭并恢复页面原文',
+            ? `区块对照已启用，共 ${status.count} 段；译文将显示在原文下方，失败段可点击重试`
+            : '已关闭并移除译文，原文保留',
       );
     } catch (error) {
       setWebpageFeedback(webpagePopupErrorText(error));
@@ -121,40 +136,48 @@ export default function App() {
 
   return (
     <main>
-      <section aria-labelledby="webpage-heading">
-        <p className="eyebrow">页面工具</p>
+      <header className="brand">
+        <BrandLogo size={36} />
+        <div><strong>Web Translate</strong><span>双语阅读助手</span></div>
+      </header>
+      <section className="reading-card" aria-labelledby="webpage-heading">
+        <p className="eyebrow">{pdfStatus?.eligible ? 'PDF 文档' : '当前网页'}</p>
         {pdfStatus?.eligible ? <>
-          <h2 id="webpage-heading">PDF 翻译工作台</h2>
-          <p className="description">记住此 PDF 的翻译状态与阅读位置。首次可能请求当前站点权限，仅对你启用过的 PDF 自动恢复。</p>
+          <h1 id="webpage-heading">PDF 对照阅读</h1>
+          <p className="description">原文与译文并排呈现，接着上次的位置继续读。</p>
           <button className="primary" type="button" disabled={pdfBusy} onClick={() => void togglePdfWorkspace()}>
             {pdfBusy ? '处理中…' : pdfStatus.enabled ? '关闭 PDF 工作台' : '翻译此 PDF'}
           </button>
           <p className="status" aria-live="polite">{pdfFeedback}</p>
+          <p className="permission-note">允许当前站点访问后，可自动恢复已开启的 PDF。</p>
         </> : <>
-          <h2 id="webpage-heading">普通网页翻译</h2>
-          <p className="description">由你主动启用；关闭后恢复本页全部原文。</p>
+          <h1 id="webpage-heading">网页对照翻译</h1>
+          <p className="description">保留原文与排版，随阅读逐段呈现译文。</p>
           <button
             className="primary"
             type="button"
             disabled={webpageBusy}
             onClick={() => void toggleWebpage()}
           >
-            {webpageBusy ? '处理中…' : webpageEnabled ? '关闭并恢复原文' : '翻译当前网页'}
+            {webpageBusy ? '处理中…' : webpageEnabled ? '关闭对照翻译' : '翻译当前网页'}
           </button>
           <p className="status" aria-live="polite">{pdfStatus === null ? pdfFeedback : webpageFeedback}</p>
         </>}
-        <button className="text-button" type="button" onClick={() => void browser.runtime.openOptionsPage()}>
-          打开阅读控制台
-        </button>
       </section>
+      <button className="console-link" type="button" onClick={() => void browser.runtime.openOptionsPage()}>
+        <span><strong>打开阅读控制台</strong><small>阅读记录与翻译设置</small></span>
+        <span aria-hidden="true">→</span>
+      </button>
 
-      <section className="probe" aria-label="PDF 接管探针">
-        <h1>PDF 接管探针</h1>
+      <details className="probe">
+        <summary>遇到问题？<span>PDF 翻译诊断</span></summary>
+        <p className="description">检查当前 PDF 的访问与加载情况，帮助定位无法翻译的原因。</p>
         <button type="button" disabled={running} onClick={() => void runProbe()}>
-          {running ? '运行中…' : '运行探针'}
+          {running ? '检查中…' : '检查当前 PDF'}
         </button>
-        {output === null ? <p>尚未运行</p> : <pre>{output}</pre>}
-      </section>
+        {output === null ? <p className="diagnostic-empty">尚未检查</p> : <pre aria-label="诊断详情">{output}</pre>}
+      </details>
     </main>
   );
 }
+

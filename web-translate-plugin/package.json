@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "icons": "node scripts/generate-icons.mjs",
     "dev": "wxt -b chrome",
     "build": "wxt build -b chrome",
     "typecheck": "tsc --noEmit",

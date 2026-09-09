@@ -1,4 +1,5 @@
 import { LlmProviderError, OpenAiChatClient } from './chat-client';
+import { WebpageStreamParser } from '../../webpage/stream-parser';
 import { TRANSLATION_OUTPUT_INSTRUCTIONS } from './translation-format';
 import { resolveTranslationOutputFormat } from '../../settings/translation-capabilities';
 import type {
@@ -13,6 +14,12 @@ import {
 
 export { TranslationProviderError } from './translation-response';
 
+export interface TranslationStreamCallbacks {
+  onBlock?: (result: TranslationResult) => void;
+  onInvalidate?: () => void;
+  onTiming?: (sample: { ttftMs?: number; durationMs: number }) => void;
+}
+
 export class OpenAiTranslationClient {
   constructor(
     private readonly settings: OpenAiSettings,
@@ -22,6 +29,7 @@ export class OpenAiTranslationClient {
   async translate(
     request: TranslationRequest,
     signal?: AbortSignal,
+    callbacks?: TranslationStreamCallbacks,
   ): Promise<TranslationResult[]> {
     const { apiKey, baseUrl, defaultModel } = this.settings;
     if (!apiKey.trim() || !baseUrl.trim() || !defaultModel.trim()) {
@@ -35,6 +43,10 @@ export class OpenAiTranslationClient {
     }
 
     let content: string;
+    let started: number | undefined;
+    let ttftMs: number | undefined;
+    const parser = request.format === 'webpage-inline'
+      ? new WebpageStreamParser(request.blocks, result => callbacks?.onBlock?.(result)) : undefined;
     try {
       const outputMode = await resolveTranslationOutputFormat(this.settings);
       signal?.throwIfAborted();
@@ -49,16 +61,28 @@ export class OpenAiTranslationClient {
               content:
                 `Translate each block from ${request.sourceLanguage} to ${request.targetLanguage}. ` +
                 TRANSLATION_OUTPUT_INSTRUCTIONS +
-                'Preserve Markdown structure, inline/display math delimiters and code fences. ' +
+                (request.format === 'webpage-inline'
+                  ? 'Each block is one complete webpage passage. Translate the entire passage coherently. ' +
+                    'Preserve every inline marker ⟦wt:N⟧, ⟦/wt:N⟧ and ⟦wt:N/⟧ exactly once. ' +
+                    'Translate text inside paired markers; keep their nesting and parent relationships. ' +
+                    'Markers may move with their translated phrases. Self-closing markers represent protected content. ' +
+                    'Return plain text with these markers only: no Markdown, HTML, commentary or code fences.'
+                  : 'Preserve Markdown structure, inline/display math delimiters and code fences. ' +
                 'Do not translate math expressions. For table and figure blocks, the input text is caption only. ' +
-                'Translate it as plain Markdown; never output a table body or image content.',
+                'Translate it as plain Markdown; never output a table body or image content.'),
             },
             { role: 'user', content: JSON.stringify({ blocks: request.blocks }) },
           ],
         },
         signal,
+        delta => {
+          if (delta && ttftMs === undefined && started !== undefined) ttftMs = performance.now() - started;
+          parser?.push(delta);
+        },
+        () => { started = performance.now(); },
       );
     } catch (error) {
+      if (parser?.invalid) callbacks?.onInvalidate?.();
       if (error instanceof LlmProviderError) {
         if (error.code === 'LLM_OUTPUT_FORMAT_UNSUPPORTED') {
           throw new TranslationProviderError('TRANSLATION_OUTPUT_FORMAT_UNSUPPORTED');
@@ -74,12 +98,18 @@ export class OpenAiTranslationClient {
         throw new TranslationProviderError('TRANSLATION_NETWORK');
       }
       throw error;
+    } finally {
+      if (started !== undefined) callbacks?.onTiming?.({ ttftMs, durationMs: performance.now() - started });
     }
 
-    return parseTranslationResponse(
-      content,
-      request.blocks.map(({ id }) => id),
-    );
+    try {
+      const results = parseTranslationResponse(content, request.blocks.map(({ id }) => id));
+      parser?.finish(results);
+      return results;
+    } catch (error) {
+      callbacks?.onInvalidate?.();
+      throw error;
+    }
   }
 }
 

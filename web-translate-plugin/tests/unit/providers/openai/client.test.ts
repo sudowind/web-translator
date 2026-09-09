@@ -30,6 +30,41 @@ describe('OpenAI 兼容翻译客户端', () => {
     },
   };
 
+  it('网页整块翻译使用独立行内标记提示，不沿用 PDF Markdown 指令', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(sseResponse(JSON.stringify({
+      translations: [{ id: 'b1', text: '读 ⟦wt:0⟧这里⟦/wt:0⟧' }],
+    })));
+    await new OpenAiTranslationClient(settings, fetcher).translate({
+      format: 'webpage-inline', sourceLanguage: 'en', targetLanguage: 'zh-CN',
+      blocks: [{ id: 'b1', text: 'Read ⟦wt:0⟧here⟦/wt:0⟧' }],
+    });
+    const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    expect(body.messages[0].content).toContain('one complete webpage passage');
+    expect(body.messages[0].content).toContain('⟦wt:N⟧');
+    expect(body.messages[0].content).not.toContain('Preserve Markdown structure');
+    expect(body.messages[1].content).not.toContain('secret-key');
+  });
+  it('网页真实读取流时提前发出完整块，记录首内容而非响应头；最终冲突撤回', async () => {
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(body));
+    const onBlock = vi.fn(); const onInvalidate = vi.fn(); const onTiming = vi.fn();
+    const pending = new OpenAiTranslationClient(settings, fetcher).translate({
+      format: 'webpage-inline', sourceLanguage: 'en', targetLanguage: 'zh', blocks: [{ id: 'a', text: 'Hello' }],
+    }, undefined, { onBlock, onInvalidate, onTiming });
+    const rejected = expect(pending).rejects.toThrow();
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    expect(onTiming).not.toHaveBeenCalled();
+    const write = (content: string) => stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{delta: {content}}] })}\n\n`));
+    write('{"translations":[{"id":"a","text":"你好"}');
+    await vi.waitFor(() => expect(onBlock).toHaveBeenCalledWith({ id: 'a', text: '你好' }));
+    expect(onTiming).not.toHaveBeenCalled();
+    write(',{"id":"a","text":"冲突"}]}'); stream.close();
+    await rejected;
+    expect(onInvalidate).toHaveBeenCalledOnce();
+    expect(onTiming).toHaveBeenCalledWith({ ttftMs: expect.any(Number), durationMs: expect.any(Number) });
+  });
+
   it('使用 chat completions JSON Object 协议并按 block id 返回结果', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       sseResponse(

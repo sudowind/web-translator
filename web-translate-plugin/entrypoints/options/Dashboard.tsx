@@ -1,10 +1,15 @@
+import { LibraryView, useLibrary } from '../../src/library/LibraryView';
+import { BookmarkButton } from '../../src/library/BookmarkButton';
+import type { LibraryState } from '../../src/library/model';
 import { useEffect, useMemo, useState } from 'react';
+import { BrandLogo } from '../../src/brand/BrandLogo';
 
 import type { DashboardMessage, DashboardResponse, DashboardState } from '../../src/dashboard/messages';
 import type { HistoryEntry } from '../../src/storage/repositories';
+import { formatStorageUsage } from '../../src/storage/usage';
 import SettingsPanel, { type SettingsSection } from './App';
 
-type DashboardSection = 'history' | 'providers' | 'translation' | 'pdf' | 'storage';
+type DashboardSection = 'library' | 'history' | 'providers' | 'translation' | 'pdf' | 'storage';
 type HistoryFilter = 'all' | HistoryEntry['kind'];
 
 const emptyState: DashboardState = {
@@ -13,6 +18,7 @@ const emptyState: DashboardState = {
 };
 
 const navigation: Array<{ id: DashboardSection; label: string; note: string }> = [
+  { id: 'library', label: '论文库', note: '收藏与文件夹' },
   { id: 'history', label: '最近阅读', note: '继续翻译过的内容' },
   { id: 'providers', label: 'AI 服务', note: '模型与智能体' },
   { id: 'translation', label: '翻译偏好', note: '语言与响应速度' },
@@ -61,7 +67,7 @@ export default function Dashboard({ initialSection }: { initialSection?: Dashboa
     <main className="dashboard-shell">
       <aside className="dashboard-sidebar">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">译</span>
+          <BrandLogo />
           <div><strong>Web Translate</strong><span>阅读控制台</span></div>
         </div>
         <nav aria-label="控制台分区">
@@ -76,6 +82,7 @@ export default function Dashboard({ initialSection }: { initialSection?: Dashboa
       </aside>
 
       <div className="dashboard-content">
+        {section === 'library' && <LibraryView />}
         {section === 'history' && <HistoryView entries={state.entries} loading={loading}
           onOpen={(id) => void mutate({ type: 'dashboard:open-history', id }, '已在新标签页打开')}
           onDelete={(id) => void mutate({ type: 'dashboard:delete-history', id }, '历史记录已删除')} />}
@@ -93,6 +100,7 @@ export default function Dashboard({ initialSection }: { initialSection?: Dashboa
 function HistoryView({ entries, loading, onOpen, onDelete }: {
   entries: HistoryEntry[]; loading: boolean; onOpen(id: string): void; onDelete(id: string): void;
 }) {
+  const { state: library, setState: setLibrary } = useLibrary();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const visible = useMemo(() => filterHistoryEntries(entries, query, filter), [entries, filter, query]);
@@ -115,12 +123,12 @@ function HistoryView({ entries, loading, onOpen, onDelete }: {
       {visible.length === 0 ? <div className="empty-state"><span aria-hidden="true">↗</span>
         <h2>{loading ? '正在整理阅读记录' : '还没有翻译记录'}</h2>
         <p>{loading ? '记录会按最近阅读时间排列。' : '在任意网页或 PDF 中启用翻译后，它会出现在这里。'}</p>
-      </div> : visible.map((entry) => <HistoryRow key={entry.id} entry={entry} onOpen={onOpen} onDelete={onDelete} />)}
+      </div> : visible.map((entry) => <HistoryRow key={entry.id} entry={entry} onOpen={onOpen} onDelete={onDelete} library={library} onLibraryChange={setLibrary} />)}
     </div>
   </section>;
 }
 
-function HistoryRow({ entry, onOpen, onDelete }: { entry: HistoryEntry; onOpen(id: string): void; onDelete(id: string): void }) {
+function HistoryRow({ entry, onOpen, onDelete, library, onLibraryChange }: { entry: HistoryEntry; onOpen(id: string): void; onDelete(id: string): void; library: LibraryState; onLibraryChange(state: LibraryState): void }) {
   const progress = entry.kind === 'pdf' && entry.lastPage && entry.pageCount
     ? Math.min(100, Math.round(entry.lastPage / entry.pageCount * 100)) : undefined;
   return <article className="history-row">
@@ -134,6 +142,7 @@ function HistoryRow({ entry, onOpen, onDelete }: { entry: HistoryEntry; onOpen(i
       </div>}
     </div>
     <div className="history-actions">
+      {entry.kind === 'pdf' && <BookmarkButton url={entry.url} title={entry.title} lastPage={entry.lastPage} library={library} onChange={onLibraryChange} />}
       <button className="primary compact" type="button" onClick={() => onOpen(entry.id)}>重新打开</button>
       <button className="quiet compact" type="button" aria-label={`删除 ${entry.title}`} onClick={() => onDelete(entry.id)}>删除</button>
     </div>
@@ -147,6 +156,11 @@ function StorageView({ state, loading, onClearHistory, onClearCache }: {
   return <section className="storage-view settings-panel">
     <header className="panel-header"><p className="eyebrow">Local library</p><h1>存储与隐私</h1>
       <p>历史、解析结果和译文都保存在扩展本地。API Key 与 Token 不会进入历史记录。</p></header>
+    <div className="storage-usage" aria-busy={loading}>
+      <span>本地数据总占用（估算）</span>
+      <strong>{loading ? '读取中…' : formatStorageUsage(summary.usageBytes)}</strong>
+      <p>包含 PDF 解析与译文、网页译文及历史等本地数据库数据；不代表原始 PDF 文件大小。浏览器估算可能存在延迟。</p>
+    </div>
     <div className="storage-tally" aria-busy={loading}>
       <div><strong>{summary.history}</strong><span>历史记录</span></div>
       <div><strong>{summary.documents}</strong><span>PDF 文档</span></div>
@@ -154,9 +168,9 @@ function StorageView({ state, loading, onClearHistory, onClearCache }: {
       <div><strong>{summary.tasks}</strong><span>解析任务</span></div>
     </div>
     <div className="danger-list">
-      <div><div><h2>清空翻译历史</h2><p>删除列表记录，不影响已经缓存的 PDF 解析和译文。</p></div>
+      <div><div><h2>清空翻译历史</h2><p>删除历史列表记录，不影响论文收藏、PDF 解析和译文。</p></div>
         <button type="button" onClick={() => confirmAction('清空全部翻译历史？', onClearHistory)}>清空历史</button></div>
-      <div><div><h2>清空 PDF 运行缓存</h2><p>删除解析结果、逐页译文和任务状态；历史列表仍会保留。</p></div>
+      <div><div><h2>清空 PDF 运行缓存</h2><p>删除解析结果、逐页译文和任务状态；历史列表和论文收藏仍会保留。</p></div>
         <button className="danger" type="button" onClick={() => confirmAction('清空全部 PDF 运行缓存？之后重新阅读需要再次解析和翻译。', onClearCache)}>清空缓存</button></div>
     </div>
   </section>;

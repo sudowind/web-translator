@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>Web Translate — 双页对照</title>
+  <rect width="64" height="64" rx="16" fill="#2854DC"/>
+  <path d="M14 17h8c4 0 7 1.5 8 3v28c-2-2-5-3-9-3h-7V17Z" fill="#FFF"/>
+  <path d="M50 17h-8c-4 0-7 1.5-8 3v28c2-2 5-3 9-3h7V17Z" fill="#FFF"/>
+  <path d="M19 25h5M19 31h5M40 31h5M40 37h5" stroke="#2854DC" stroke-width="3" stroke-linecap="round"/>
+</svg>

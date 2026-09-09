@@ -1,6 +1,8 @@
 import type { DocumentModel } from '../document/model';
+import { isFallbackTitle, withPaperTitle } from '../document/title';
 import type { MineruTaskRef } from '../providers/mineru/contracts';
 import { dbPromise } from './db';
+import { getStorageUsage } from './usage';
 
 export interface TranslationKey {
   hash: string;
@@ -58,6 +60,7 @@ export interface HistoryEntry {
 }
 
 export interface StorageSummary {
+  usageBytes?: number;
   documents: number;
   translations: number;
   tasks: number;
@@ -78,13 +81,22 @@ export function translationCacheKey(key: TranslationKey): string {
 
 export const documentRepository = {
   async get(id: string): Promise<DocumentModel | undefined> {
-    return (await dbPromise).get('documents', id);
+    const model = await (await dbPromise).get('documents', id);
+    return model ? withPaperTitle(model) : undefined;
   },
   async put(model: DocumentModel): Promise<void> {
-    await (await dbPromise).put('documents', model);
+    const normalized = withPaperTitle(model);
+    const tx = (await dbPromise).transaction(['documents', 'history'], 'readwrite');
+    await tx.objectStore('documents').put(normalized);
+    for (const entry of await tx.objectStore('history').getAll()) {
+      if (entry.kind === 'pdf' && entry.documentHash === normalized.hash) {
+        await tx.objectStore('history').put(historyWithTitle(entry, normalized, entry));
+      }
+    }
+    await tx.done;
   },
   async listBySourceUrl(sourceUrl: string): Promise<DocumentModel[]> {
-    return (await dbPromise).getAllFromIndex('documents', 'by-source-url', sourceUrl);
+    return (await (await dbPromise).getAllFromIndex('documents', 'by-source-url', sourceUrl)).map(withPaperTitle);
   },
   async delete(id: string): Promise<void> {
     await (await dbPromise).delete('documents', id);
@@ -150,21 +162,39 @@ export const readingRepository = {
 export const historyRepository = {
   async put(entry: HistoryEntry): Promise<void> {
     const db = await dbPromise;
-    const existing = await db.get('history', entry.id);
-    await db.put('history', { ...existing, ...entry });
+    const tx = db.transaction(['history', 'documents'], 'readwrite');
+    const existing = await tx.objectStore('history').get(entry.id);
+    const merged = { ...existing, ...entry };
+    const model = merged.kind === 'pdf' && merged.documentHash ? await tx.objectStore('documents').get(merged.documentHash) : undefined;
+    await tx.objectStore('history').put(historyWithTitle(merged, model, existing));
+    await tx.done;
   },
   async get(id: string): Promise<HistoryEntry | undefined> {
-    return (await dbPromise).get('history', id);
+    const db = await dbPromise;
+    const tx = db.transaction(['history', 'documents'], 'readwrite');
+    const entry = await tx.objectStore('history').get(id);
+    if (!entry) { await tx.done; return; }
+    const model = entry.kind === 'pdf' && entry.documentHash ? await tx.objectStore('documents').get(entry.documentHash) : undefined;
+    const updated = historyWithTitle(entry, model, entry);
+    if (updated.title !== entry.title) await tx.objectStore('history').put(updated);
+    await tx.done;
+    return updated;
   },
   async listRecent(limit = 200): Promise<HistoryEntry[]> {
     const db = await dbPromise;
     const entries: HistoryEntry[] = [];
-    let cursor = await db.transaction('history').store.index('by-last-visited')
+    const tx = db.transaction(['history', 'documents'], 'readwrite');
+    let cursor = await tx.objectStore('history').index('by-last-visited')
       .openCursor(undefined, 'prev');
     while (cursor && entries.length < limit) {
-      entries.push(cursor.value);
+      const entry = cursor.value;
+      const model = entry.kind === 'pdf' && entry.documentHash ? await tx.objectStore('documents').get(entry.documentHash) : undefined;
+      const updated = historyWithTitle(entry, model, entry);
+      if (updated.title !== entry.title) await cursor.update(updated);
+      entries.push(updated);
       cursor = await cursor.continue();
     }
+    await tx.done;
     return entries;
   },
   async delete(id: string): Promise<void> {
@@ -174,6 +204,13 @@ export const historyRepository = {
     await (await dbPromise).clear('history');
   },
 };
+
+function historyWithTitle(entry: HistoryEntry, model?: DocumentModel, existing?: HistoryEntry): HistoryEntry {
+  if (entry.kind !== 'pdf') return entry;
+  const candidate = model ? withPaperTitle(model).title : entry.title;
+  const title = isFallbackTitle(candidate) && existing && !isFallbackTitle(existing.title) ? existing.title : candidate;
+  return title === entry.title ? entry : { ...entry, title };
+}
 
 export async function getStorageSummary(): Promise<StorageSummary> {
   const db = await dbPromise;
@@ -185,7 +222,8 @@ export async function getStorageSummary(): Promise<StorageSummary> {
     tx.objectStore('history').count(),
   ]);
   await tx.done;
-  return { documents, translations, tasks, history };
+  const usageBytes = await getStorageUsage();
+  return { documents, translations, tasks, history, ...(usageBytes === undefined ? {} : { usageBytes }) };
 }
 
 export async function clearDocumentCache(hash: string): Promise<void> {

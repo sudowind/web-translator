@@ -1,9 +1,11 @@
+import { BookmarkButton } from '../library/BookmarkButton';
 import React from 'react';
 
 import { AgentPanel } from '../agent/AgentPanel';
 import type { AgentMessage } from '../agent/context-builder';
 import { appendAgentDelta, failAgentAnswer, finalizeAgentAnswer, stopAgentAnswer } from '../agent/stream-state';
 import type { DocumentModel } from '../document/model';
+import { isFallbackTitle } from '../document/title';
 import type { TranslationResult } from '../providers/openai/contracts';
 import { defaultTranslationMode } from '../translation/document-policy';
 import { classifyTranslationFailure, formatTranslationFailure, type TranslationFailure } from '../translation/failure';
@@ -70,6 +72,20 @@ export function PdfWorkspace({ sourceUrl, initialReading }: { sourceUrl: string;
   modelRef.current = model;
   const highlightedBlockId = previewBlockId ?? pinnedBlockId;
   const pageCount = model?.pageCount ?? documentPageCount;
+  const [resolvedTitle, setResolvedTitle] = React.useState<{ hash: string; title: string } | null>(null);
+  const displayTitle = resolvedTitle?.hash === model?.hash ? resolvedTitle?.title : model?.title;
+  React.useEffect(() => {
+    setResolvedTitle(null);
+    if (!model || !isFallbackTitle(model.title)) return;
+    let active = true;
+    const epoch = operationEpoch.current.current();
+    void sendPdfMessage({ type: 'pdf:document-title', hash: model.hash }).then(value => {
+      if (active && operationEpoch.current.isCurrent(epoch) && value && 'title' in value && typeof value.title === 'string') {
+        setResolvedTitle({ hash: model.hash, title: value.title });
+      }
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [model?.hash, model?.title]);
   const feedbackPlacement = workspaceFeedbackPlacement(lifecycle.phase);
   const hasFailedPages = Array.from(pageStatus.values()).some((status) => status === 'failed');
 
@@ -319,11 +335,11 @@ export function PdfWorkspace({ sourceUrl, initialReading }: { sourceUrl: string;
     const timer = globalThis.setTimeout(() => {
       void sendPdfMessage({
         type: 'pdf:history-update', hash: model?.hash ?? source.hash,
-        title: model?.title ?? source.title, page: Math.min(activePage, pageCount), pageCount,
+        title: displayTitle ?? source.title, page: Math.min(activePage, pageCount), pageCount,
       }).catch(() => undefined);
     }, 350);
     return () => globalThis.clearTimeout(timer);
-  }, [activePage, model?.hash, model?.title, pageCount, source]);
+  }, [activePage, model?.hash, displayTitle, pageCount, source]);
 
   const onPageVisible = React.useCallback((page: number) => {
     const previous = activePageRef.current;
@@ -510,7 +526,8 @@ export function PdfWorkspace({ sourceUrl, initialReading }: { sourceUrl: string;
       data-translation-snapshot-count={snapshotRequestCount.current}
     >
       <WorkspaceToolbar
-        title={model?.title ?? source?.title ?? 'PDF 翻译工作台'}
+        bookmarkControl={<BookmarkButton url={sourceUrl} title={displayTitle ?? source?.title ?? sourceUrl} lastPage={activePage} />}
+        title={displayTitle ?? source?.title ?? 'PDF 翻译工作台'}
         activePage={activePage}
         pageCount={pageCount}
         scale={scale}

@@ -60,6 +60,21 @@ for (const width of [1440, 1024, 768, 375]) {
           }
           await page.screenshot({ path: testInfo.outputPath(`${id}-${width}-text-${scale}.png`), fullPage: true });
           await checkLayout(page, scale);
+          if (id === 'translation') {
+            const source = await page.locator('#source-language').boundingBox();
+            const target = await page.locator('#target-language').boundingBox();
+            expect(source).not.toBeNull(); expect(target).not.toBeNull();
+            if (target!.x > source!.x + 1) {
+              expect(Math.abs(target!.y - source!.y)).toBeLessThanOrEqual(1);
+              expect(Math.abs(target!.height - source!.height)).toBeLessThanOrEqual(1);
+            } else {
+              expect(target!.y).toBeGreaterThan(source!.y + source!.height);
+            }
+            await expect(page.locator('.field-grid > .field').nth(1)).toHaveCSS('margin-top', '0px');
+          }
+          if (id === 'storage') {
+            await expect(page.locator('.storage-usage strong')).toHaveText(/^[\d.]+ (B|KiB|MiB|GiB|TiB)$/);
+          }
           if (id === 'history') {
             await expect(page.locator('.history-main h2').first()).toHaveText(longTitle);
             await expect(page.locator('.reading-progress small')).toHaveText('第 120 / 999 页');

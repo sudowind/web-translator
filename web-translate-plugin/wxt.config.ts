@@ -20,10 +20,14 @@ export default defineConfig({
     }],
   }),
   manifest: {
-    name: 'Web Translate Probe',
+    name: 'Web Translate',
     minimum_chrome_version: '120',
     permissions: ['activeTab', 'scripting', 'storage', 'tabs'],
     optional_host_permissions: ['http://*/*', 'https://*/*', 'file:///*'],
-    action: { default_title: 'PDF 接管探针' },
+    icons: { 16: 'brand/icon-16.png', 32: 'brand/icon-32.png', 48: 'brand/icon-48.png', 128: 'brand/icon-128.png' },
+    action: {
+      default_title: 'Web Translate',
+      default_icon: { 16: 'brand/icon-16.png', 32: 'brand/icon-32.png' },
+    },
   },
 });

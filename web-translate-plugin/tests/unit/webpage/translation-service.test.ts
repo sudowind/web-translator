@@ -32,6 +32,41 @@ const settings = {
 };
 
 describe('WebpageTranslationService', () => {
+  it('清缓存覆盖尚在读取配置的旧请求，不允许初始化后回填', async () => {
+    let resolveSettings!: (value: typeof settings) => void;
+    const cache = { get: async () => undefined, put: vi.fn(async () => undefined), clear: vi.fn(async () => undefined) };
+    const service = new WebpageTranslationService(() => new Promise(resolve => { resolveSettings = resolve; }),
+      () => ({ translate: async () => [{ id: 'a', text: '好' }] }), undefined, { cache });
+    const sender = { tab: { id: 7, url: 'https://example.test/article' } };
+    const pending = service.handle({ type: 'translation:blocks', sessionId: 's', blocks: [{ id: 'a', text: 'Hello' }] }, sender);
+    await service.handle({ type: 'translation:clear-cache', sessionId: 's' }, sender);
+    resolveSettings(settings); await pending;
+    expect(cache.put).not.toHaveBeenCalled(); expect(cache.clear).toHaveBeenCalledOnce();
+  });
+  it('同批同文合并、缓存复用和配置隔离，清理阻止在途回填', async () => {
+    const values = new Map<string, string>();
+    const cache = { get: async (key: string) => values.get(key), put: vi.fn(async (key: string, _scope: string, text: string) => { values.set(key, text); }), clear: async () => { values.clear(); } };
+    const emit = vi.fn(async () => undefined);
+    let finish: (() => void) | undefined;
+    let hold = false;
+    const translate = vi.fn(async request => {
+      if (hold) await new Promise<void>(resolve => { finish = resolve; });
+      return request.blocks.map((block: {id: string}) => ({ id: block.id, text: '你好' }));
+    });
+    let current = settings;
+    const service = new WebpageTranslationService(async () => current, () => ({ translate }), undefined, { cache, emit });
+    const sender = { tab: { id: 7, url: 'https://example.test/article' } };
+    const message = { type: 'translation:blocks', sessionId: 's', blocks: [{ id: 'a', text: 'Hello' }, { id: 'b', text: 'Hello' }] };
+    expect(await service.handle(message, sender)).toHaveLength(2);
+    expect(translate.mock.calls[0][0].blocks).toHaveLength(1);
+    await service.handle(message, sender); expect(translate).toHaveBeenCalledOnce();
+    current = { ...settings, targetLanguage: 'ja' }; hold = true;
+    const pending = service.handle(message, sender);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    await service.handle({ type: 'translation:clear-cache', sessionId: 's' }, sender);
+    finish!(); await pending; expect(values.size).toBe(0);
+    expect(translate).toHaveBeenCalledTimes(2);
+  });
   it('只为真实标签页使用后台设置发起翻译', async () => {
     const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
     const recordHistory = vi.fn().mockResolvedValue(undefined);
@@ -54,11 +89,13 @@ describe('WebpageTranslationService', () => {
 
     expect(translate).toHaveBeenCalledWith(
       {
+        format: 'webpage-inline',
         blocks: [{ id: 'b1', text: 'Hello' }],
         sourceLanguage: 'en',
         targetLanguage: 'zh-CN',
       },
       expect.any(AbortSignal),
+      expect.objectContaining({ onBlock: expect.any(Function), onTiming: expect.any(Function) }),
     );
     expect(recordHistory).toHaveBeenCalledWith(expect.objectContaining({
       id: 'webpage:https://article.example.test/story', kind: 'webpage',
@@ -68,7 +105,7 @@ describe('WebpageTranslationService', () => {
   });
 
   it('同一翻译会话只记录一次历史且历史失败不影响译文', async () => {
-    const translate = vi.fn().mockResolvedValue([{ id: 'b1', text: '你好' }]);
+    const translate = vi.fn(async request => request.blocks.map((block: {id: string}) => ({ id: block.id, text: '你好' })));
     const recordHistory = vi.fn().mockRejectedValue(new Error('storage unavailable'));
     const service = new WebpageTranslationService(
       async () => settings,

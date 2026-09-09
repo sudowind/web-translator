@@ -1,26 +1,36 @@
-:root {
-  color: #172033;
-  background: #f7f9fc;
-  font: 14px/1.5 system-ui, sans-serif;
-}
-
-body { margin: 0; min-width: 340px; }
-main { display: grid; gap: 16px; padding: 16px; }
-section { padding: 16px; border: 1px solid #d9e0eb; border-radius: 12px; background: #fff; }
-h1, h2, p { margin-top: 0; }
-h1, h2 { margin-bottom: 8px; color: #101828; font-size: 18px; }
-.eyebrow { margin-bottom: 4px; color: #475467; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.description, .status { color: #475467; }
-button { min-width: 44px; min-height: 44px; padding: 10px 16px; border: 1px solid #98a2b3; border-radius: 8px; background: #fff; color: #172033; font: inherit; font-weight: 650; cursor: pointer; transition: opacity 180ms ease, transform 180ms ease; }
-button:hover:not(:disabled) { transform: translateY(-1px); }
-button:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
+:root { color: #17243b; background: #f3f6fb; font: 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; width: 360px; }
+main { padding: 20px; }
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+.brand div { display: grid; }
+.brand strong { font-size: 15px; letter-spacing: -.02em; }
+.brand div > span { color: #64728a; font-size: 11px; }
+.reading-card { padding: 20px; border: 1px solid #dbe3f0; border-radius: 14px; background: #fff; }
+h1, p { margin: 0; }
+h1 { margin-bottom: 10px; font-size: 23px; line-height: 1.35; letter-spacing: -.035em; }
+.eyebrow { margin-bottom: 8px; color: #2854dc; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.description { color: #64728a; font-size: 13px; }
+button { min-height: 44px; padding: 10px 14px; border: 1px solid #dbe3f0; border-radius: 8px; background: #fff; color: inherit; font: inherit; cursor: pointer; }
+button:hover:not(:disabled) { background: #edf2fc; }
+button:focus-visible, summary:focus-visible { outline: 3px solid #8eacff; outline-offset: 3px; }
 button:disabled { cursor: not-allowed; opacity: .55; }
-.primary { width: 100%; border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
-.text-button { padding-inline: 0; border-color: transparent; color: #1d4ed8; background: transparent; }
-.status { min-height: 42px; margin: 12px 0 0; }
-.probe { border-style: dashed; }
-pre { max-height: 160px; margin-bottom: 0; padding: 8px; overflow: auto; border-radius: 8px; background: #f2f4f7; font-size: 12px; white-space: pre-wrap; }
-
-@media (prefers-reduced-motion: reduce) {
-  button { transition: none; }
-}
+.primary { width: 100%; margin-top: 20px; border-color: #2854dc; background: #2854dc; color: #fff; font-weight: 650; }
+.primary:hover:not(:disabled) { background: #2147bf; }
+.status { margin-top: 12px; color: #64728a; font-size: 12px; overflow-wrap: anywhere; }
+.status:empty { display: none; }
+.permission-note { margin-top: 12px; padding-top: 12px; border-top: 1px solid #edf1f7; color: #64728a; font-size: 11px; }
+.console-link { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; padding: 12px 8px; border: 0; background: transparent; text-align: left; }
+.console-link > span:first-child { display: grid; gap: 2px; }
+.console-link strong { font-size: 13px; font-weight: 600; }
+.console-link small { color: #64728a; font-size: 11px; }
+.console-link > span:last-child { color: #2854dc; font-size: 20px; }
+.probe { border-top: 1px solid #dbe3f0; padding-top: 4px; }
+.probe summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; color: #64728a; font-size: 11px; cursor: pointer; list-style: none; }
+.probe summary::-webkit-details-marker { display: none; }
+.probe summary span::after { content: ' ＋'; }
+.probe[open] summary span::after { content: ' −'; }
+.probe > .description { margin: 4px 8px 12px; }
+.probe > button { margin-left: 8px; font-size: 12px; }
+.diagnostic-empty { margin: 12px 8px; color: #64728a; font-size: 12px; }
+pre { max-height: 160px; padding: 12px; overflow: auto; border-radius: 8px; background: #e8edf5; font: 11px/1.5 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }

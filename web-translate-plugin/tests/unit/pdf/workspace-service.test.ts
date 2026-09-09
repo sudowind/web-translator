@@ -36,6 +36,45 @@ const openAiSettings = {
 };
 
 describe('后台 PDF 工作台服务', () => {
+  it('旧缓存没有一级标题时独立补齐官方标题，不重新解析且复用保存结果', async () => {
+    const readPaperTitle = vi.fn(async () => 'Robot Learning: A Tutorial');
+    const putDocument = vi.fn(async () => undefined); const createMineru = vi.fn();
+    const service = makeService(undefined, { getDocument: vi.fn(async () => arxivModel), readPaperTitle, putDocument, createMineru });
+    expect(await service.handle({ type: 'pdf:document-get', hash: arxivModel.hash }, 7)).toEqual(arxivModel);
+    expect(readPaperTitle).not.toHaveBeenCalled();
+    expect(await service.handle({ type: 'pdf:document-title', hash: arxivModel.hash }, 7)).toEqual({ title: 'Robot Learning: A Tutorial' });
+    expect(putDocument).toHaveBeenCalledWith(expect.objectContaining({ title: 'Robot Learning: A Tutorial', pages: arxivModel.pages }));
+    await service.handle({ type: 'pdf:document-title', hash: arxivModel.hash }, 7);
+    expect(readPaperTitle).toHaveBeenCalledOnce(); expect(createMineru).not.toHaveBeenCalled();
+  });
+  it('标题查询不阻塞缓存读取，清缓存后迟到标题不能回填', async () => {
+    let finish!: (title: string) => void;
+    const putDocument = vi.fn(async () => undefined);
+    const service = makeService(undefined, { getDocument: vi.fn(async () => arxivModel), putDocument,
+      readPaperTitle: () => new Promise(resolve => { finish = resolve; }) });
+    const pending = service.handle({ type: 'pdf:document-title', hash: arxivModel.hash }, 7);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(await service.handle({ type: 'pdf:document-get', hash: arxivModel.hash }, 7)).toEqual(arxivModel);
+    await service.handle({ type: 'pdf:cache-clear', hash: arxivModel.hash }, 7);
+    finish('Late Paper Title'); expect(await pending).toBeNull(); expect(putDocument).not.toHaveBeenCalled();
+  });
+  it('管理页清除全部缓存同样使在途标题失效', async () => {
+    let finish!: (title: string) => void;
+    let stored: DocumentModel | undefined = arxivModel;
+    const putDocument = vi.fn(async (value: DocumentModel) => { stored = value; });
+    const service = makeService(undefined, { getDocument: async () => stored, putDocument,
+      readPaperTitle: () => new Promise(resolve => { finish = resolve; }) });
+    const pending = service.handle({ type: 'pdf:document-title', hash: arxivModel.hash }, 7);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    await service.clearAllCache(async () => { stored = undefined; });
+    finish('Late Paper Title'); expect(await pending).toBeNull(); expect(putDocument).not.toHaveBeenCalled();
+    expect(await service.handle({ type: 'pdf:document-get', hash: arxivModel.hash }, 7)).toBeNull();
+  });
+  it('清空缓存失败会报告错误，但不会永久阻止后续读取', async () => {
+    const service = makeService(undefined, { getDocument: async () => arxivModel });
+    await expect(service.clearAllCache(async () => { throw new Error('storage'); })).rejects.toThrow('storage');
+    expect(await service.handle({ type: 'pdf:document-get', hash: arxivModel.hash }, 7)).toEqual(arxivModel);
+  });
   it('按显式版本 arXiv 标识直接恢复缓存且不读取 PDF 或发 HEAD', async () => {
     const versioned = { ...arxivModel, id: 'arxiv:2510.12403v2', hash: 'arxiv:2510.12403v2' };
     const loadSource = vi.fn();

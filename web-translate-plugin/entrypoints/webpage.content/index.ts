@@ -1,6 +1,7 @@
-import tooltipCss from './original-tooltip.css?inline';
+import bilingualCss from './bilingual.css?inline';
 
 import type { WebpageBackgroundMessage } from '../../src/webpage/messages';
+import { isWebpageProgressEvent } from '../../src/webpage/messages';
 import {
   WebpageTranslationRuntime,
   type WebpageRuntimeStatus,
@@ -27,7 +28,7 @@ export default defineContentScript({
     const runtime = new WebpageTranslationRuntime({
       document,
       url: new URL(location.href),
-      styleText: tooltipCss,
+      styleText: bilingualCss,
       sendMessage: async (message: WebpageBackgroundMessage) => {
         const response = (await browser.runtime.sendMessage(message)) as
           | { ok: true; value: unknown }
@@ -37,7 +38,10 @@ export default defineContentScript({
       },
     });
 
-    browser.runtime.onMessage.addListener((message: unknown, _, sendResponse) => {
+    browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+      if (sender.id === browser.runtime.id && !sender.tab && isWebpageProgressEvent(message)) {
+        runtime.acceptProgress(message); sendResponse({ ok: true }); return false;
+      }
       if (!isCommand(message)) return undefined;
       const operation =
         message.type === 'webpage:enable'

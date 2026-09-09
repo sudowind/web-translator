@@ -26,7 +26,20 @@ if (manifest.options_ui?.page !== 'options.html' || manifest.options_ui?.open_in
   throw new Error('生产 manifest 必须把 options.html 配置为独立标签页');
 }
 
-console.log('生产产物验证通过：Unicode noncharacter=0，静态 host 权限=0，静态 content script=0，options 独立标签页=1');
+for (const size of [16, 32, 48, 128]) {
+  const icon = manifest.icons?.[size];
+  if (!icon) throw new Error(`缺少 ${size}px 扩展图标`);
+  const png = await readFile(new URL(icon, outputDirectory));
+  if (png.length < 24 || png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' ||
+      png.readUInt32BE(16) !== size || png.readUInt32BE(20) !== size) {
+    throw new Error(`扩展图标不是有效的 ${size}px PNG：${icon}`);
+  }
+  if (size <= 32 && manifest.action?.default_icon?.[size] !== icon) {
+    throw new Error(`工具栏 ${size}px 图标与扩展图标不一致`);
+  }
+}
+
+console.log('生产产物验证通过：Unicode noncharacter=0，静态 host 权限=0，静态 content script=0，options 独立标签页=1，品牌图标尺寸=4');
 
 async function listFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
