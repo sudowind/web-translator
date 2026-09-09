@@ -31,8 +31,8 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
-    "@types/chrome": "^0.2.2",
+    "@playwright/test": "^1.62.1",
+    "@types/chrome": "^0.2.8",
     "@types/katex": "^0.16.8",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
