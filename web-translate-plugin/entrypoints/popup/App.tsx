@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BrandLogo } from '../../src/brand/BrandLogo';
 
 import type { TakeoverProbeResult } from '../../src/pdf-takeover/contracts';
 import type {
@@ -121,6 +122,7 @@ export default function App() {
 
   return (
     <main>
+      <BrandLogo size={36} />
       <section aria-labelledby="webpage-heading">
         <p className="eyebrow">页面工具</p>
         {pdfStatus?.eligible ? <>
