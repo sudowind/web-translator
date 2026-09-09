@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { DashboardMessage, DashboardResponse, DashboardState } from '../../src/dashboard/messages';
 import type { HistoryEntry } from '../../src/storage/repositories';
+import { formatStorageUsage } from '../../src/storage/usage';
 import SettingsPanel, { type SettingsSection } from './App';
 
 type DashboardSection = 'library' | 'history' | 'providers' | 'translation' | 'pdf' | 'storage';
@@ -154,6 +155,11 @@ function StorageView({ state, loading, onClearHistory, onClearCache }: {
   return <section className="storage-view settings-panel">
     <header className="panel-header"><p className="eyebrow">Local library</p><h1>存储与隐私</h1>
       <p>历史、解析结果和译文都保存在扩展本地。API Key 与 Token 不会进入历史记录。</p></header>
+    <div className="storage-usage" aria-busy={loading}>
+      <span>本地数据总占用（估算）</span>
+      <strong>{loading ? '读取中…' : formatStorageUsage(summary.usageBytes)}</strong>
+      <p>包含 PDF 解析与译文、网页译文及历史等本地数据库数据；不代表原始 PDF 文件大小。浏览器估算可能存在延迟。</p>
+    </div>
     <div className="storage-tally" aria-busy={loading}>
       <div><strong>{summary.history}</strong><span>历史记录</span></div>
       <div><strong>{summary.documents}</strong><span>PDF 文档</span></div>

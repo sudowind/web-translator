@@ -102,6 +102,9 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 .feedback[data-state="error"] { color: var(--danger); border-color: var(--danger); background: #fff0ef; }
 .dashboard-feedback { width: min(100%, 920px); margin: 22px auto 0; text-align: right; }
 
+.storage-usage { display: grid; gap: .5rem; padding-block: 1.25rem; }
+.storage-usage strong { font-size: 2rem; overflow-wrap: anywhere; }
+.storage-usage p { margin: 0; color: var(--muted); font-size: var(--text-small); }
 .storage-tally { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--ink); }
 .storage-tally div { min-width: 0; display: grid; gap: .25rem; padding: 1.25rem; border-right: 1px solid var(--line); }
 .storage-tally div:last-child { border-right: 0; }
