@@ -41,21 +41,22 @@ describe('Chrome 扩展探针骨架', () => {
     expect(background).toContain("browser.runtime.getURL('/options.html')");
   });
 
-  it('以 zh-CN 页面展示探针标题、操作按钮与全部状态文案', async () => {
+  it('以 zh-CN 页面展示阅读入口和折叠诊断', async () => {
     const [html, app] = await Promise.all([
       readProjectFile('entrypoints/popup/index.html'),
       readProjectFile('entrypoints/popup/App.tsx'),
     ]);
 
     expect(html).toContain('<html lang="zh-CN">');
-    expect(app).toContain('<h1>PDF 接管探针</h1>');
-    expect(app).toContain('运行探针');
-    expect(app).toContain('运行中…');
-    expect(app).toContain('尚未运行');
+    expect(html).toContain('<title>Web Translate</title>');
+    expect(app).toContain('<details className="probe">');
+    expect(app).toContain('检查当前 PDF');
+    expect(app).toContain('检查中…');
+    expect(app).toContain('尚未检查');
     expect(app).toContain("type: 'pdf-probe:latest'");
     expect(app).toContain("type: 'pdf-probe:run'");
     expect(app).toContain('response.ok');
-    expect(app).toContain('<pre>');
+    expect(app).toContain('<pre aria-label="诊断详情">');
   });
 
   it('Popup 不静态请求 HTTP 权限并保留探针操作', async () => {
@@ -102,3 +103,4 @@ describe('Chrome 扩展探针骨架', () => {
     expect(e2e).toContain('context.newPage()');
   });
 });
+
