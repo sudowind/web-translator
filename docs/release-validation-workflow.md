@@ -98,3 +98,7 @@ git merge --ff-only origin/master
 本轮 release 使用 IndexedDB v5，集成 dev 的 v3 源缓存与 Dashboard 独立 v4 历史库，并兼容从这两种结构升级。原插件首次加载 release 后会升级数据库；此前迁移回归验证了原缓存和历史数据保留。
 
 不要把旧分支构建覆盖到已经运行 release 的同一扩展 ID / 浏览器数据环境：旧分支仍使用较低数据库版本，不能直接降级打开 v5。回测旧版应使用开发工作区的独立扩展或独立浏览器配置，不通过清空用户数据规避版本问题。
+
+## 论文库首版候选（2026-09-09）
+
+论文库候选将 IndexedDB 升至 v6，在 v5 基础上只新增 bookmarks、bookmarkFolders、libraryPreferences。收藏不受历史和缓存清理影响。请勿以 v5 或更早的旧产物覆盖已经升级的同一扩展；独立回测继续使用独立浏览器环境。本轮证据和人工清单见 [论文库报告](superpowers/reports/2026-09-09-paper-library-report.md)。
