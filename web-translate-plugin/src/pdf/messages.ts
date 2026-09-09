@@ -24,6 +24,7 @@ export type PdfMessage =
   | { type: 'pdf:parse-start'; source: PdfSourceDescriptor; pageCount: number; consent: boolean }
   | { type: 'pdf:document-resolve'; sourceUrl: string }
   | { type: 'pdf:document-get'; hash: string }
+  | { type: 'pdf:document-title'; hash: string }
   | { type: 'pdf:translation-snapshot'; hash: string }
   | { type: 'pdf:translate-page'; hash: string; page: number }
   | { type: 'pdf:history-update'; hash: string; title: string; page: number; pageCount: number }
@@ -41,6 +42,7 @@ export type PdfMessageValue =
   | { cancelled: true }
   | { cleared: true }
   | { historyUpdated: true }
+  | { title: string }
   | null;
 
 export type PdfMessageResponse =
@@ -82,6 +84,7 @@ export function isPdfMessage(value: unknown): value is PdfMessage {
         isPdfSourceDescriptor(value.source) && positiveInteger(value.pageCount) &&
         (value.pageCount as number) <= 600 && typeof value.consent === 'boolean';
     case 'pdf:document-get':
+    case 'pdf:document-title':
     case 'pdf:translation-snapshot':
     case 'pdf:cache-clear':
       return exact(value, ['type', 'hash']) && nonEmpty(value.hash);

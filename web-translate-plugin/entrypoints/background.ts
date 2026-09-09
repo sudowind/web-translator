@@ -213,7 +213,7 @@ export default defineBackground(() => {
         getHistory: (id) => historyRepository.get(id),
         deleteHistory: (id) => historyRepository.delete(id),
         clearHistory: () => historyRepository.clear(),
-        clearCache: clearAllCache,
+        clearCache: () => pdfWorkspace.clearAllCache(clearAllCache),
         getSummary: getStorageSummary,
         openUrl: async (url) => { await browser.tabs.create({ url }); },
       }).then(sendResponse);
