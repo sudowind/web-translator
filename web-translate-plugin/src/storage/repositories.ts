@@ -1,6 +1,7 @@
 import type { DocumentModel } from '../document/model';
 import type { MineruTaskRef } from '../providers/mineru/contracts';
 import { dbPromise } from './db';
+import { getStorageUsage } from './usage';
 
 export interface TranslationKey {
   hash: string;
@@ -58,6 +59,7 @@ export interface HistoryEntry {
 }
 
 export interface StorageSummary {
+  usageBytes?: number;
   documents: number;
   translations: number;
   tasks: number;
@@ -185,7 +187,8 @@ export async function getStorageSummary(): Promise<StorageSummary> {
     tx.objectStore('history').count(),
   ]);
   await tx.done;
-  return { documents, translations, tasks, history };
+  const usageBytes = await getStorageUsage();
+  return { documents, translations, tasks, history, ...(usageBytes === undefined ? {} : { usageBytes }) };
 }
 
 export async function clearDocumentCache(hash: string): Promise<void> {

@@ -60,6 +60,9 @@ for (const width of [1440, 1024, 768, 375]) {
           }
           await page.screenshot({ path: testInfo.outputPath(`${id}-${width}-text-${scale}.png`), fullPage: true });
           await checkLayout(page, scale);
+          if (id === 'storage') {
+            await expect(page.locator('.storage-usage strong')).toHaveText(/^[\d.]+ (B|KiB|MiB|GiB|TiB)$/);
+          }
           if (id === 'history') {
             await expect(page.locator('.history-main h2').first()).toHaveText(longTitle);
             await expect(page.locator('.reading-progress small')).toHaveText('第 120 / 999 页');
