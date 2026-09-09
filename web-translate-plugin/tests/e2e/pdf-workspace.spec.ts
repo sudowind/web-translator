@@ -1069,6 +1069,10 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       await expect(page.locator('[data-pdf-page="73"] canvas[data-active="true"]')).toBeVisible();
       await expect(page.locator('.workspace-title')).toHaveText('2510.12403v1.pdf');
       release(); await expect(page.locator('.workspace-title')).toHaveText('Robot Learning: A Tutorial');
+      // release 集成回归：收藏默认名称复用异步恢复的论文标题。
+      await page.getByRole('button', { name: '收藏论文', exact: true }).click();
+      await expect(page.getByRole('dialog').getByLabel('收藏名称')).toHaveValue('Robot Learning: A Tutorial');
+      await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
       expect(observed.urlTasks.length).toBe(parseCount);
       const dashboard = await context.newPage();
       await dashboard.goto(extensionPage.url().replace('/popup.html', '/options.html'));
