@@ -1,4 +1,5 @@
 import { blockId, pageId } from './ids';
+import { withPaperTitle } from './title';
 import {
   DOCUMENT_SCHEMA_VERSION,
   type BlockKind,
@@ -104,12 +105,12 @@ export function normalizeMineru(
 
   removeRepeatedPageDecorations(pages, normalizedMetadata.hash);
 
-  return {
+  return withPaperTitle({
     schemaVersion: DOCUMENT_SCHEMA_VERSION,
     id: normalizedMetadata.hash,
     ...normalizedMetadata,
     pages,
-  };
+  });
 }
 
 function removeRepeatedPageDecorations(pages: DocumentPage[], hash: string): void {
