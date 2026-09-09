@@ -82,6 +82,7 @@ fieldset { min-width: 0; margin: 0 0 1.5rem; padding: 1.5rem; border: 1px solid 
 legend { max-width: 100%; padding: 0 .5rem; color: var(--ink); font-size: var(--text-section); line-height: 1.5; font-weight: 750; }
 .field + .field, .field-grid + .field, .field + .field-grid { margin-top: 18px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 1rem; }
+.field-grid > .field { margin-top: 0; }
 .field { min-width: 0; }
 label { display: block; margin-bottom: .375rem; color: #27344a; font-size: var(--text-body); font-weight: 700; }
 input, select { min-width: 0; max-width: 100%; width: 100%; min-height: 2.75rem; padding: .625rem .75rem; border: 1px solid #aab4c5; border-radius: 7px; color: var(--ink); background: #fff; }
