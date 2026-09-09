@@ -1,3 +1,4 @@
+import type { Bookmark, BookmarkFolder } from '../library/model';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
 import type { DocumentModel } from '../document/model';
@@ -10,6 +11,9 @@ import type {
 } from './repositories';
 
 interface WebTranslateDb extends DBSchema {
+  bookmarks: { key: string; value: Bookmark };
+  bookmarkFolders: { key: string; value: BookmarkFolder };
+  libraryPreferences: { key: string; value: { id: string; folderId: string } };
   documents: {
     key: string;
     value: DocumentModel;
@@ -44,9 +48,14 @@ interface WebTranslateDb extends DBSchema {
 
 export const dbPromise: Promise<IDBPDatabase<WebTranslateDb>> = openDB<WebTranslateDb>(
   'web-translate',
-  5,
+  6,
   {
     upgrade(db, oldVersion, _newVersion, transaction) {
+      if (oldVersion < 6) {
+        db.createObjectStore('bookmarks', { keyPath: 'id' });
+        db.createObjectStore('bookmarkFolders', { keyPath: 'id' });
+        db.createObjectStore('libraryPreferences', { keyPath: 'id' });
+      }
       if (oldVersion < 1) {
         db.createObjectStore('documents', { keyPath: 'id' });
         const translations = db.createObjectStore('translations', { keyPath: 'id' });

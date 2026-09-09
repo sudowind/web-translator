@@ -1,3 +1,4 @@
+import { BookmarkButton } from '../library/BookmarkButton';
 import React from 'react';
 
 import { AgentPanel } from '../agent/AgentPanel';
@@ -525,6 +526,7 @@ export function PdfWorkspace({ sourceUrl, initialReading }: { sourceUrl: string;
       data-translation-snapshot-count={snapshotRequestCount.current}
     >
       <WorkspaceToolbar
+        bookmarkControl={<BookmarkButton url={sourceUrl} title={displayTitle ?? source?.title ?? sourceUrl} lastPage={activePage} />}
         title={displayTitle ?? source?.title ?? 'PDF 翻译工作台'}
         activePage={activePage}
         pageCount={pageCount}

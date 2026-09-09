@@ -1,0 +1,30 @@
+.bookmark-trigger { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-width: 2.75rem; min-height: 2.75rem; border: 1px solid var(--pdf-divider, #d8dee9); border-radius: 6px; background: var(--pdf-surface, #fbfcfe); color: var(--pdf-primary, #315efb); font: inherit; cursor: pointer; }
+.bookmark-trigger > span:first-child { font-size: 1.25rem; }
+.library-dialog { width: min(32rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--pdf-divider, #d8dee9); border-radius: 12px; color: var(--pdf-text, #172033); background: var(--pdf-surface, #fbfcfe); box-shadow: 0 20px 70px #0003; font: 1rem/1.6 ui-sans-serif, 'Microsoft YaHei', sans-serif; }
+.library-dialog::backdrop { background: #10182866; }
+.library-dialog h2 { margin: 0 0 1rem; font-size: 1.25rem; }
+.library-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.library-dialog label, .library-folder-form label { display: grid; gap: .35rem; margin-bottom: 1rem; }
+.library-dialog input, .library-dialog select, .library-folder-form input { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; padding: .6rem; font: inherit; border: 1px solid var(--pdf-input-border, #bac4d5); border-radius: 6px; color: inherit; background: var(--pdf-surface, #fff); }
+.library-dialog button { min-height: 2.75rem; padding: .4rem .8rem; font: inherit; border: 1px solid var(--pdf-divider, #d8dee9); border-radius: 6px; background: var(--pdf-surface-subtle, #eef1f6); color: inherit; cursor: pointer; }
+.library-dialog .primary { background: var(--pdf-primary, #315efb); color: white; }
+.library-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; margin-top: 1.5rem; }
+.library-new-folder { margin-top: 1rem; padding: 1rem; border: 1px solid var(--pdf-divider, #d8dee9); border-radius: 6px; }
+.library-new-folder small { display: block; margin-bottom: .5rem; }
+.library-error { color: var(--pdf-danger, #b42318); overflow-wrap: anywhere; }
+.library-view { max-width: 1100px; margin: auto; }
+.library-view > .search-field { display: block; }
+.library-layout { display: grid; grid-template-columns: minmax(140px, 13rem) minmax(0, 1fr); gap: 1.5rem; margin-top: 1.5rem; }
+.library-folders { display: flex; flex-direction: column; gap: .25rem; border-right: 1px solid var(--line); padding-right: 1rem; }
+.library-folders button { text-align: left; overflow-wrap: anywhere; border: 0; border-radius: 6px; background: transparent; color: var(--ink); padding: .5rem; }
+.library-folders button[aria-current] { background: var(--primary-soft); color: var(--primary-ink); }
+.library-main { min-width: 0; }
+.library-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
+.library-tools h2 { flex-basis: 100%; margin: 0; font-size: 1.125rem; }
+.library-tools button, .library-folder-form button { border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper); padding: .4rem .7rem; }
+.library-folder-form { padding: 1rem 0; }
+.library-row { padding: 1.25rem 0; border-bottom: 1px solid var(--line); }
+.library-row h3 { margin: 0; font-size: 1.125rem; overflow-wrap: anywhere; }
+.library-row p { color: var(--muted); margin: .4rem 0 .75rem; }
+.library-row-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+@media (max-width: 700px) { .library-layout { grid-template-columns: minmax(0, 1fr); } .library-folders { border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 1rem; max-height: 14rem; overflow: auto; } }
