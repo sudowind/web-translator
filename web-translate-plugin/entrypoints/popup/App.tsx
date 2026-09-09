@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { webpageProgressText } from '../../src/webpage/progress-view';
+import { BrandLogo } from '../../src/brand/BrandLogo';
 
 import type { TakeoverProbeResult } from '../../src/pdf-takeover/contracts';
 import type {
@@ -136,7 +137,7 @@ export default function App() {
   return (
     <main>
       <header className="brand">
-        <span className="brand-mark" aria-hidden="true">译</span>
+        <BrandLogo size={36} />
         <div><strong>Web Translate</strong><span>双语阅读助手</span></div>
       </header>
       <section className="reading-card" aria-labelledby="webpage-heading">

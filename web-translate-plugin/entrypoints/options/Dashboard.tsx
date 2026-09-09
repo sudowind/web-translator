@@ -2,6 +2,7 @@ import { LibraryView, useLibrary } from '../../src/library/LibraryView';
 import { BookmarkButton } from '../../src/library/BookmarkButton';
 import type { LibraryState } from '../../src/library/model';
 import { useEffect, useMemo, useState } from 'react';
+import { BrandLogo } from '../../src/brand/BrandLogo';
 
 import type { DashboardMessage, DashboardResponse, DashboardState } from '../../src/dashboard/messages';
 import type { HistoryEntry } from '../../src/storage/repositories';
@@ -66,7 +67,7 @@ export default function Dashboard({ initialSection }: { initialSection?: Dashboa
     <main className="dashboard-shell">
       <aside className="dashboard-sidebar">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">译</span>
+          <BrandLogo />
           <div><strong>Web Translate</strong><span>阅读控制台</span></div>
         </div>
         <nav aria-label="控制台分区">

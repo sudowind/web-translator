@@ -3,7 +3,6 @@
 body { margin: 0; width: 360px; }
 main { padding: 20px; }
 .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
-.brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px 10px 3px 10px; background: #2854dc; color: #fff; font: 700 23px "Noto Serif SC", SimSun, serif; }
 .brand div { display: grid; }
 .brand strong { font-size: 15px; letter-spacing: -.02em; }
 .brand div > span { color: #64728a; font-size: 11px; }
