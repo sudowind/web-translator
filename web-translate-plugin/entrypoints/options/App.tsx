@@ -172,7 +172,9 @@ export default function App({ section = 'all' }: { section?: SettingsSection }) 
       const authorized = await authorizeProviderSettings(settings, requestPermissions);
       await saveSettings(authorized);
       setSettings(authorized);
-      setFeedback('设置已保存，可以返回页面使用翻译功能');
+      setFeedback(authorized.openAi.apiKey
+        ? '设置已保存，可以返回页面使用翻译功能'
+        : '设置已保存；翻译和论文问答需另行配置 LLM API Key');
     } catch (error) {
       reportError(error, 'save');
     } finally {
@@ -247,9 +249,9 @@ export default function App({ section = 'all' }: { section?: SettingsSection }) 
         <p>{settingsSectionDescription(section)}</p>
       </header>
 
-      <form onSubmit={(event) => void save(event)} aria-busy={activity !== 'idle'}>
+      <form noValidate onSubmit={(event) => void save(event)} aria-busy={activity !== 'idle'}>
         {(section === 'all' || section === 'providers') && <fieldset disabled={anyActionBusy}>
-          <legend>LLM 基础连接（必需）</legend>
+          <legend>LLM 基础连接（翻译和问答时需要）</legend>
           <div className="field">
             <label htmlFor="dialect">Provider 类型</label>
             <select id="dialect" value={settings.openAi.dialect} onChange={(event) => updateDialect(event.target.value as ProviderDialect)}>
@@ -261,18 +263,19 @@ export default function App({ section = 'all' }: { section?: SettingsSection }) 
           </div>
           <div className="field">
             <label htmlFor="base-url">LLM 接口地址</label>
-            <input id="base-url" type="url" required value={settings.openAi.baseUrl} onChange={(event) => updateBase('baseUrl', event.target.value)} aria-invalid={Boolean(fieldError.baseUrl)} />
+            <input id="base-url" type="url" value={settings.openAi.baseUrl} onChange={(event) => updateBase('baseUrl', event.target.value)} aria-invalid={Boolean(fieldError.baseUrl)} />
             <p className="help">填写兼容接口根地址，例如百炼工作空间的 compatible-mode/v1 地址。</p>
             {fieldError.baseUrl && <p className="error">{fieldError.baseUrl}</p>}
           </div>
           <div className="field">
             <label htmlFor="api-key">LLM API Key</label>
-            <input id="api-key" type="password" autoComplete="off" required value={settings.openAi.apiKey} onChange={(event) => updateBase('apiKey', event.target.value)} aria-invalid={Boolean(fieldError.apiKey)} />
+            <input id="api-key" type="password" autoComplete="off" value={settings.openAi.apiKey} onChange={(event) => updateBase('apiKey', event.target.value)} aria-invalid={Boolean(fieldError.apiKey)} />
+            <p className="help">可先单独配置 MinerU；API Key 留空时保留 LLM 草稿，不申请其访问权限。</p>
             {fieldError.apiKey && <p className="error">{fieldError.apiKey}</p>}
           </div>
           <div className="field">
             <label htmlFor="default-model">默认模型</label>
-            <input id="default-model" required value={settings.openAi.defaultModel} onChange={(event) => updateDefaultModel(event.target.value)} aria-invalid={Boolean(fieldError.model)} />
+            <input id="default-model" value={settings.openAi.defaultModel} onChange={(event) => updateDefaultModel(event.target.value)} aria-invalid={Boolean(fieldError.model)} />
             <p className="help">默认模型用于快速连通和翻译；论文智能体可在下方改用独立模型。</p>
             {fieldError.model && <p className="error">{fieldError.model}</p>}
           </div>
@@ -320,7 +323,7 @@ export default function App({ section = 'all' }: { section?: SettingsSection }) 
           {!settings.openAi.agent.inheritDefaultModel && (
             <div className="field">
               <label htmlFor="agent-model">智能体模型</label>
-              <input id="agent-model" required value={settings.openAi.agent.profile.model} onChange={(event) => updateAgentProfile({ model: event.target.value })} aria-invalid={Boolean(fieldError.agentModel)} />
+              <input id="agent-model" value={settings.openAi.agent.profile.model} onChange={(event) => updateAgentProfile({ model: event.target.value })} aria-invalid={Boolean(fieldError.agentModel)} />
               {fieldError.agentModel && <p className="error">{fieldError.agentModel}</p>}
             </div>
           )}

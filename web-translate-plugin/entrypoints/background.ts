@@ -1,3 +1,4 @@
+import { mineruErrorCode } from '../src/providers/mineru/diagnostics';
 import { dispatchLibraryMessage, isLibraryCandidate } from '../src/library/messages';
 import { libraryRepository } from '../src/library/repository';
 import { classifyPdfTarget } from '../src/pdf-takeover/detect-pdf';
@@ -294,7 +295,7 @@ function safePdfError(error: unknown): string {
     ? (error as { code?: unknown }).code
     : error instanceof Error ? error.message : undefined;
   return typeof code === 'string' && /^(PDF|MINERU|TRANSLATION|AGENT)_[A-Z0-9_]+$/.test(code)
-    ? code
+    ? mineruErrorCode(error, code)
     : 'PDF_OPERATION_FAILED';
 }
 

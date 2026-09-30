@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DOCUMENT_SCHEMA_VERSION, type DocumentModel } from '../../../src/document/model';
+import { MineruError } from '../../../src/providers/mineru/contracts';
 import { PdfWorkspaceService } from '../../../src/pdf/workspace-service';
 
 const source = { url: 'https://x.test/p.pdf', hash: 'sha256:x', title: 'p.pdf', size: 7, kind: 'remote' as const };
@@ -670,6 +671,23 @@ describe('后台 PDF 工作台服务', () => {
 });
 
 describe('PDF workspace 生命周期修复波', () => {
+  it('MinerU 认证失败不回退上传并保留错误', async () => {
+    const error = new MineruError('MINERU_TOKEN_EXPIRED', 401);
+    const createUploadTask = vi.fn();
+    const service = makeService({ createUrlTask: vi.fn().mockRejectedValue(error), createUploadTask, waitForResult: vi.fn() });
+    await expect(service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7)).rejects.toBe(error);
+    expect(createUploadTask).not.toHaveBeenCalled();
+  });
+  it('MinerU 轮询拒绝权限时保留 HTTP 状态，且不重新上传', async () => {
+    const createUploadTask = vi.fn();
+    const putTask = vi.fn();
+    const service = makeService({ createUrlTask: vi.fn().mockResolvedValue({ kind: 'single', id: 's1' }), createUploadTask,
+      waitForResult: vi.fn().mockRejectedValue(new MineruError('MINERU_POLL_HTTP', 403)) }, { putTask });
+    await expect(service.handle({ type: 'pdf:parse-start', source, pageCount: 1, consent: false }, 7)).rejects.toMatchObject({ code: 'MINERU_POLL_HTTP_403' });
+    expect(createUploadTask).not.toHaveBeenCalled();
+    expect(putTask).toHaveBeenLastCalledWith(expect.objectContaining({ errorCode: 'MINERU_POLL_HTTP_403' }));
+  });
+
   it('URL 创建失败后已使用 upload，upload wait 失败绝不二次上传', async () => {
     const createUploadTask = vi.fn().mockResolvedValue({ kind: 'batch', id: 'b1', dataId: 'd1' });
     const putTask = vi.fn();

@@ -1,3 +1,4 @@
+import { mineruApiError } from './diagnostics';
 import {
   MineruError,
   type MineruSettings,
@@ -154,12 +155,16 @@ export class MineruClient {
       if (isAbortError(error)) throw error;
       throw new MineruError(`${httpCode}_NETWORK`);
     }
-    if (!response.ok) throw new MineruError(httpCode, response.status);
+    let body: unknown;
     try {
-      return await response.json();
+      body = await response.json();
     } catch {
-      throw new MineruError('MINERU_RESPONSE_INVALID');
+      throw new MineruError(response.ok ? 'MINERU_RESPONSE_INVALID' : httpCode, response.status);
     }
+    const apiCode = isRecord(body) ? mineruApiError(body.code) ?? mineruApiError(body.msgCode) : undefined;
+    if (!response.ok) throw new MineruError(apiCode ?? httpCode, response.status);
+    if (apiCode) throw new MineruError(apiCode);
+    return body;
   }
 }
 

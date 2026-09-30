@@ -3,7 +3,7 @@ import { OpenAiChatClient } from '../providers/openai/chat-client';
 import { OpenAiTranslationClient } from '../providers/openai/client';
 import type { LlmPurpose } from '../providers/openai/request-builder';
 import { defaultSettings, type OpenAiSettings } from './schema';
-import { validateProviderSettings } from './provider-access';
+import { validateOpenAiSettings, validateProviderSettings } from './provider-access';
 import { isOptionsPageSender } from '../dashboard/messages';
 import type { TranslationOutputFormat } from './schema';
 import { setTranslationCapability, translationCapabilityKey } from './translation-capabilities';
@@ -174,13 +174,13 @@ function normalizeLlmConnectionSettings(
   };
   const validated = validateProviderSettings({
     ...settings,
-    openAi: {
+    openAi: validateOpenAiSettings({
       ...settings.openAi,
       translation: purpose === 'translation'
         ? settings.openAi.translation
         : safeTranslation,
       agent: purpose === 'agent' ? settings.openAi.agent : safeAgent,
-    },
+    }),
     mineru: defaultSettings.mineru,
   });
   return {

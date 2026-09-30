@@ -75,6 +75,14 @@ describe('LLM 独立配置测试', () => {
     ).toBe(false);
   });
 
+  it.each(['connection-test', 'translation', 'agent'] as const)('未配置 LLM 时 %s 仍拒绝执行且不调用服务', async (purpose) => {
+    const clients = { createChat: vi.fn(), createTranslation: vi.fn(), createAgent: vi.fn() };
+    await expect(testLlmConfiguration({ ...settings, openAi: { ...settings.openAi, apiKey: ' ' } }, purpose, clients)).rejects.toThrow('API Key');
+    expect(clients.createChat).not.toHaveBeenCalled();
+    expect(clients.createTranslation).not.toHaveBeenCalled();
+    expect(clients.createAgent).not.toHaveBeenCalled();
+  });
+
   it('快速、翻译和智能体测试分别调用对应最小探针', async () => {
     const complete = vi.fn().mockResolvedValue('OK');
     const translate = vi.fn().mockResolvedValue([{ id: 'provider-connection-test', text: '你好' }]);

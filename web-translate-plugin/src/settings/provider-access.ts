@@ -70,33 +70,15 @@ export async function checkMineruConfiguration(
 export function validateProviderSettings(
   settings: ExtensionSettings,
 ): ExtensionSettings {
-  const apiKey = settings.openAi.apiKey.trim();
   const sourceLanguage = settings.sourceLanguage.trim();
   const targetLanguage = settings.targetLanguage.trim();
-  if (!apiKey) throw new Error('API Key 不能为空，请填写后重试');
   if (!sourceLanguage || !targetLanguage) {
     throw new Error('源语言和目标语言不能为空');
   }
-  providerOriginPattern(settings.openAi.baseUrl);
-  const baseUrl = settings.openAi.baseUrl.trim().replace(/\/+$/, '');
-  const dialect = normalizeDialect(settings.openAi.dialect);
-  const defaultModel = settings.openAi.defaultModel.trim();
-  if (!defaultModel) throw new Error('默认模型不能为空');
-  const translation = normalizeTranslationProfile(settings.openAi.translation);
-  const inheritDefaultModel = Boolean(
-    settings.openAi.agent.inheritDefaultModel,
-  );
-  const storedAgentModel = settings.openAi.agent.profile.model.trim();
-  const effectiveAgentProfile = normalizeProfile(
-    {
-      ...settings.openAi.agent.profile,
-      model: inheritDefaultModel ? defaultModel : storedAgentModel,
-    },
-    dialect,
-  );
-  const agentProfile = inheritDefaultModel
-    ? { ...effectiveAgentProfile, model: storedAgentModel }
-    : effectiveAgentProfile;
+  // 未填写凭据时保留草稿，避免配置另一项服务或保存偏好时丢失输入。
+  const openAi = settings.openAi.apiKey.trim()
+    ? validateOpenAiSettings(settings.openAi)
+    : { ...settings.openAi, apiKey: '' };
   const token = settings.mineru.token.trim();
   let mineru = defaultSettings.mineru;
   if (token) {
@@ -111,20 +93,39 @@ export function validateProviderSettings(
     };
   }
   return {
-    openAi: {
-      apiKey,
-      baseUrl,
-      dialect,
-      defaultModel,
-      translation,
-      agent: {
-        inheritDefaultModel,
-        profile: agentProfile,
-      },
-    },
+    openAi,
     mineru,
     sourceLanguage,
     targetLanguage,
+  };
+}
+
+export function validateOpenAiSettings(settings: OpenAiSettings): OpenAiSettings {
+  const apiKey = settings.apiKey.trim();
+  if (!apiKey) throw new Error('API Key 不能为空，请填写后重试');
+  providerOriginPattern(settings.baseUrl);
+  const baseUrl = settings.baseUrl.trim().replace(/\/+$/, '');
+  const dialect = normalizeDialect(settings.dialect);
+  const defaultModel = settings.defaultModel.trim();
+  if (!defaultModel) throw new Error('默认模型不能为空');
+  const translation = normalizeTranslationProfile(settings.translation);
+  const inheritDefaultModel = Boolean(
+    settings.agent.inheritDefaultModel,
+  );
+  const storedAgentModel = settings.agent.profile.model.trim();
+  const effectiveAgentProfile = normalizeProfile(
+    {
+      ...settings.agent.profile,
+      model: inheritDefaultModel ? defaultModel : storedAgentModel,
+    },
+    dialect,
+  );
+  const agentProfile = inheritDefaultModel
+    ? { ...effectiveAgentProfile, model: storedAgentModel }
+    : effectiveAgentProfile;
+  return {
+    apiKey, baseUrl, dialect, defaultModel, translation,
+    agent: { inheritDefaultModel, profile: agentProfile },
   };
 }
 
@@ -187,12 +188,15 @@ export async function authorizeProviderSettings(
   requestPermission: PermissionRequester,
 ): Promise<ExtensionSettings> {
   const validated = validateProviderSettings(settings);
-  const origins = [providerOriginPattern(validated.openAi.baseUrl)];
+  const origins: string[] = [];
+  if (validated.openAi.apiKey) {
+    origins.push(providerOriginPattern(validated.openAi.baseUrl));
+  }
   if (validated.mineru.token) {
     origins.push(providerOriginPattern(validated.mineru.baseUrl));
     origins.push(MINERU_RESULT_ORIGIN_PATTERN);
   }
-  const granted = await requestPermission({ origins });
+  const granted = origins.length === 0 || await requestPermission({ origins });
   if (!granted) {
     throw new Error('未获得 Provider Origin 授权；请授权后重试');
   }

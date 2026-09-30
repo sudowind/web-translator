@@ -173,6 +173,16 @@ describe('MinerU 客户端', () => {
     }
   });
 
+  it.each([
+    [200, { code: 'A0211', msg: 'secret-token' }, 'MINERU_TOKEN_EXPIRED'],
+    [401, { msgCode: 'A0202', msg: 'secret-token' }, 'MINERU_TOKEN_INVALID'],
+    [200, { code: -60018, msg: 'secret-token' }, 'MINERU_QUOTA_EXCEEDED'],
+    [503, { code: -10001, msg: 'secret-token' }, 'MINERU_CREATE_HTTP'],
+  ])('保留 HTTP %s 与已知业务错误但不暴露响应正文', async (status, body, code) => {
+    const client = new MineruClient(settings, { fetcher: vi.fn().mockResolvedValue(jsonResponse(body, status)) });
+    await expect(client.createUrlTask('https://example.test/a.pdf')).rejects.toMatchObject({ code });
+  });
+
   it('支持 AbortSignal，并以无绑定形式调用 fetch', async () => {
     const controller = new AbortController();
     controller.abort();

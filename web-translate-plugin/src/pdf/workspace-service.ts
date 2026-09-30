@@ -3,6 +3,7 @@ import { isFallbackTitle } from '../document/title';
 import { readArxivTitle } from './arxiv-title';
 import { OpenAiPaperAgentClient } from '../agent/client';
 import { buildAgentContext } from '../agent/context-builder';
+import { mineruErrorCode, stopsMineruFallback } from '../providers/mineru/diagnostics';
 import { MineruClient } from '../providers/mineru/client';
 import type { MineruSettings, MineruTaskRef } from '../providers/mineru/contracts';
 import { loadMineruResult } from '../providers/mineru/result-loader';
@@ -270,6 +271,7 @@ export class PdfWorkspaceService {
         providerTask = await client.createUrlTask(source.url, signal);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') throw error;
+        if (stopsMineruFallback(error)) throw error;
         usedUpload = true;
         providerTask = await this.createUpload(client, source, consent, signal);
       }
@@ -280,9 +282,10 @@ export class PdfWorkspaceService {
       result = await client.waitForResult(task.providerTask, signal);
     } catch (error) {
       if (signal.aborted) throw signal.reason;
-      if (usedUpload) {
-        await this.failTask(task, 'MINERU_UPLOAD_FAILED', generation);
-        throw new PdfWorkspaceServiceError('MINERU_UPLOAD_FAILED');
+      if (usedUpload || stopsMineruFallback(error)) {
+        const code = mineruErrorCode(error, 'MINERU_UPLOAD_FAILED');
+        await this.failTask(task, code, generation);
+        throw new PdfWorkspaceServiceError(code);
       }
       result = { state: 'failed' as const, error: 'MINERU_TASK_FAILED' };
     }
@@ -301,7 +304,7 @@ export class PdfWorkspaceService {
         if (signal.aborted) throw signal.reason;
         const errorCode = error instanceof PdfWorkspaceServiceError && error.code === 'PDF_SOURCE_CHANGED'
           ? error.code
-          : 'MINERU_UPLOAD_FAILED';
+          : mineruErrorCode(error, 'MINERU_UPLOAD_FAILED');
         await this.failTask(task, errorCode, generation);
         if (errorCode === 'PDF_SOURCE_CHANGED') throw error;
         throw new PdfWorkspaceServiceError(errorCode);

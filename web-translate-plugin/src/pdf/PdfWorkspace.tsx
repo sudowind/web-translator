@@ -1,3 +1,4 @@
+import { mineruFailureFeedback } from '../providers/mineru/diagnostics';
 import { BookmarkButton } from '../library/BookmarkButton';
 import React from 'react';
 
@@ -204,11 +205,12 @@ export function PdfWorkspace({ sourceUrl, initialReading }: { sourceUrl: string;
       setModel(value);
       dispatch({ type: 'parse-done' });
       setFeedback('解析完成，正在从第 1 页开始翻译');
-    }).catch(() => {
+    }).catch((error: unknown) => {
       if (!operationEpoch.current.isCurrent(epoch)) return;
       parseStarted.current = false;
-      dispatch({ type: 'parse-failed', error: 'MINERU_PARSE_FAILED' });
-      setFeedback('MinerU 解析失败；左栏不受影响');
+      const failure = mineruFailureFeedback(error);
+      dispatch({ type: 'parse-failed', error: failure.code });
+      setFeedback(failure.message);
     });
   }, [source]);
 

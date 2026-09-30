@@ -7,7 +7,7 @@ import {
   providerOriginPattern,
   validateProviderSettings,
 } from '../../../src/settings/provider-access';
-import { resolveAgentProfile } from '../../../src/settings/schema';
+import { defaultSettings, resolveAgentProfile } from '../../../src/settings/schema';
 
 const validSettings = {
   openAi: {
@@ -112,12 +112,6 @@ describe('Provider 设置授权', () => {
     expect(() =>
       validateProviderSettings({
         ...validSettings,
-        openAi: { ...validSettings.openAi, apiKey: '' },
-      }),
-    ).toThrow('API Key');
-    expect(() =>
-      validateProviderSettings({
-        ...validSettings,
         openAi: { ...validSettings.openAi, defaultModel: ' ' },
       }),
     ).toThrow('默认模型不能为空');
@@ -185,6 +179,31 @@ describe('Provider 设置授权', () => {
     const result = await authorizeProviderSettings(settings, requestPermission);
     expect(result.mineru).toEqual({ baseUrl: 'https://mineru.net', token: '', modelVersion: 'vlm' });
     expect(requestPermission).toHaveBeenCalledWith({ origins: ['https://api.example.test:8443/*'] });
+  });
+
+  it('只配置 MinerU 时可保存且只申请 MinerU 与结果 CDN 权限', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(true);
+    const result = await authorizeProviderSettings({ ...defaultSettings, mineru: validSettings.mineru }, requestPermission);
+    expect(result.openAi).toEqual(defaultSettings.openAi);
+    expect(result.mineru.token).toBe('mineru-secret');
+    expect(requestPermission).toHaveBeenCalledExactlyOnceWith({ origins: [
+      'https://mineru.example.test/*', 'https://cdn-mineru.openxlab.org.cn/*',
+    ] });
+  });
+
+  it('两项服务均未配置时可保存偏好，不申请权限，并保留 LLM 草稿', async () => {
+    const requestPermission = vi.fn();
+    const openAi = { ...validSettings.openAi, apiKey: ' ', baseUrl: '', defaultModel: '' };
+    const result = await authorizeProviderSettings({ ...defaultSettings, openAi, targetLanguage: 'ja' }, requestPermission);
+    expect(result.openAi).toEqual({ ...openAi, apiKey: '' });
+    expect(result.targetLanguage).toBe('ja');
+    expect(requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('仅配置 MinerU 时仍拒绝无效地址和权限拒绝', async () => {
+    const requestPermission = vi.fn().mockResolvedValue(false);
+    await expect(authorizeProviderSettings({ ...defaultSettings, mineru: validSettings.mineru }, requestPermission)).rejects.toThrow('授权');
+    expect(() => validateProviderSettings({ ...defaultSettings, mineru: { ...validSettings.mineru, baseUrl: 'http://mineru.example.test' } })).toThrow('HTTPS');
   });
 
   it('MinerU token 已填写时校验 HTTPS 和模型版本', () => {

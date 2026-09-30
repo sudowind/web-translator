@@ -112,14 +112,15 @@ test('200% 文本缩放下搜索、筛选、键盘导航及表单校验可操作
     await expect(page.locator('.feedback')).toHaveText('状态：设置已加载');
     await page.getByLabel('LLM 接口地址', { exact: true }).fill(`https://${longHost}/v1`);
     await page.getByLabel('默认模型', { exact: true }).fill('typography-test-model');
-    // 先检查原生必填校验，再使用空白字符触发应用内校验。
-    // 不提供实际 API Key，不申请原生权限、不发送模型请求。
+    // 未配置 LLM 凭据时可保存草稿；有凭据时继续校验 HTTPS 地址。
+    // 使用测试占位凭据和无效地址，不申请权限或发送模型请求。
     await page.getByRole('button', { name: '保存设置', exact: true }).click();
-    await expect(page.locator('#api-key:invalid')).toBeFocused();
-    await page.getByLabel('LLM API Key', { exact: true }).fill(' ');
+    await expect(page.locator('.feedback')).toContainText('设置已保存');
+    await page.getByLabel('LLM API Key', { exact: true }).fill('test-placeholder');
+    await page.getByLabel('LLM 接口地址', { exact: true }).fill('http://example.test/v1');
     await page.getByRole('button', { name: '保存设置', exact: true }).click();
     await expect(page.locator('.feedback')).toHaveAttribute('data-state', 'error');
-    await expect(page.locator('#api-key')).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.locator('#base-url')).toHaveAttribute('aria-invalid', 'true');
     await checkLayout(page, 200);
     await page.getByRole('button', { name: '翻译偏好 语言与响应速度' }).click();
     await page.getByLabel('译文语言').fill('ja');

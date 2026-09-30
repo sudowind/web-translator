@@ -174,6 +174,7 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
   let releaseArxivPdfRequests: Array<() => void> = [];
   let translationFailureMode: 'none' | 'mixed' = 'none';
   let translationDelayMs = 0;
+  let mineruAuthenticationFailure = false;
   let releaseAgentFinal: (() => void) | undefined;
 
   test.beforeAll(async ({ playwright }) => {
@@ -212,6 +213,11 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       if (requestUrl.pathname === '/mineru/api/v4/extract/task' && request.method === 'POST') {
         const body = await readJson(request);
         observed.urlTasks.push(String(body.url ?? ''));
+        if (mineruAuthenticationFailure) {
+          response.writeHead(401, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ msgCode: 'A0211', msg: 'secret-token must never appear in the UI' }));
+          return;
+        }
         json(response, { code: 0, data: { task_id: `url-${observed.urlTasks.length}` } });
         return;
       }
@@ -1082,6 +1088,24 @@ test.describe('PDF 工作台最终验收（授权测试路径）', () => {
       await expect(page.locator('.workspace-title')).toHaveText('Robot Learning: A Tutorial');
       expect(metadataRequests).toBe(1); expect(observed.urlTasks.length).toBe(parseCount);
     } finally { release(); await page.close(); }
+  });
+
+  test('MinerU 鉴权失败展示具体诊断且不会回退上传（授权测试路径）', async () => {
+    mineruAuthenticationFailure = true;
+    const initialUploads = observed.batchInitializations;
+    const pdfPage = await context.newPage();
+    try {
+      await pdfPage.goto(`${origin}/download?id=failure#page=1`);
+      await enableWorkspace(pdfPage);
+      await expect(pdfPage.locator('.workspace-status')).toContainText('Token 已过期');
+      await expect(pdfPage.locator('.workspace-status')).toContainText('MINERU_TOKEN_EXPIRED_401');
+      await expect(pdfPage.locator('body')).not.toContainText('secret-token');
+      expect(observed.batchInitializations).toBe(initialUploads);
+      await expect(pdfPage.locator('[data-pdf-page="1"]')).toBeVisible();
+    } finally {
+      mineruAuthenticationFailure = false;
+      await pdfPage.close();
+    }
   });
 
   test('翻译失败显示默认收起的脱敏诊断并保留自动重试次数', async () => {
